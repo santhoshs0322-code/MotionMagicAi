@@ -1,5 +1,6 @@
 import json
 import uuid
+import base64
 from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -9,6 +10,7 @@ from .models import Account, Wallet, Ledger, Rate, Job, Product
 from .services import price, create_quote, submit_job, finish_job
 from .billing import verify_purchase
 from .authentication import digest
+from . import gemini, gemini_video
 
 RUNTIME = dict(GATEWAY_URL="https://gateway.example.test", GATEWAY_TOKEN="server-token", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000, MARKUP_BPS=15_000, STORE_FEE_BPS=0)
 
@@ -47,6 +49,70 @@ class PricingTests(TestCase):
         with self.assertRaisesMessage(Exception, "Insufficient credits"):
             submit_job(account, quote.pk, "request-key-123")
         self.assertFalse(Job.objects.exists())
+
+    @override_settings(GATEWAY_URL="", GATEWAY_TOKEN="", GEMINI_API_KEY="server-key", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000)
+    def test_gemini_rate_quote_freezes_aspect_ratio_and_price(self):
+        account = Account.objects.create(google_sub="google-image", email="image@example.test", name="Image")
+        Wallet.objects.create(account=account, balance_paise=5000)
+        rate = Rate.objects.create(
+            slug="nano-banana-2-lite-1k", title="Nano Banana 2 Lite 1K", kind="image",
+            enabled=True, provider_model="gemini-3.1-flash-lite-image", unit_cost_paise=300,
+            config={"image_size": "1K", "aspect_ratios": ["1:1", "9:16"]},
+        )
+        quote = create_quote(account, {"service": rate.pk, "prompt": "A neon city", "aspect_ratio": "9:16"})
+        self.assertEqual(quote.payload["aspect_ratio"], "9:16")
+        self.assertEqual(quote.charge_paise, 750)
+        with self.assertRaisesMessage(Exception, "supported aspect ratio"):
+            create_quote(account, {"service": rate.pk, "prompt": "A neon city", "aspect_ratio": "16:9"})
+
+
+class GeminiProviderTests(TestCase):
+    class Response:
+        status_code = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def iter_content(self, _):
+            payload = {"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": "image/png", "data": base64.b64encode(b"image-bytes").decode("ascii")}}]}}]}
+            yield json.dumps(payload).encode()
+
+    @override_settings(GEMINI_API_KEY="server-key", GEMINI_BASE_URL="https://provider.test/v1beta", S3_BUCKET="test-bucket", GEMINI_MAX_OUTPUT_BYTES=1024)
+    @patch("studio.gemini.storage.put_generated_image", return_value={"key": "output", "mime": "image/png", "size": 11})
+    @patch("studio.gemini.requests.post")
+    def test_generation_uses_server_key_and_uploads_result(self, post, put):
+        account = Account.objects.create(google_sub="google-provider", email="provider@example.test", name="Provider")
+        rate = Rate.objects.create(slug="nano", title="Nano", kind="image", enabled=True, provider_model="gemini-3.1-flash-image", unit_cost_paise=400, config={"image_size": "1K"})
+        from .models import Quote, Budget
+        quote_row = Quote.objects.create(account=account, rate=rate, payload={"model": rate.provider_model, "prompt": "A mountain", "aspect_ratio": "1:1"}, payload_hash="x" * 64, provider_cost_paise=400, overhead_paise=0, markup_bps=15000, fee_bps=0, charge_paise=1000, expires_at=timezone.now())
+        budget = Budget.objects.create(day=timezone.now().date(), shard=0)
+        job = Job.objects.create(account=account, quote=quote_row, idempotency_key="provider-test", budget=budget, next_attempt_at=timezone.now())
+        post.return_value = self.Response()
+        result = gemini.submit(Job.objects.select_related("quote__rate").get(pk=job.pk))
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(result["cost_paise"], 400)
+        self.assertEqual(post.call_args.kwargs["headers"]["x-goog-api-key"], "server-key")
+        self.assertNotIn("server-key", json.dumps(post.call_args.kwargs["json"]))
+        put.assert_called_once()
+
+    @override_settings(GEMINI_API_KEY="server-key", GEMINI_INTERACTIONS_URL="https://provider.test/v1beta", S3_BUCKET="test-bucket")
+    @patch("studio.gemini_video.requests.post")
+    def test_omni_video_returns_reconcilable_file_id(self, post):
+        account = Account.objects.create(google_sub="google-video", email="video@example.test", name="Video")
+        rate = Rate.objects.create(slug="omni", title="Omni", kind="video", enabled=True, provider_model="gemini-omni-1.1-flash", unit_cost_paise=800, max_units=10, config={"resolution": "720p", "durations": [5, 10]})
+        from .models import Quote, Budget
+        quote_row = Quote.objects.create(account=account, rate=rate, payload={"model": rate.provider_model, "prompt": "A mountain", "units": 5, "aspect_ratio": "9:16", "generated_audio": True}, payload_hash="y" * 64, provider_cost_paise=4000, overhead_paise=0, markup_bps=15000, fee_bps=0, charge_paise=10000, expires_at=timezone.now())
+        budget = Budget.objects.create(day=timezone.now().date(), shard=1)
+        job = Job.objects.create(account=account, quote=quote_row, idempotency_key="video-provider-test", budget=budget, next_attempt_at=timezone.now())
+        response = self.Response()
+        response.iter_content = lambda _: iter([json.dumps({"output_video": {"uri": "https://generativelanguage.googleapis.com/v1beta/files/video_123"}}).encode()])
+        post.return_value = response
+        result = gemini_video.submit(Job.objects.select_related("quote__rate").get(pk=job.pk))
+        self.assertEqual(result, {"state": "running", "id": "video_123"})
+        sent = post.call_args.kwargs
+        self.assertEqual(sent["json"]["response_format"]["delivery"], "uri")
+        self.assertEqual(sent["json"]["response_format"]["resolution"], "720p")
+        self.assertNotIn("server-key", json.dumps(sent["json"]))
 
 class ApiTests(TestCase):
     def setUp(self):

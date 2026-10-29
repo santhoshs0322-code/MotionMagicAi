@@ -24,7 +24,7 @@ If you create the web service manually instead, use these values and supply its 
 | Dockerfile path | `./Dockerfile` |
 | Docker build context | `.` |
 | Docker command | Leave blank; the Dockerfile runs Gunicorn |
-| Pre-deploy command | `python manage.py migrate --noinput` |
+| Pre-deploy command | `python manage.py migrate --noinput && python manage.py sync_gemini_rates` |
 | Health check | `/ready` |
 | Region | Keep the external PostgreSQL and Valkey services nearby where possible |
 
@@ -98,9 +98,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-android.ps1 -PmotionAiA
 
 Confirm `/auth/motion-ai/config` reports enabled and returns the correct Web client ID. Then test a real sign-in, `/me`, logout/revocation and sign-in again from the installed app. No provider keys or production purchases are needed to verify authentication.
 
-## Enable generation later
+## Enable Gemini image and video generation
 
-The initial Blueprint intentionally has no generation worker: the current worker refuses to run without a configured provider gateway. Once the gateway, private S3 storage, budget and server rate rows are verified, create a separate Render Background Worker from the same `dev` branch/root/Dockerfile with Docker command `python manage.py run_generation_worker`. Use the same database, cache, JWT/Django secrets and provider/storage configuration as the API. Deploy migrations through the API first; never run a worker inside the web process. Keep file uploads in private object storage, not the web container's ephemeral filesystem.
+The Blueprint does not automatically create a generation worker because it is another paid Render service. Create it only after its database, Valkey, S3 and Gemini settings are complete. The Google key supports the implemented Nano Banana image models and `gemini-omni-1.1-flash` video. It does not unlock Kling or PixVerse.
+
+1. Create a paid Gemini API key in Google AI Studio. Put it only in the API and generation worker as `MOTION_AI_GEMINI_API_KEY`; never paste it into Android, Git, chat, logs or screenshots.
+2. Create a private S3 bucket with Block Public Access enabled. On Render create an IAM user limited to that bucket/prefix and set `MOTION_AI_S3_BUCKET`, `MOTION_AI_AWS_REGION`, `MOTION_AI_AWS_ACCESS_KEY_ID`, and `MOTION_AI_AWS_SECRET_ACCESS_KEY` on both services. On ECS later, remove access-key variables and use a task role.
+3. Set a small nonzero `MOTION_AI_DAILY_PROVIDER_BUDGET_PAISE` on both services. It is a hard daily provider-cost safety ceiling, not customer revenue.
+4. On the API only, set the current complete provider cost in paise for each model/resolution you will sell. Zero keeps it hidden. Start with `MOTION_AI_GEMINI_NANO_21_1K_COST_PAISE` for images and `MOTION_AI_GEMINI_OMNI_720P_COST_PAISE_PER_SECOND` for video. The complete list is in `.env.example`.
+5. Keep `MOTION_AI_MARKUP_BPS=15000`. The quote engine charges 2.5 times complete variable cost before configured store-fee gross-up. Include input-token cost, currency conversion, S3/egress and a safety allowance through the cost/overhead settings; do not enter only the advertised output price.
+6. Redeploy the API so migrations and `sync_gemini_rates` run. Then create a Render Background Worker from branch `dev`, root `backend-django`, the same Dockerfile, and command `python manage.py run_generation_worker`. Copy the database, Valkey, S3, Gemini, budget and pricing settings from the API; use `MOTION_AI_ALLOWED_HOSTS=localhost`, `MOTION_AI_PROXY_MODE=none`, and `MOTION_AI_SSL_REDIRECT=false`. Confirm `/api/v1/capabilities` lists only the nonzero configured services. Test a low-cost generation with a test wallet before enabling Play billing.
+
+The worker uses a 20-minute database lease, never automatically repeats an ambiguous paid Gemini request, pessimistically consumes its reserved provider budget on uncertain failure, and releases the customer's held credits when no output is delivered. Omni video uses URI delivery and streams into S3, so memory usage is bounded by multipart chunks instead of video size.
+
+Kling 3 Omni and PixVerse remain catalog previews until their separate official API accounts, keys, price tables, request/reconciliation adapters and contract tests are added. Do not reuse the Gemini key or add invented key variables for those providers.
 
 Run `python manage.py cleanup_expired` periodically from a scheduled job or Render Shell. Configure `reconcile_purchases` only after real Google Play verification is enabled. Subscriptions and provider adapters remain separate integration work.
 

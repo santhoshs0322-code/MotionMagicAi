@@ -48,6 +48,7 @@ class Rate(models.Model):
     kind = models.CharField(max_length=12, choices=[("image", "Image"), ("video", "Video"), ("voice", "Voice")])
     enabled = models.BooleanField(default=False)
     provider_model = models.CharField(max_length=120)
+    config = models.JSONField(default=dict)
     # Unit = one image, one video second, or 1,000 voice characters (rounded up).
     unit_cost_paise = models.PositiveIntegerField()
     overhead_paise = models.PositiveIntegerField(default=0)

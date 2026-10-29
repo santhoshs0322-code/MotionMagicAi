@@ -104,7 +104,7 @@ class Logout(Private):
 class Capabilities(Public):
     def get(self, request):
         rates = list(services.enabled_rates().order_by("slug")[:50])
-        return ok(local=["photo_animation", "device_voice", "video_editor", "audio_editor", "local_projects"], cloud=[{"id": r.pk, "title": r.title, "kind": r.kind, "max_units": r.max_units} for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=False, currency="INR", markup_bps=settings.MARKUP_BPS)
+        return ok(local=["photo_animation", "device_voice", "video_editor", "audio_editor", "local_projects"], cloud=[{"id": r.pk, "title": r.title, "kind": r.kind, "model": r.provider_model, "max_units": r.max_units, "config": r.config} for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=False, currency="INR", markup_bps=settings.MARKUP_BPS)
 
 class WalletView(Private):
     def get(self, request):

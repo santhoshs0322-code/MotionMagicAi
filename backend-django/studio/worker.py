@@ -1,9 +1,10 @@
 import uuid
 from datetime import timedelta
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-from . import gateway, storage
+from . import provider, storage
 from .models import Job
 from .services import finish_job, TERMINAL
 
@@ -17,7 +18,7 @@ def claim():
     if was_queued:
         job.state = "submitting"
     job.lease_id = uuid.uuid4()
-    job.lease_until = now + timedelta(seconds=90)
+    job.lease_until = now + timedelta(seconds=settings.GENERATION_LEASE_SECONDS)
     job.attempts += 1
     job.save()
     return job.pk, job.lease_id, was_queued
@@ -29,7 +30,7 @@ def run_one():
     job_id, lease, fresh = claimed
     job = Job.objects.select_related("quote").get(pk=job_id)
     try:
-        result = gateway.submit(job) if fresh else gateway.reconcile(job)
+        result = provider.submit(job) if fresh else provider.reconcile(job)
         # Never blindly resubmit after a timeout/crash: a provider may already have billed.
         if result["state"] == "not_found":
             reschedule(job, lease, "uncertain", "provider_status_unknown")

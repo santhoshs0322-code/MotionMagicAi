@@ -3,10 +3,12 @@ import uuid
 from datetime import timedelta
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from .authentication import digest
 from .errors import Problem
 from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset
+from . import gemini, gemini_video
 
 TERMINAL = ("succeeded", "failed", "cancelled")
 
@@ -19,9 +21,14 @@ def price(cost_paise, markup_bps=None, fee_bps=None):
     return (numerator + 10000 - fee - 1) // (10000 - fee)
 
 def enabled_rates():
-    if not settings.GATEWAY_URL or not settings.GATEWAY_TOKEN or not settings.S3_BUCKET or settings.DAILY_PROVIDER_BUDGET_PAISE <= 0:
+    if not settings.S3_BUCKET or settings.DAILY_PROVIDER_BUDGET_PAISE <= 0:
         return Rate.objects.none()
-    return Rate.objects.filter(enabled=True, unit_cost_paise__gt=0, max_units__gt=0)
+    providers = Q(pk__in=[])
+    if settings.GATEWAY_URL and settings.GATEWAY_TOKEN:
+        providers |= ~Q(provider_model__in=gemini.MODELS | gemini_video.MODELS)
+    if gemini.configured():
+        providers |= Q(provider_model__in=gemini.MODELS | gemini_video.MODELS)
+    return Rate.objects.filter(providers, enabled=True, unit_cost_paise__gt=0, max_units__gt=0)
 
 def wallet_for_update(account):
     Wallet.objects.get_or_create(account=account)
@@ -39,8 +46,8 @@ def entry(wallet, kind, reference, balance_delta=0, held_delta=0):
     Ledger.objects.create(account_id=wallet.account_id, kind=kind, reference=reference, balance_delta=balance_delta, held_delta=held_delta, balance_after=wallet.balance_paise, held_after=wallet.held_paise)
 
 def create_quote(account, data):
-    if not isinstance(data, dict) or set(data) - {"service", "prompt", "duration", "asset_id"}:
-        raise Problem("Use service, prompt, optional duration and asset_id only.")
+    if not isinstance(data, dict) or set(data) - {"service", "prompt", "duration", "asset_id", "aspect_ratio", "generated_audio"}:
+        raise Problem("Use service, prompt, optional duration, asset_id, aspect_ratio and generated_audio only.")
     try:
         rate = enabled_rates().get(pk=data.get("service"))
     except Rate.DoesNotExist:
@@ -49,12 +56,31 @@ def create_quote(account, data):
     if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= (5000 if rate.kind == "voice" else 500):
         raise Problem("Enter a prompt within the service limit.")
     duration = data.get("duration", 5)
-    if type(duration) is not int or duration not in (5, 10, 15):
+    rate_config = rate.config if isinstance(rate.config, dict) else {}
+    supported_durations = rate_config.get("durations", [5, 10, 15])
+    if type(duration) is not int or not isinstance(supported_durations, list) or duration not in supported_durations:
         raise Problem("Choose a supported duration (5, 10 or 15 seconds).")
     units = duration if rate.kind == "video" else (len(prompt) + 999) // 1000 if rate.kind == "voice" else 1
     if units > rate.max_units:
         raise Problem("Requested generation exceeds this service's limit.")
     payload = {"service": rate.pk, "kind": rate.kind, "model": rate.provider_model, "prompt": prompt.strip(), "units": units, "revision": rate.revision}
+    if rate.kind in ("image", "video"):
+        default_ratio = "1:1" if rate.kind == "image" else "9:16"
+        aspect_ratio = data.get("aspect_ratio", default_ratio)
+        defaults = sorted(gemini.ASPECT_RATIOS) if rate.kind == "image" else sorted(gemini_video.ASPECT_RATIOS)
+        supported_ratios = rate_config.get("aspect_ratios", defaults)
+        if not isinstance(supported_ratios, list) or aspect_ratio not in supported_ratios or aspect_ratio not in gemini.ASPECT_RATIOS:
+            raise Problem("Choose a supported aspect ratio.")
+        payload["aspect_ratio"] = aspect_ratio
+    elif "aspect_ratio" in data:
+        raise Problem("Aspect ratio is not available for this service.")
+    if rate.kind == "video":
+        generated_audio = data.get("generated_audio", True)
+        if type(generated_audio) is not bool:
+            raise Problem("generated_audio must be true or false.")
+        payload["generated_audio"] = generated_audio
+    elif "generated_audio" in data:
+        raise Problem("Generated audio is available for video generation only.")
     if data.get("asset_id"):
         try:
             asset = Asset.objects.get(pk=uuid.UUID(str(data["asset_id"])), account=account, ready=True, deleted=False)

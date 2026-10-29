@@ -22,6 +22,6 @@ All JSON responses include `ok`. Protected routes require `Authorization: Bearer
 | `POST /api/v1/billing/verify` | Verify and grant one Google Play credit purchase |
 | `GET /api/v1/billing/purchases` | Cursor-paginated purchase history |
 
-Generation calls go only to `MOTION_AI_GATEWAY_URL`, a separately authenticated server-to-server adapter. Its contract must support idempotent submit by MotionMagic job UUID and authoritative lookup by that UUID. This repository does not pretend that a provider is connected and makes no paid request in test mode.
+Google Nano Banana image models and Gemini Omni video use the server-only `MOTION_AI_GEMINI_API_KEY`. Image results are uploaded to private S3; Omni video uses provider URI delivery and streams the download into S3 with bounded memory. Other providers still go only through `MOTION_AI_GATEWAY_URL`, whose contract must support idempotent submit by MotionMagic job UUID and authoritative lookup by that UUID. A service appears in capabilities only when its adapter, storage, positive cost row and daily provider budget are configured.
 
 Upload forms require an exact content length and allowed MIME type. S3 CORS should allow only the required `POST` from the Android networking flow; the bucket remains private, blocks public access and uses lifecycle rules. A later antivirus/content-validation worker should inspect uploads before adding formats beyond the current allowlist.

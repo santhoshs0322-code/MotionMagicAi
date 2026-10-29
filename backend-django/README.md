@@ -2,7 +2,7 @@
 
 This is the dedicated MotionMagic backend. It replaces the shared CandyCraze/Node authentication module and owns MotionMagic accounts, wallet transactions, quotes, generation jobs, media metadata and verified one-time Google Play credit packs.
 
-It is deliberately closed by default. With `MOTION_AI_GATEWAY_URL`, S3, a positive provider budget, enabled rate rows and enabled Play products absent, `/api/v1/capabilities` returns no cloud services and `/api/v1/billing/products` returns no products. The Android app continues to provide its local tools.
+It is deliberately closed by default. Without a configured Gemini key or provider gateway, S3, a positive provider budget, positive rate rows and enabled Play products, `/api/v1/capabilities` returns no cloud services and `/api/v1/billing/products` returns no products. The Android app continues to provide its local tools.
 
 ## Deploy on Render first
 
@@ -38,7 +38,8 @@ Google Play products are one-time credit packs only. Products remain hidden unti
 
 ## Commands
 
-- `python manage.py run_generation_worker`: claim jobs from the PostgreSQL outbox with `SKIP LOCKED`, submit/reconcile with the private gateway, and settle them.
+- `python manage.py sync_gemini_rates`: synchronize fail-closed Nano Banana and Gemini Omni model/resolution rows from current integer-paise environment costs.
+- `python manage.py run_generation_worker`: claim jobs from the PostgreSQL outbox with `SKIP LOCKED`, submit/reconcile Gemini or private-gateway jobs, stream outputs to S3 and settle them.
 - `python manage.py reconcile_purchases`: scheduled Play status/consumption/refund reconciliation.
 - `python manage.py cleanup_expired`: bounded cleanup for expired sessions and unused quotes.
 - `python manage.py import_motion_accounts export.jsonl --apply`: import only the old MotionMagic users. Run without `--apply` first.

@@ -75,14 +75,41 @@ AUTH_ENABLED = flag("AUTH_ENABLED")
 SESSION_SECONDS = int(env("SESSION_SECONDS", "86400"))
 AWS_REGION = env("AWS_REGION", "ap-south-1")
 S3_BUCKET = env("S3_BUCKET")
+AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY")
+AWS_SESSION_TOKEN = env("AWS_SESSION_TOKEN")
 MAX_UPLOAD_BYTES = int(env("MAX_UPLOAD_BYTES", str(2 * 1024**3)))
 GATEWAY_URL = env("GATEWAY_URL").rstrip("/")
 GATEWAY_TOKEN = env("GATEWAY_TOKEN")
+GEMINI_API_KEY = env("GEMINI_API_KEY")
+GEMINI_BASE_URL = env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1").rstrip("/")
+GEMINI_INTERACTIONS_URL = env("GEMINI_INTERACTIONS_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
+GEMINI_MAX_INPUT_BYTES = int(env("GEMINI_MAX_INPUT_BYTES", str(10 * 1024**2)))
+GEMINI_MAX_OUTPUT_BYTES = int(env("GEMINI_MAX_OUTPUT_BYTES", str(32 * 1024**2)))
+GEMINI_MAX_VIDEO_BYTES = int(env("GEMINI_MAX_VIDEO_BYTES", str(512 * 1024**2)))
+GEMINI_OVERHEAD_PAISE = int(env("GEMINI_OVERHEAD_PAISE", "0"))
+GEMINI_RATE_COSTS = {
+    ("gemini-nano-banana-2.1", size): int(env(f"GEMINI_NANO_21_{size}_COST_PAISE", "0"))
+    for size in ("1K", "2K", "4K")
+} | {
+    ("gemini-3.1-flash-image", size): int(env(f"GEMINI_NANO_2_{size}_COST_PAISE", "0"))
+    for size in ("1K", "2K", "4K")
+} | {
+    ("gemini-3.1-flash-lite-image", "1K"): int(env("GEMINI_LITE_1K_COST_PAISE", "0")),
+} | {
+    ("gemini-3-pro-image", size): int(env(f"GEMINI_PRO_{size}_COST_PAISE", "0"))
+    for size in ("1K", "2K", "4K")
+}
+GEMINI_VIDEO_RATE_COSTS = {
+    resolution: int(env(f"GEMINI_OMNI_{resolution.upper()}_COST_PAISE_PER_SECOND", "0"))
+    for resolution in ("720p", "1080p", "4k")
+}
 MARKUP_BPS = int(env("MARKUP_BPS", "15000"))
 STORE_FEE_BPS = int(env("STORE_FEE_BPS", "0"))
 DAILY_PROVIDER_BUDGET_PAISE = int(env("DAILY_PROVIDER_BUDGET_PAISE", "0"))
 BUDGET_SHARDS = 64
 MAX_ACTIVE_JOBS = int(env("MAX_ACTIVE_JOBS", "2"))
+GENERATION_LEASE_SECONDS = int(env("GENERATION_LEASE_SECONDS", "1200"))
 PLAY_ENABLED = flag("PLAY_ENABLED")
 PLAY_PACKAGE = env("PLAY_PACKAGE", "com.motionmagic.ai")
 PLAY_CREDENTIALS_FILE = env("PLAY_CREDENTIALS_FILE")
@@ -91,9 +118,21 @@ if not (0 <= STORE_FEE_BPS < 10000 and 0 <= MARKUP_BPS <= 100000):
     raise ImproperlyConfigured("Invalid markup or fee basis points")
 if not (300 <= SESSION_SECONDS <= 2592000):
     raise ImproperlyConfigured("Session duration must be 5 minutes to 30 days")
+if not 120 <= GENERATION_LEASE_SECONDS <= 3600:
+    raise ImproperlyConfigured("Generation lease must be 120 to 3600 seconds")
 if AUTH_ENABLED and not GOOGLE_CLIENT_ID.endswith(".apps.googleusercontent.com"):
     raise ImproperlyConfigured("Configure a Google Web OAuth client ID")
 if PLAY_ENABLED and (not PLAY_CREDENTIALS_FILE or not BILLING_ENCRYPTION_KEY):
     raise ImproperlyConfigured("Play Billing requires service credentials and an encryption key")
 if GATEWAY_URL and (not GATEWAY_URL.startswith("https://") or not GATEWAY_TOKEN or not S3_BUCKET):
     raise ImproperlyConfigured("The generation gateway requires HTTPS, a server token and an S3 bucket")
+if GEMINI_API_KEY and (not GEMINI_BASE_URL.startswith("https://") or not GEMINI_INTERACTIONS_URL.startswith("https://") or not S3_BUCKET):
+    raise ImproperlyConfigured("Gemini image generation requires HTTPS and an S3 bucket")
+if bool(AWS_ACCESS_KEY_ID) != bool(AWS_SECRET_ACCESS_KEY):
+    raise ImproperlyConfigured("Set both MOTION_AI_AWS_ACCESS_KEY_ID and MOTION_AI_AWS_SECRET_ACCESS_KEY")
+if not 1024 <= GEMINI_MAX_INPUT_BYTES <= 20 * 1024**2 or not 1024 <= GEMINI_MAX_OUTPUT_BYTES <= 64 * 1024**2:
+    raise ImproperlyConfigured("Invalid Gemini input/output byte limit")
+if not 1024**2 <= GEMINI_MAX_VIDEO_BYTES <= MAX_UPLOAD_BYTES:
+    raise ImproperlyConfigured("Invalid Gemini video byte limit")
+if GEMINI_OVERHEAD_PAISE < 0 or any(value < 0 for value in (*GEMINI_RATE_COSTS.values(), *GEMINI_VIDEO_RATE_COSTS.values())):
+    raise ImproperlyConfigured("Gemini costs must be non-negative integer paise")
