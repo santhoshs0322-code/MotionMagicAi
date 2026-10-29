@@ -20,3 +20,33 @@ node_modules/
 artifacts/
 backend-auth/
 
+# Android packages and signing material
+*.apk
+*.aab
+*.apks
+key.properties
+
+# Python / Django runtime files
+**/__pycache__/
+*.py[cod]
+*.sqlite3
+.pytest_cache/
+.coverage
+htmlcov/
+staticfiles/
+media/
+secrets/
+
+# Cloud credentials and local logs
+google-services.json
+*service-account*.json
+*credentials*.json
+*.pem
+*.p12
+*.log
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
