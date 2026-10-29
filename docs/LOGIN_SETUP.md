@@ -2,7 +2,7 @@
 
 Authentication now belongs to the separate Django project at [`backend-django`](../backend-django/README.md). The Android adapter is `app/src/main/java/com/motionmagic/ai/auth/MotionMagicApi.kt`. The old CandyCraze/Node service is not the production MotionMagic backend.
 
-Build Android with the final AWS HTTPS URL:
+Deploy on Render first using [the Render setup guide](../backend-django/RENDER_SETUP.md); the same Django service can move to AWS later. Build Android with the active Render or AWS HTTPS URL:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-android.ps1 -PmotionAiApiBaseUrl=https://api.example.com assembleRelease

@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
@@ -20,11 +21,22 @@ SECRET_KEY = env("DJANGO_SECRET", "local-tests-only-not-a-production-secret" if 
 JWT_SECRET = env("JWT_SECRET", "local-jwt-tests-only-separate-secret-12345" if TESTING else "")
 if len(SECRET_KEY) < 32 or len(JWT_SECRET) < 32 or SECRET_KEY == JWT_SECRET:
     raise ImproperlyConfigured("Set separate MOTION_AI_DJANGO_SECRET and MOTION_AI_JWT_SECRET (32+ random characters)")
+BEHIND_ALB = flag("BEHIND_ALB")
+PROXY_MODE = env("PROXY_MODE", "alb" if BEHIND_ALB else "none").lower()
+if PROXY_MODE not in ("none", "alb", "render"):
+    raise ImproperlyConfigured("MOTION_AI_PROXY_MODE must be none, alb or render")
 ALLOWED_HOSTS = [x.strip() for x in env("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver" if TESTING else "").split(",") if x.strip()]
+render_hostname = ""
+if PROXY_MODE == "render":
+    render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.onrender\.com", render_hostname):
+        raise ImproperlyConfigured("Render must supply an exact RENDER_EXTERNAL_HOSTNAME")
+    if render_hostname not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(render_hostname)
 if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
     raise ImproperlyConfigured("Set explicit MOTION_AI_ALLOWED_HOSTS")
 INSTALLED_APPS = ["django.contrib.auth", "django.contrib.contenttypes", "rest_framework", "studio"]
-MIDDLEWARE = ["django.middleware.security.SecurityMiddleware", "django.middleware.common.CommonMiddleware", "django.middleware.clickjacking.XFrameOptionsMiddleware", "studio.middleware.ApiHeaders"]
+MIDDLEWARE = ["django.middleware.security.SecurityMiddleware", "django.middleware.common.CommonMiddleware", "django.middleware.csrf.CsrfViewMiddleware", "django.middleware.clickjacking.XFrameOptionsMiddleware", "studio.middleware.ApiHeaders"]
 ROOT_URLCONF = "config.urls"
 TEMPLATES = []
 WSGI_APPLICATION = "config.wsgi.application"
@@ -50,11 +62,14 @@ SECURE_HSTS_SECONDS = 31536000 if not TESTING else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
-# Enable only with private ingress from the ALB security group (it overwrites this header).
-BEHIND_ALB = flag("BEHIND_ALB")
-if BEHIND_ALB:
+CSRF_COOKIE_SECURE = not TESTING
+SESSION_COOKIE_SECURE = not TESTING
+# Enable only behind the selected trusted platform proxy. AWS ingress must be restricted to its ALB.
+if PROXY_MODE in ("alb", "render"):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-CSRF_TRUSTED_ORIGINS = [x for x in env("CSRF_TRUSTED_ORIGINS").split(",") if x]
+CSRF_TRUSTED_ORIGINS = [x.strip() for x in env("CSRF_TRUSTED_ORIGINS").split(",") if x.strip()]
+if render_hostname and "https://" + render_hostname not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append("https://" + render_hostname)
 GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID")
 AUTH_ENABLED = flag("AUTH_ENABLED")
 SESSION_SECONDS = int(env("SESSION_SECONDS", "86400"))

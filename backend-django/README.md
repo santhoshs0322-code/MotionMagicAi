@@ -4,6 +4,10 @@ This is the dedicated MotionMagic backend. It replaces the shared CandyCraze/Nod
 
 It is deliberately closed by default. With `MOTION_AI_GATEWAY_URL`, S3, a positive provider budget, enabled rate rows and enabled Play products absent, `/api/v1/capabilities` returns no cloud services and `/api/v1/billing/products` returns no products. The Android app continues to provide its local tools.
 
+## Deploy on Render first
+
+Use the root [`render.yaml`](../render.yaml) from branch `dev` to create the API, PostgreSQL and shared cache. It runs migrations before deploy, reads Render's HTTPS hostname and port, and generates separate secrets. The Blueprint includes paid web/database resources; apply it from your Render dashboard after reviewing the displayed cost. Follow [RENDER_SETUP.md](RENDER_SETUP.md) for exact setup, OAuth, Android connection and the later AWS cutover.
+
 ## Local verification
 
 ```powershell

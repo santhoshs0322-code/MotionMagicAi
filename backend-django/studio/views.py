@@ -61,9 +61,9 @@ class SignIn(Public):
     def post(self, request):
         if not settings.AUTH_ENABLED:
             raise Problem("Sign-in is not enabled.", 503)
-        # ALB appends the actual peer; ingress must allow only the ALB security group.
+        # Use the rightmost address supplied by the trusted platform edge, never a client-supplied prefix.
         peer = request.META.get("REMOTE_ADDR", "unknown")
-        if settings.BEHIND_ALB:
+        if settings.PROXY_MODE in ("alb", "render"):
             candidate = request.headers.get("X-Forwarded-For", "").split(",")[-1].strip()
             try:
                 peer = str(ipaddress.ip_address(candidate))

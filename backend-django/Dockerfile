@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.lock
 COPY --chown=motion:motion . .
 USER motion
 EXPOSE 8000
-CMD ["gunicorn", "config.wsgi:application", "--bind=0.0.0.0:8000", "--workers=2", "--threads=4", "--timeout=30", "--graceful-timeout=30", "--max-requests=5000", "--max-requests-jitter=500", "--access-logfile=-"]
+CMD ["gunicorn", "--config", "config/gunicorn.conf.py", "config.wsgi:application"]
