@@ -21,11 +21,14 @@ class DeploymentSettingsTests(SimpleTestCase):
             return runpy.run_path(str(Path(__file__).resolve().parents[1] / "config/settings.py"))
 
     def test_render_uses_exact_platform_host_and_https_without_wildcards(self):
-        config = self.load(MOTION_AI_PROXY_MODE="render", RENDER_EXTERNAL_HOSTNAME="motionmagic-123.onrender.com")
+        config = self.load(MOTION_AI_PROXY_MODE="render", RENDER_EXTERNAL_HOSTNAME="motionmagic-123.onrender.com",
+                           MOTION_AI_DATABASE_URL="postgresql://test:test@external.example:14547/defaultdb?sslmode=require")
         self.assertEqual(config["ALLOWED_HOSTS"], ["motionmagic-123.onrender.com"])
         self.assertEqual(config["CSRF_TRUSTED_ORIGINS"], ["https://motionmagic-123.onrender.com"])
         self.assertEqual(config["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https"))
         self.assertTrue(config["SECURE_SSL_REDIRECT"])
+        self.assertEqual(config["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
+        self.assertEqual(config["DATABASES"]["default"]["CONN_MAX_AGE"], 0)
         self.assertFalse(config["TESTING"])
         self.assertFalse(config["AUTH_ENABLED"])
         self.assertFalse(config["PLAY_ENABLED"])

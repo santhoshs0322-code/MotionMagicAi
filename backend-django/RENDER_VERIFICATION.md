@@ -13,3 +13,9 @@ Validation completed locally:
 Tests used SQLite and the local-memory cache. Live PostgreSQL locking, Redis networking, real Google login, Docker image startup and Render runtime HTTPS routing still require a deployed integration check. Docker was unavailable on this workstation; no image build or live Render deployment is claimed. Render's generated 44-character Django secret may trigger Django's deploy-only W009 length heuristic; the setup guide explains replacing it with a longer random value when running that check.
 
 This is an initial staging configuration. One-million-concurrent-user capacity has not been demonstrated. No cloud resource was created, no provider credentials were purchased, and no new secret value was committed. The AWS architecture remains a later migration target.
+
+## External PostgreSQL update — 29 October 2026
+
+The user selected Aiven PostgreSQL. The current Blueprint now accepts `MOTION_AI_DATABASE_URL` with `sync: false`, omits creation of a Render PostgreSQL resource and sets one API worker/two threads for the supplied 15-connection limit. Existing database resources/data are not deleted or migrated by this repository change. The setup guide covers manual entry for an already-created service and preserves the requirement for a separate Redis-compatible cache.
+
+All 17 Django tests passed again; the Render settings test now confirms that an external PostgreSQL URI retains its `sslmode=require` option and that connections close after each request. The revised YAML passed the official Render JSON Schema. Tests used a placeholder database URI: no connection to the user's Aiven service was attempted, and no user password or actual database URI was written to the repository.

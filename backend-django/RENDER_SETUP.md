@@ -1,14 +1,14 @@
 # Render first, AWS later
 
-Deploy the dedicated Django backend from this repository. The root [`render.yaml`](../render.yaml) connects a Docker web service, PostgreSQL 17 and a Redis-compatible Render Key Value cache in Singapore. Application settings retain the `MOTION_AI_` prefix. The same container can move to AWS later.
+Deploy the dedicated Django backend from this repository. The root [`render.yaml`](../render.yaml) creates a Docker web service and Redis-compatible Render Key Value cache in Singapore, and accepts your external PostgreSQL connection URL (such as Aiven) as a private setting. Application settings retain the `MOTION_AI_` prefix. The same container can move to AWS later.
 
-This is an initial staging setup, not a capacity claim for one million concurrent users. The Blueprint selects **paid web and PostgreSQL compute** and a free, volatile cache. Render shows the cost before you apply it. Account data, wallets, ledger entries and the job outbox live in PostgreSQL; cache loss does not delete those records. Upgrade the cache and load-test before public production traffic. See [Render's Blueprint reference](https://render.com/docs/blueprint-spec) and [Key Value documentation](https://render.com/docs/key-value).
+This is an initial staging setup, not a capacity claim for one million concurrent users. The Blueprint selects **paid web compute** and a free, volatile cache; your database is managed separately. Render shows the cost before you apply it. Account data, wallets, ledger entries and the job outbox live in PostgreSQL; cache loss does not delete those records. Upgrade the cache and load-test before public production traffic. See [Render's Blueprint reference](https://render.com/docs/blueprint-spec) and [Key Value documentation](https://render.com/docs/key-value).
 
 ## Deploy from GitHub
 
 1. Push the backend and root `render.yaml` to the repository's `dev` branch.
 2. In Render, choose **New → Blueprint**, connect `santhoshs0322-code/MotionMagicAi`, select **dev**, and use `render.yaml` at the repository root.
-3. Review the resources and apply. Render generates two different secrets, injects the private PostgreSQL/cache URLs, builds the container and runs `python manage.py migrate --noinput` before starting the web service.
+3. Enter `MOTION_AI_DATABASE_URL` using the full external database Service URI, including `?sslmode=require`. Review the resources and apply. Render generates two different secrets, injects the cache URL, builds the container and runs `python manage.py migrate --noinput` before starting the web service. For an existing Blueprint, set this URL in the web service's Environment page yourself; `sync: false` only prompts during initial creation.
 4. Open the web service and copy its actual HTTPS URL. Render may add a suffix to the service name. Django reads the exact hostname from `RENDER_EXTERNAL_HOSTNAME`, so no guessed hostname or wildcard is needed.
 5. Check the endpoints below before configuring Android or enabling sign-in.
 
@@ -26,7 +26,7 @@ If you create the web service manually instead, use these values and supply its 
 | Docker command | Leave blank; the Dockerfile runs Gunicorn |
 | Pre-deploy command | `python manage.py migrate --noinput` |
 | Health check | `/ready` |
-| Region | Same region as PostgreSQL and Key Value |
+| Region | Same region as Key Value; keep the external database nearby where possible |
 
 Do not attach this service to CandyCraze's database or reuse its secrets. Existing Node sessions do not authenticate against MotionMagic Django.
 
@@ -38,12 +38,12 @@ The Blueprint supplies the following. Do not copy actual secret values into Git 
 |---|---|
 | `MOTION_AI_DJANGO_SECRET` | Render-generated random secret |
 | `MOTION_AI_JWT_SECRET` | A separately generated random secret |
-| `MOTION_AI_DATABASE_URL` | Render PostgreSQL internal connection string |
+| `MOTION_AI_DATABASE_URL` | Your external PostgreSQL Service URI, entered privately in Render |
 | `MOTION_AI_REDIS_URL` | Key Value internal connection string |
 | `MOTION_AI_PROXY_MODE` | `render` |
 | `MOTION_AI_DEBUG`, `MOTION_AI_TESTING` | `false` |
 | `MOTION_AI_SSL_REDIRECT` | `true` |
-| `MOTION_AI_WEB_WORKERS`, `MOTION_AI_WEB_THREADS` | `1`, `4` for the initial small instance |
+| `MOTION_AI_WEB_WORKERS`, `MOTION_AI_WEB_THREADS` | `1`, `2` for the initial database's 15-connection limit |
 | `MOTION_AI_AUTH_ENABLED` | `false` until Google OAuth is ready |
 | `MOTION_AI_MARKUP_BPS` | `15000` (150% markup, cost × 2.5 before fee gross-up) |
 | `MOTION_AI_STORE_FEE_BPS` | `0`; set the actual applicable fee before billing |
@@ -51,6 +51,10 @@ The Blueprint supplies the following. Do not copy actual secret values into Git 
 | `MOTION_AI_PLAY_ENABLED` | `false` |
 
 `PORT` and `RENDER_EXTERNAL_HOSTNAME` are platform-owned variables automatically supplied by Render, not new application settings. Gunicorn reads `PORT` and defaults to 8000 when it is absent. For a custom domain, additionally set `MOTION_AI_ALLOWED_HOSTS=api.your-domain.com` and `MOTION_AI_CSRF_TRUSTED_ORIGINS=https://api.your-domain.com`; the exact Render hostname remains allowed.
+
+For Aiven, use the full Service URI in `MOTION_AI_DATABASE_URL`; separate host/user/password/database variables are unnecessary. Keep `sslmode=require` in the URL. For server certificate verification, upload Aiven's project CA as a Render secret file and use `sslmode=verify-full` with `sslrootcert` pointing to that file; see [Aiven's TLS documentation](https://aiven.io/docs/platform/concepts/tls-ssl-certificates). URL-encode reserved characters in the password when assembling a URI yourself. Never commit the actual URI or put it in Android. If the earlier Blueprint already created a Render database, this change does not migrate or delete its data; decide separately which database to retain before accepting real writes.
+
+Keep one API worker and two threads initially. This is not a global connection cap: overlapping deploys, migrations, database consoles and future background workers also use connections. The app closes database connections after requests (`CONN_MAX_AGE=0`). The 15-connection database is for initial testing, not the earlier million-user target.
 
 Render's generated secrets contain 256 bits of randomness. Django's optional `check --deploy` also applies a 50-character length heuristic, so its 44-character generated Django secret can report `security.W009`. To satisfy that check, replace only `MOTION_AI_DJANGO_SECRET` in Render with a securely generated value of at least 50 characters (for example, `python -c "import secrets; print(secrets.token_urlsafe(64))"` locally), then redeploy. Keep it private; do not replace the JWT secret during routine deploys, as that signs out existing sessions.
 
