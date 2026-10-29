@@ -1,5 +1,5 @@
-# Render-first staging with an external PostgreSQL database (for example, Aiven).
-# Applying this Blueprint creates a paid API service and a free shared cache.
+# Render-first staging with external PostgreSQL and Valkey services (for example, Aiven).
+# Applying this Blueprint creates only the paid API service.
 # All application-owned settings use MOTION_AI_. PORT/RENDER_* are supplied by Render.
 services:
   - type: web
@@ -22,10 +22,7 @@ services:
       - key: MOTION_AI_DATABASE_URL
         sync: false
       - key: MOTION_AI_REDIS_URL
-        fromService:
-          type: keyvalue
-          name: motionmagic-cache
-          property: connectionString
+        sync: false
       - key: MOTION_AI_PROXY_MODE
         value: render
       - key: MOTION_AI_DEBUG
@@ -48,9 +45,3 @@ services:
         value: "0"
       - key: MOTION_AI_PLAY_ENABLED
         value: "false"
-  - type: keyvalue
-    name: motionmagic-cache
-    region: singapore
-    plan: free
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []

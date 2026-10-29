@@ -19,3 +19,7 @@ This is an initial staging configuration. One-million-concurrent-user capacity h
 The user selected Aiven PostgreSQL. The current Blueprint now accepts `MOTION_AI_DATABASE_URL` with `sync: false`, omits creation of a Render PostgreSQL resource and sets one API worker/two threads for the supplied 15-connection limit. Existing database resources/data are not deleted or migrated by this repository change. The setup guide covers manual entry for an already-created service and preserves the requirement for a separate Redis-compatible cache.
 
 All 17 Django tests passed again; the Render settings test now confirms that an external PostgreSQL URI retains its `sslmode=require` option and that connections close after each request. The revised YAML passed the official Render JSON Schema. Tests used a placeholder database URI: no connection to the user's Aiven service was attempted, and no user password or actual database URI was written to the repository.
+
+## External Valkey update — 29 October 2026
+
+The Blueprint now accepts `MOTION_AI_REDIS_URL` with `sync: false` and no longer creates a Render Key Value resource. The expected Aiven URI begins with `rediss://`, enabling TLS. Existing Render Key Value resources are not deleted by this change. No supplied Valkey URI or credential was committed, and no live connection was attempted.

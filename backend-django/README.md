@@ -6,7 +6,7 @@ It is deliberately closed by default. With `MOTION_AI_GATEWAY_URL`, S3, a positi
 
 ## Deploy on Render first
 
-Use the root [`render.yaml`](../render.yaml) from branch `dev` to create the API and shared cache, using your external PostgreSQL database (such as Aiven). Supply `MOTION_AI_DATABASE_URL` privately in Render. It runs migrations before deploy, reads Render's HTTPS hostname and port, and generates separate secrets. The Blueprint includes a paid web service; apply it from your Render dashboard after reviewing the displayed cost. Follow [RENDER_SETUP.md](RENDER_SETUP.md) for exact setup, OAuth, Android connection and the later AWS cutover.
+Use the root [`render.yaml`](../render.yaml) from branch `dev` to create the API using external PostgreSQL and Valkey services (such as Aiven). Supply `MOTION_AI_DATABASE_URL` and `MOTION_AI_REDIS_URL` privately in Render. It runs migrations before deploy, reads Render's HTTPS hostname and port, and generates separate secrets. The Blueprint includes a paid web service; apply it from your Render dashboard after reviewing the displayed cost. Follow [RENDER_SETUP.md](RENDER_SETUP.md) for exact setup, OAuth, Android connection and the later AWS cutover.
 
 ## Local verification
 

@@ -1,14 +1,14 @@
 # Render first, AWS later
 
-Deploy the dedicated Django backend from this repository. The root [`render.yaml`](../render.yaml) creates a Docker web service and Redis-compatible Render Key Value cache in Singapore, and accepts your external PostgreSQL connection URL (such as Aiven) as a private setting. Application settings retain the `MOTION_AI_` prefix. The same container can move to AWS later.
+Deploy the dedicated Django backend from this repository. The root [`render.yaml`](../render.yaml) creates a Docker web service in Singapore and accepts your external PostgreSQL and Valkey connection URLs (such as Aiven) as private settings. Application settings retain the `MOTION_AI_` prefix. The same container can move to AWS later.
 
-This is an initial staging setup, not a capacity claim for one million concurrent users. The Blueprint selects **paid web compute** and a free, volatile cache; your database is managed separately. Render shows the cost before you apply it. Account data, wallets, ledger entries and the job outbox live in PostgreSQL; cache loss does not delete those records. Upgrade the cache and load-test before public production traffic. See [Render's Blueprint reference](https://render.com/docs/blueprint-spec) and [Key Value documentation](https://render.com/docs/key-value).
+This is an initial staging setup, not a capacity claim for one million concurrent users. The Blueprint selects **paid web compute**; your database and cache are managed separately. Render shows the cost before you apply it. Account data, wallets, ledger entries and the job outbox live in PostgreSQL; Valkey holds shared rate-limit and short-lived cache data. Load-test before public production traffic.
 
 ## Deploy from GitHub
 
 1. Push the backend and root `render.yaml` to the repository's `dev` branch.
 2. In Render, choose **New → Blueprint**, connect `santhoshs0322-code/MotionMagicAi`, select **dev**, and use `render.yaml` at the repository root.
-3. Enter `MOTION_AI_DATABASE_URL` using the full external database Service URI, including `?sslmode=require`. Review the resources and apply. Render generates two different secrets, injects the cache URL, builds the container and runs `python manage.py migrate --noinput` before starting the web service. For an existing Blueprint, set this URL in the web service's Environment page yourself; `sync: false` only prompts during initial creation.
+3. Enter `MOTION_AI_DATABASE_URL` using the full external database Service URI, including `?sslmode=require`. Enter the full TLS Valkey Service URI as `MOTION_AI_REDIS_URL`, beginning with `rediss://`. Review the resource and apply. Render generates two different secrets, builds the container and runs `python manage.py migrate --noinput` before starting the web service. For an existing Blueprint, set both URLs in the web service's Environment page yourself; `sync: false` only prompts during initial creation.
 4. Open the web service and copy its actual HTTPS URL. Render may add a suffix to the service name. Django reads the exact hostname from `RENDER_EXTERNAL_HOSTNAME`, so no guessed hostname or wildcard is needed.
 5. Check the endpoints below before configuring Android or enabling sign-in.
 
@@ -26,7 +26,7 @@ If you create the web service manually instead, use these values and supply its 
 | Docker command | Leave blank; the Dockerfile runs Gunicorn |
 | Pre-deploy command | `python manage.py migrate --noinput` |
 | Health check | `/ready` |
-| Region | Same region as Key Value; keep the external database nearby where possible |
+| Region | Keep the external PostgreSQL and Valkey services nearby where possible |
 
 Do not attach this service to CandyCraze's database or reuse its secrets. Existing Node sessions do not authenticate against MotionMagic Django.
 
@@ -39,7 +39,7 @@ The Blueprint supplies the following. Do not copy actual secret values into Git 
 | `MOTION_AI_DJANGO_SECRET` | Render-generated random secret |
 | `MOTION_AI_JWT_SECRET` | A separately generated random secret |
 | `MOTION_AI_DATABASE_URL` | Your external PostgreSQL Service URI, entered privately in Render |
-| `MOTION_AI_REDIS_URL` | Key Value internal connection string |
+| `MOTION_AI_REDIS_URL` | External TLS Valkey Service URI, entered privately in Render |
 | `MOTION_AI_PROXY_MODE` | `render` |
 | `MOTION_AI_DEBUG`, `MOTION_AI_TESTING` | `false` |
 | `MOTION_AI_SSL_REDIRECT` | `true` |
@@ -53,6 +53,8 @@ The Blueprint supplies the following. Do not copy actual secret values into Git 
 `PORT` and `RENDER_EXTERNAL_HOSTNAME` are platform-owned variables automatically supplied by Render, not new application settings. Gunicorn reads `PORT` and defaults to 8000 when it is absent. For a custom domain, additionally set `MOTION_AI_ALLOWED_HOSTS=api.your-domain.com` and `MOTION_AI_CSRF_TRUSTED_ORIGINS=https://api.your-domain.com`; the exact Render hostname remains allowed.
 
 For Aiven, use the full Service URI in `MOTION_AI_DATABASE_URL`; separate host/user/password/database variables are unnecessary. Keep `sslmode=require` in the URL. For server certificate verification, upload Aiven's project CA as a Render secret file and use `sslmode=verify-full` with `sslrootcert` pointing to that file; see [Aiven's TLS documentation](https://aiven.io/docs/platform/concepts/tls-ssl-certificates). URL-encode reserved characters in the password when assembling a URI yourself. Never commit the actual URI or put it in Android. If the earlier Blueprint already created a Render database, this change does not migrate or delete its data; decide separately which database to retain before accepting real writes.
+
+Use Aiven's complete `rediss://user:password@host:port` Service URI as `MOTION_AI_REDIS_URL`. The double `s` means Redis protocol over TLS. Do not change it to `redis://`, split it into separate variables, add PostgreSQL query parameters, or paste it into Android. If an earlier Blueprint created a Render Key Value instance, changing this file does not delete that resource; remove it separately in Render only after `/ready` succeeds with Aiven Valkey.
 
 Keep one API worker and two threads initially. This is not a global connection cap: overlapping deploys, migrations, database consoles and future background workers also use connections. The app closes database connections after requests (`CONN_MAX_AGE=0`). The 15-connection database is for initial testing, not the earlier million-user target.
 
