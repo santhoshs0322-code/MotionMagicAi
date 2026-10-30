@@ -7,12 +7,9 @@ import org.junit.Test
 
 class AuthUiTest {
     @get:Rule val app = createAndroidComposeRule<MainActivity>()
-    @Test fun guestCanReachGoogleSignInAndReturnToStudio() {
-        app.waitUntil(15000) { app.onAllNodesWithText("Profile").fetchSemanticsNodes().isNotEmpty() }
-        app.onNodeWithText("Profile").performClick()
-        app.waitUntil(15000) { app.onAllNodesWithText("Sign in with Google").fetchSemanticsNodes().isNotEmpty() }
-        app.onNodeWithText("Sign in with Google").performScrollTo().assertIsEnabled()
-        app.onNodeWithText("Home", substring = false).performClick()
-        app.onNodeWithText("Image to Video").assertIsDisplayed()
+    @Test fun guestSeesOnlyLoginUntilGoogleSignInSucceeds() {
+        app.waitUntil(15000) { app.onAllNodesWithTag("login-screen").fetchSemanticsNodes().isNotEmpty() }
+        app.onNodeWithText("Continue with Google").assertExists()
+        app.onNodeWithText("Image to Video").assertDoesNotExist()
     }
 }

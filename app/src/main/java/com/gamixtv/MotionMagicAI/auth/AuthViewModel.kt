@@ -107,7 +107,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissMessage() { mutable.value = mutable.value.copy(message = null) }
     private fun safeMessage(e: Exception) = when (e) {
         is AuthException -> e.message ?: "Sign-in unavailable. Retry shortly."
-        is GetCredentialCancellationException -> "Sign-in cancelled. You can continue as a guest."
+        is GetCredentialCancellationException -> "Sign-in cancelled. Please sign in to continue."
         is NoCredentialException -> "Add a Google account to this device and try again."
         else -> "Google sign-in could not finish. Check your connection and the app's Google OAuth registration."
     }

@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.gamixtv.MotionMagicAI.MotionViewModel
 import com.gamixtv.MotionMagicAI.Screen
+import com.gamixtv.MotionMagicAI.auth.LoginGate
 import com.gamixtv.MotionMagicAI.data.MediaKind
 import com.gamixtv.MotionMagicAI.data.Project
 import kotlinx.coroutines.delay
@@ -42,6 +43,12 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MotionApp(vm: MotionViewModel) {
+    LoginGate { AuthenticatedMotionApp(vm) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AuthenticatedMotionApp(vm: MotionViewModel) {
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val work by vm.work.collectAsState()

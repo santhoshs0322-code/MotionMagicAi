@@ -25,8 +25,8 @@ fun AuthAccountCard(auth: AuthViewModel = viewModel()) {
                 AuthStatus.SIGNING_IN -> "Connecting to Google…"
                 AuthStatus.VERIFYING -> "Verifying your account…"
                 AuthStatus.SIGNED_IN -> "Signed in with Google"
-                AuthStatus.OFFLINE -> "Saved account • verification unavailable"
-                AuthStatus.GUEST -> "Sign in with Google or continue as a guest."
+                AuthStatus.OFFLINE -> "Verification unavailable. Sign in again to use MotionMagic."
+                AuthStatus.GUEST -> "Sign in with Google to use MotionMagic."
             })
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (state.status == AuthStatus.GUEST) {
@@ -37,7 +37,7 @@ fun AuthAccountCard(auth: AuthViewModel = viewModel()) {
                     OutlinedButton(onClick = auth::retryRestore) { Text("Retry verification") }
                 TextButton(onClick = { confirmSignOut = true }) { Text("Sign out") }
             }
-            Text("Projects stay on this device and are shared by everyone using this local workspace. Sign-in does not enable paid AI or cloud sync.",
+            Text("Projects stay on this device. Your signed-in account is required to use MotionMagic.",
                 style = MaterialTheme.typography.bodySmall)
             state.message?.let { message ->
                 Text(message, style = MaterialTheme.typography.bodyMedium)
