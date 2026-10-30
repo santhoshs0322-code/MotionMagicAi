@@ -19,9 +19,9 @@ android {
         applicationId = "com.gamixtv.MotionMagicAI"
         minSdk = 26
         targetSdk = 36
-        // Increase by one before each Google Play upload: 12, then 13, then 14.
-        versionCode = 12
-        versionName = "0.8.2"
+        // Increase by one before each Google Play upload: 13, then 14, then 15.
+        versionCode = 13
+        versionName = "0.8.3"
         buildConfigField("String", "AUTH_BASE_URL", "\"$motionAiApiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -29,7 +29,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 removes unused code and obfuscates released bytecode for Google Play.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

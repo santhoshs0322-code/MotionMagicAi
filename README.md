@@ -1,6 +1,6 @@
 > Launch update: fal-only image/video generation; Nano Banana is excluded. Private financial reporting is available at `/owner/` after owner setup. See [Owner setup](backend-django/OWNER_SETUP.md) for permissions, billing reconciliation, cash records and Render environment values.
 
-Before each Google Play upload, increase `versionCode` in `app/build.gradle.kts` by one: 11, then 12, then 13. The version code must be higher than the last uploaded bundle.
+Before each Google Play upload, increase `versionCode` in `app/build.gradle.kts` by one: 13, then 14, then 15. The version code must be higher than the last uploaded bundle. Release builds use R8 code shrinking and obfuscation; retain the generated mapping file for any non-Play distribution.
 
 # MotionMagicAi
 
