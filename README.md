@@ -1,5 +1,7 @@
 > Launch update: fal-only image/video generation; Nano Banana is excluded. Private financial reporting is available at `/owner/` after owner setup. See [Owner setup](backend-django/OWNER_SETUP.md) for permissions, billing reconciliation, cash records and Render environment values.
 
+Android release builds automatically receive a newer Play `versionCode` every minute. To set a specific code for a repeatable build, add `-PmotionAiVersionCode=123` to the Gradle command; it must be higher than the last Play upload.
+
 # MotionMagicAi
 
 A native Kotlin / Jetpack Compose MotionMagic studio with a separate Django backend for accounts, server-priced generation jobs, transaction ledger and verified credit packs.
