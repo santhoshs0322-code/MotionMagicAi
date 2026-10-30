@@ -4,7 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val motionAiApiBaseUrl = providers.gradleProperty("motionAiApiBaseUrl").orElse("").get()
+// Render is the production login server. Developers may override it with
+// -PmotionAiApiBaseUrl=https://another-server.example for a separate environment.
+val motionAiApiBaseUrl = providers.gradleProperty("motionAiApiBaseUrl")
+    .orElse("https://motionmagicai.onrender.com").get()
     .replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
@@ -16,9 +19,9 @@ android {
         applicationId = "com.gamixtv.MotionMagicAI"
         minSdk = 26
         targetSdk = 36
-        // Increase by one before each Google Play upload: 11, then 12, then 13.
-        versionCode = 11
-        versionName = "0.8.1"
+        // Increase by one before each Google Play upload: 12, then 13, then 14.
+        versionCode = 12
+        versionName = "0.8.2"
         buildConfigField("String", "AUTH_BASE_URL", "\"$motionAiApiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

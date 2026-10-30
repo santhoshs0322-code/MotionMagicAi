@@ -51,12 +51,14 @@ private fun LoginScreen(state: AuthUiState, signIn: (Activity) -> Unit, retry: (
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF07080D), Ink, Color(0xFF100422)))).semantics { testTag = "login-screen" }) {
         MagicLoginBackdrop(Modifier.fillMaxSize())
         Column(Modifier.fillMaxSize().padding(horizontal = 26.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = Color(0x241C9DFF), shape = CircleShape, border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x553CBBFF))) {
-                    Icon(Icons.Rounded.AutoAwesome, null, Modifier.padding(9.dp).size(17.dp), tint = Color(0xFFE0C4FF))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = Color(0x241C9DFF), shape = CircleShape, border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x553CBBFF))) {
+                        Icon(Icons.Rounded.AutoAwesome, null, Modifier.padding(9.dp).size(17.dp), tint = Color(0xFFE0C4FF))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(buildAnnotatedString { append("MotionMagic "); withStyle(SpanStyle(color = Violet)) { append("AI") } }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.width(10.dp))
-                Text(buildAnnotatedString { append("MotionMagic "); withStyle(SpanStyle(color = Violet)) { append("AI") } }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.weight(1f))
             Box(Modifier.size(132.dp).background(Brush.radialGradient(listOf(Color(0x4AB83BFF), Color.Transparent)), CircleShape), contentAlignment = Alignment.Center) {
