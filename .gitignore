@@ -34,7 +34,8 @@ key.properties
 .coverage
 htmlcov/
 staticfiles/
-media/
+/media/
+/backend-django/media/
 secrets/
 
 # Cloud credentials and local logs

@@ -8,12 +8,12 @@ val motionAiApiBaseUrl = providers.gradleProperty("motionAiApiBaseUrl").orElse("
     .replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
-    namespace = "com.motionmagic.ai"
+    namespace = "com.gamixtv.MotionMagicAI"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
 
     defaultConfig {
-        applicationId = "com.motionmagic.ai"
+        applicationId = "com.gamixtv.MotionMagicAI"
         minSdk = 26
         targetSdk = 36
         versionCode = 8

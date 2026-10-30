@@ -49,7 +49,7 @@ For a walkthrough: **Sign in → choose a creation mode → add a photo or promp
 
 ## Test mode and production work
 
-Google login is implemented in `app/src/main/java/com/motionmagic/ai/auth/` and served by the separate [`backend-django`](backend-django/README.md) project. Deploy it on AWS and configure Google OAuth before using it; see [login setup](docs/LOGIN_SETUP.md). Local projects remain device-wide and do not sync with accounts.
+Google login is implemented in `app/src/main/java/com/gamixtv/MotionMagicAI/auth/` and served by the separate [`backend-django`](backend-django/README.md) project. Deploy it on AWS and configure Google OAuth before using it; see [login setup](docs/LOGIN_SETUP.md). Local projects remain device-wide and do not sync with accounts.
 
 No provider key or paid product is embedded in the app. Server configuration decides which cloud variants are available. Rate defaults remain zero, and no live paid provider call is part of the automated tests. Use [PROVIDERS.md](backend-django/PROVIDERS.md) for current model contracts and pricing configuration.
 

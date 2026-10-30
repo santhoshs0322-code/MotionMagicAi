@@ -86,7 +86,9 @@ There is no `/` homepage or Django admin in this API. A 404 at the root URL does
 
 ## Enable Google login and connect Android
 
-Create the Google Web OAuth client and Android OAuth client in the same Google Cloud project. Register Android package `com.motionmagic.ai` and the SHA-1 certificate for the build you will install. The debug certificate is different from Play App Signing; both need their own registration when used. Obtain local signing information with `scripts/build-android.ps1 signingReport` from the repository root.
+Create the Google Web OAuth client and Android OAuth client in the same Google Cloud project. Register Android package `com.gamixtv.MotionMagicAI` and the SHA-1 certificate for the build you will install. The debug certificate is different from Play App Signing; both need their own registration when used. Obtain local signing information with `scripts/build-android.ps1 signingReport` from the repository root.
+
+For the package rename, register the new package in your Android OAuth client with the signing SHA-1. Keep the Web OAuth client ID if the Google project is unchanged. If Render already defines `MOTION_AI_PLAY_PACKAGE`, change it to `com.gamixtv.MotionMagicAI`; existing environment values override the new code default. Android treats the renamed package as a separate installation, so old local projects and saved sign-in do not automatically transfer.
 
 Add `MOTION_AI_GOOGLE_CLIENT_ID=<your Web client ID>.apps.googleusercontent.com` in the Render web service, then enable `MOTION_AI_AUTH_ENABLED=true`. When retaining this setting, also change its Blueprint value to `"true"` before the next Blueprint sync; declarative values are reapplied during sync. The client ID is public configuration, not the Google client secret. No client secret is required for this native ID-token flow.
 

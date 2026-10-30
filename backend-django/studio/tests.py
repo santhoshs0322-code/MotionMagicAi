@@ -167,7 +167,7 @@ class InputTests(TestCase):
         self.assertEqual(response.json()["ok"], False)
 
 class BillingTests(TestCase):
-    @override_settings(PLAY_ENABLED=True, BILLING_ENCRYPTION_KEY="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=", PLAY_PACKAGE="com.motionmagic.ai")
+    @override_settings(PLAY_ENABLED=True, BILLING_ENCRYPTION_KEY="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=", PLAY_PACKAGE="com.gamixtv.MotionMagicAI")
     def test_purchase_retry_does_not_double_grant_and_refund_reverses_credit(self):
         account = Account.objects.create(google_sub="google-billing", email="bill@example.test", name="Billing")
         Wallet.objects.create(account=account)
