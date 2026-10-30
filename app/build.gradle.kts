@@ -6,12 +6,6 @@ plugins {
 
 val motionAiApiBaseUrl = providers.gradleProperty("motionAiApiBaseUrl").orElse("").get()
     .replace("\\", "\\\\").replace("\"", "\\\"")
-// Google Play requires every uploaded bundle to have a higher versionCode. A minute-based
-// value from 2020 is safely within Android's Int limit and rises automatically on each build.
-val automaticMotionAiVersionCode = ((System.currentTimeMillis() - 1_577_836_800_000L) / 60_000L).toInt()
-val motionAiVersionCode = providers.gradleProperty("motionAiVersionCode").orNull?.toIntOrNull()
-    ?: automaticMotionAiVersionCode
-require(motionAiVersionCode in 1..2_100_000_000) { "motionAiVersionCode must be a positive Android version code." }
 
 android {
     namespace = "com.gamixtv.MotionMagicAI"
@@ -22,7 +16,8 @@ android {
         applicationId = "com.gamixtv.MotionMagicAI"
         minSdk = 26
         targetSdk = 36
-        versionCode = motionAiVersionCode
+        // Increase by one before each Google Play upload: 11, then 12, then 13.
+        versionCode = 11
         versionName = "0.8.1"
         buildConfigField("String", "AUTH_BASE_URL", "\"$motionAiApiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\"")
