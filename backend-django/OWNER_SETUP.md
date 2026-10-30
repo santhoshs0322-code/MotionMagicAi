@@ -18,6 +18,35 @@ MOTION_AI_CSRF_TRUSTED_ORIGINS=https://motionmagicai.onrender.com
 
 `USD_INR_RATE=0` deliberately disables automatic bill reconciliation. Replace it with your verified INR per USD conversion rate (up to six decimal places). No exchange rate is guessed. The billing key needs fal's BILLING preset / billing-event read permissions; a normal generation API key may not have these permissions. Both keys belong only on the server. A Gemini generation key is not required. Nano Banana and Google video are excluded even if old keys remain configured; adapters remain for already submitted jobs.
 
+## Setup without Shell access
+
+In Render ? API service ? Environment, set:
+
+```dotenv
+MOTION_AI_OWNER_USERNAME=motion-owner
+MOTION_AI_OWNER_BOOTSTRAP_PASSWORD=REPLACE_WITH_A_UNIQUE_RANDOM_PASSWORD
+```
+
+Use a unique password of 16?256 characters, not all numeric and not containing the username. Do not paste your real password in chat or commit it. Keep the username in the environment permanently.
+
+For a manually configured service, set its Pre-Deploy Command to:
+
+```sh
+python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py bootstrap_owner
+```
+
+The repository Blueprint already includes this command. If your Render plan does not provide Pre-Deploy Command, set the web service's Docker Command to:
+
+```sh
+sh -c 'python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py bootstrap_owner && exec gunicorn --config config/gunicorn.conf.py config.wsgi:application'
+```
+
+This startup fallback is for the initial single-instance Render deployment; use a separate migration/deployment job before scaling to multiple instances. Do not put this web command on the generation worker.
+
+Save and deploy `dev`. Once the owner-created log appears, log into `/owner/` with the username and chosen password. Then delete `MOTION_AI_OWNER_BOOTSTRAP_PASSWORD` from Render and save/redeploy. Your account and hashed password remain in PostgreSQL. Repeated deployments do not overwrite an existing owner's password, and an existing ordinary account is never promoted. Missing bootstrap settings safely skip creation.
+
+## Optional shell setup
+
 Run in the Render API shell after deployment:
 
 ```sh

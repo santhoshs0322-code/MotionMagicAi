@@ -26,7 +26,7 @@ If you create the web service manually instead, use these values and supply its 
 | Dockerfile path | `./Dockerfile` |
 | Docker build context | `.` |
 | Docker command | Leave blank; the Dockerfile runs Gunicorn |
-| Pre-deploy command | `python manage.py migrate --noinput && python manage.py sync_provider_rates` |
+| Pre-deploy command | `python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py bootstrap_owner` |
 | Health check | `/ready` |
 | Region | Keep the external PostgreSQL and Valkey services nearby where possible |
 

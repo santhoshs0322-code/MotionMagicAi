@@ -21,7 +21,7 @@ The unsupported “PixVerse V6 Max” branding was removed; saved selections mig
 
 ## Render rollout
 
-1. Deploy the code and all migrations, keeping prices/budget at zero initially. Change an existing manual service's pre-deploy command to `python manage.py migrate --noinput && python manage.py sync_provider_rates`.
+1. Deploy the code and all migrations, keeping prices/budget at zero initially. Change an existing manual service's pre-deploy command to `python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py bootstrap_owner`.
 2. Set `MOTION_AI_FAL_KEY` privately on both API and background worker. Keep S3 private; provide the existing prefixed AWS credentials and bucket/region. No keys belong in the APK or Git. Models also require provider balance and account access.
 3. Deploy a Render Background Worker using the same code and `python manage.py run_generation_worker`. The Blueprint does not create this additional paid service. Copy database/cache/signing/storage/provider settings; use the worker host/proxy settings in [RENDER_SETUP.md](RENDER_SETUP.md). Start with one worker for the database's 15-connection limit.
 4. Set the appropriate cost variables from [.env.example](.env.example), overhead, fee assumptions and daily provider budget, then run `python manage.py sync_provider_rates` or redeploy. Keep settings consistent on both services. The full environment list uses the `MOTION_AI_` prefix. Zero or omitted costs keep individual variants unavailable. Key changes require rate sync too.
