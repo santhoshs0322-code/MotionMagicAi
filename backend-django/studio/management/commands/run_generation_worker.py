@@ -11,7 +11,7 @@ class Command(BaseCommand):
         parser.add_argument("--once", action="store_true")
     def handle(self, *args, **options):
         if not configured():
-            raise CommandError("Configure Gemini or the generation gateway first")
+            raise CommandError("Configure fal.ai, Gemini or the generation gateway first")
         stopping = False
         def stop(*_):
             nonlocal stopping

@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.motionmagic.ai.MotionViewModel
@@ -32,86 +34,42 @@ import com.motionmagic.ai.BuildConfig
 import com.motionmagic.ai.Screen
 import com.motionmagic.ai.data.MediaKind
 import com.motionmagic.ai.data.Project
+import com.motionmagic.ai.data.CreationMode
+import com.motionmagic.ai.data.ImageModelCatalog
+import com.motionmagic.ai.data.VideoModelCatalog
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class Template(val name: String, val art: Artwork, val category: String)
+data class Template(val name: String, val art: Artwork, val category: String, val aspect: String = "9:16", val duration: Int = 5) {
+    fun promptFor(mode: CreationMode): String {
+        val scene = when(name) {
+            "Cinematic" -> "A sunlit portrait with warm golden light, shallow depth of field and a soft cinematic atmosphere"
+            "Anime" -> "An expressive anime character in a vivid illustrated world, soft light, detailed hand-painted scenery"
+            "Love Story" -> "Two people sharing a quiet moment at sunset, romantic warm tones and a dreamy atmosphere"
+            "Travel" -> "A traveler by a turquoise coastline, bright summer light, ocean views and a relaxed holiday mood"
+            "Birthday" -> "A joyful birthday portrait with a colorful cake, soft glowing lights and festive decorations"
+            else -> "A playful 3D character with expressive eyes, colorful surroundings and soft studio lighting"
+        }
+        return if(mode == CreationMode.CREATE_IMAGE) "$scene. Carefully composed, detailed illustration or photography."
+        else if(mode == CreationMode.IMAGE_TO_VIDEO) "Preserve the subject from the photo. ${when(name) {
+            "Travel" -> "A slow panoramic camera movement with a gentle sea breeze."
+            "Birthday" -> "A gentle camera push-in as festive lights shimmer softly."
+            else -> "Slow cinematic push-in, natural subtle movement and soft shifting light."
+        }}"
+        else "$scene. A slow camera push-in with gentle, natural motion."
+    }
+}
 val templates = listOf(Template("Cinematic", Artwork.Cinematic, "Reels"), Template("Anime", Artwork.Anime, "Reels"),
     Template("Love Story", Artwork.Love, "Love"), Template("Travel", Artwork.Travel, "Travel"),
     Template("Birthday", Artwork.Birthday, "Birthday"), Template("3D Cartoon", Artwork.Cartoon, "Reels"))
 
 @Composable
-fun HomeScreen(vm: MotionViewModel) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(314f / 140f).clip(PanelShape).clickable { vm.go(Screen.IMAGE) }) {
-            Art(Artwork.Banner, Modifier.fillMaxSize(), "Turn Photos Into Stunning Videos. Create, Edit, Animate with AI. Open image to video.")
-        }
-        val tools = listOf(
-            Triple("Image to Video", Icons.Rounded.AddPhotoAlternate, Pair(Screen.IMAGE, Color(0xFFFA31A7))),
-            Triple("Prompt Preview", Icons.Rounded.SmartDisplay, Pair(Screen.TEXT, Color(0xFF7445FF))),
-            Triple("Photo Reels", Icons.Rounded.MotionPhotosOn, Pair(Screen.REELS, Color(0xFFFF763D))),
-            Triple("Device Voice", Icons.Rounded.MicNone, Pair(Screen.VOICE, Color(0xFF149DFC))),
-            Triple("Video Editor", Icons.Rounded.ContentCut, Pair(Screen.EDITOR, Color(0xFF05C487))),
-            Triple("Templates", Icons.Rounded.GridView, Pair(Screen.TEMPLATES, Color(0xFF7243FE)))
-        )
-        tools.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                row.forEach { (label, icon, destination) ->
-                    Surface(onClick = { vm.go(destination.first) }, modifier = Modifier.weight(1f).height(106.dp),
-                        shape = RoundedCornerShape(18.dp), color = destination.second) {
-                        Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha = .05f), Color.Transparent))).padding(8.dp),
-                            verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(icon, null, Modifier.size(35.dp), tint = Color.White)
-                            Spacer(Modifier.height(11.dp))
-                            Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        }
-                    }
-                }
-            }
-        }
-        OutlinedButton(onClick = { vm.go(Screen.AUDIO_EDITOR) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.GraphicEq, null); Spacer(Modifier.width(8.dp)); Text("Audio Editor") }
-        SectionTitle("Trending Templates", "See All") { vm.tab(Screen.TEMPLATES) }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            templates.take(4).forEach { template ->
-                Column(Modifier.weight(1f).clickable { vm.useTemplate(template.art, template.name) }) {
-                    Art(template.art, Modifier.fillMaxWidth().aspectRatio(.85f), template.name)
-                    Text(template.name, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 7.dp), overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-        TestNotice()
-        Spacer(Modifier.height(6.dp))
-    }
-}
+fun HomeScreen(vm: MotionViewModel) = ReferenceCatalogScreen(vm, templatePage = false)
 
 @Composable
-fun TemplatesScreen(vm: MotionViewModel) {
-    var category by rememberSaveable { mutableStateOf("All") }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(listOf("All", "Reels", "Love", "Travel", "Birthday")) { label -> ChoiceChip(label, category == label) { category = label } }
-        }
-        val filtered = templates.filter { category == "All" || it.category == category }
-        filtered.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                row.forEach { template ->
-                    Column(Modifier.weight(1f).clickable { vm.useTemplate(template.art, template.name) }) {
-                        Art(template.art, Modifier.fillMaxWidth().aspectRatio(.85f), template.name)
-                        Row(Modifier.fillMaxWidth().padding(top = 9.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(template.name, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                            Icon(Icons.Rounded.NorthEast, null, Modifier.size(17.dp), tint = Muted)
-                        }
-                    }
-                }
-                if(row.size == 1) Spacer(Modifier.weight(1f))
-            }
-        }
-        TestNotice("Sample artwork from your design reference. Templates create local photo animations in this build.")
-    }
-}
+fun TemplatesScreen(vm: MotionViewModel) = ReferenceCatalogScreen(vm, templatePage = true)
 
 @Composable
 fun ProjectsScreen(vm: MotionViewModel, onImport: () -> Unit) {
@@ -123,6 +81,7 @@ fun ProjectsScreen(vm: MotionViewModel, onImport: () -> Unit) {
             Column { Text("Made by you", fontSize = 23.sp, fontWeight = FontWeight.Bold); Text("${vm.projects.size} saved creations", color = Muted, fontSize = 13.sp) }
             FilledTonalIconButton(onClick = onImport) { Icon(Icons.Rounded.FileUpload, "Import video") }
         }
+        OutlinedButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("Check cloud generation") }
         if(vm.projects.isEmpty()) {
             EmptyState(Icons.Rounded.VideoLibrary, "Your ideas live here", "Create your first video or import one to start editing.", "Create a video") { vm.go(Screen.IMAGE) }
             OutlinedButton(onClick = onImport, Modifier.fillMaxWidth()) { Text("Import a video") }
@@ -134,12 +93,12 @@ fun ProjectsScreen(vm: MotionViewModel, onImport: () -> Unit) {
                 Surface(onClick = { vm.open(project) }, color = Panel, shape = PanelShape) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF29203F)), contentAlignment = Alignment.Center) {
-                            Icon(if(project.kind == MediaKind.AUDIO) Icons.Rounded.GraphicEq else Icons.Rounded.PlayCircle,
+                            Icon(when(project.kind) { MediaKind.AUDIO -> Icons.Rounded.GraphicEq; MediaKind.IMAGE -> Icons.Rounded.Image; else -> Icons.Rounded.PlayCircle },
                                 null, Modifier.size(30.dp), tint = Violet)
                         }
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text(project.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            Text(if(!com.motionmagic.ai.media.MediaAccess.external(project.path) && !File(project.path).isFile) "File missing" else "${if(project.kind == MediaKind.VIDEO) "${project.duration}s · ${project.aspect}" else "Voice sample"} · ${SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(project.createdAt))}",
+                            Text(if(!com.motionmagic.ai.media.MediaAccess.external(project.path) && !File(project.path).isFile) "File missing" else "${when(project.kind) { MediaKind.VIDEO -> "${project.duration}s · ${project.aspect}"; MediaKind.IMAGE -> "Image"; else -> "Voice sample" }} · ${SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(project.createdAt))}",
                                 color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp))
                         }
                         IconButton(onClick = { deletion = project }) { Icon(Icons.Rounded.DeleteOutline, "Delete ${project.title}", tint = Muted, modifier = Modifier.size(21.dp)) }
@@ -192,7 +151,7 @@ fun ProfileScreen(vm: MotionViewModel) {
                 SettingRow(Icons.Rounded.FolderOpen, "Local workspace", onClick = { vm.notice("Local workspace", "Projects stay on this device, regardless of the signed-in account. Google sign-in does not upload or sync projects.") })
             }
         }
-        TestNotice("No account or API key is needed for this test build.")
+        TestNotice("Sign in for AI creation. Local editing and Device Voice work without an account.")
     }
 }
 
@@ -218,11 +177,11 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
         Surface(color = Panel, shape = PanelShape) {
             Column {
                 SettingRow(Icons.Rounded.SupportAgent, "Help & Support", onClick = { showHelp(vm) })
-                SettingRow(Icons.Rounded.PrivacyTip, "Privacy", onClick = { vm.notice("Privacy in this test build", "Photos, videos, voice files and project metadata are stored on your device. This build does not send prompts or media to an AI provider. Optional Google sign-in sends a Google identity token to your login server, which stores your Google account ID, name, email and profile picture. The app encrypts its session token with Android Keystore. Signing out clears the saved sign-in; it does not delete the server account or local media.\n\nSelecting files uses Android’s file picker. Download creates a separate copy. Sharing sends the file only to the app you choose. Device speech uses installed offline voices when available; your selected system speech engine controls its processing.\n\nDeleting a project removes its internal media file. Gallery and shared copies remain. Uninstalling removes the app’s private projects and settings.\n\nA production privacy policy and data controls are required before enabling cloud processing.") })
-                SettingRow(Icons.Rounded.Description, "About this build", onClick = { vm.notice("MotionMagic AI · Test Build", "Version ${BuildConfig.VERSION_NAME}\n\nLocal previews are photo animations; they are not AI-generated scenes. The app lists only completed local services.\n\nGoogle sign-in requires the dedicated Django API. Cloud generation and credit products stay hidden until their server configuration is verified. Use your own or licensed media for publishing.") })
+                SettingRow(Icons.Rounded.PrivacyTip, "Privacy", onClick = { vm.notice("Your media and cloud generation", "Editing projects are saved on your device. For AI creation, your chosen photo is uploaded to private cloud storage while preparing a quote. After you confirm generation, your prompt and reference photo are sent through the server to Google or fal.ai and the selected model provider. Generated media is saved in cloud storage and downloaded to your device.\n\nGoogle sign-in shares your account ID, name, email and picture with the login server. Session tokens are encrypted with Android Keystore. Signing out clears the saved session but does not delete server records.\n\nDeleting a local project removes its local copy; cloud outputs, uploaded references and gallery copies remain. Sharing sends media to the app you choose. Device Voice uses the selected Android speech engine, whose processing depends on its installed voices and settings.") })
+                SettingRow(Icons.Rounded.Description, "About this build", onClick = { vm.notice("MotionMagic AI", "Version ${BuildConfig.VERSION_NAME}\n\nChoose an enabled AI model to create images or videos. Review the server price before confirming. Local editing and Device Voice do not use AI generation credits. Use media you have permission to upload and publish.") })
             }
         }
-        TestNotice("All generation runs in test mode. No paid AI requests are made.")
+        TestNotice("AI creation uses generation credits after you confirm the price. Local editing and Device Voice remain free.")
     }
     if(ratioDialog) AlertDialog(onDismissRequest = { ratioDialog = false }, title = { Text("Default aspect ratio") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -235,23 +194,83 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
 
 @Composable
 fun PlansScreen(vm: MotionViewModel) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { MagicLogo(Modifier.size(70.dp)) }
-        Text("Available now", fontSize = 29.sp, fontWeight = FontWeight.Bold)
-        Text("This build lists only services it can complete.", color = Muted, fontSize = 14.sp)
-        listOf(
-            Triple("Photo animation", "On device", "Create a 5, 10 or 15 second MP4 from a photo"),
-            Triple("Video and audio editing", "On device", "Trim, split, speed, volume, text, filters, music and export"),
-            Triple("Device voice", "On device", "Create speech using an installed Android voice")
-        ).forEach { (name, availability, description) ->
-            Surface(color = Panel, shape = PanelShape, border = BorderStroke(1.dp, Color(0xFF2A303C))) {
-                Row(Modifier.fillMaxWidth().padding(19.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column { Text(name, fontSize = 19.sp, fontWeight = FontWeight.Bold); Text(description, color = Muted, fontSize = 12.sp) }
-                    Text(availability, color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+    val accents = listOf(Color(0xFF86EDC9), Color(0xFFD8ACFF))
+    LaunchedEffect(Unit) { vm.refreshCloudCatalog() }
+    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B102B), Ink, Ink)))
+        .verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Box(Modifier.size(32.dp).background(MagicGradient, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp), tint = Color.White)
+            }
+            Text("MOTIONMAGIC STUDIO", color = Color(0xFFD5B4F7), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("Create your way", fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
+            Text("Free tools. Pay for each AI creation.", color = Color(0xFFCCBCD9), fontSize = 14.sp)
+        }
+        val rows = listOf(
+            "Native voice" to listOf("✓", "✓"),
+            "Simple editors" to listOf("✓", "✓"),
+            "Local projects" to listOf("✓", "✓"),
+            "AI creation" to listOf("—", "Per creation"),
+        )
+        Surface(color = Color(0xFF160E23), shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, Color(0xFF634078))) {
+            Column {
+                Row(Modifier.height(116.dp).background(Brush.horizontalGradient(listOf(Color(0xFF28153F), Color(0xFF32184D))))) {
+                    Box(Modifier.weight(1.4f).fillMaxHeight().padding(12.dp), contentAlignment = Alignment.BottomStart) {
+                        Text("What’s\nincluded", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFE4D4F3), lineHeight = 19.sp)
+                    }
+                    listOf("Free", "AI credits").forEachIndexed { index, name ->
+                        PlanHeader(name, accents[index], index == 0, Modifier.weight(1f))
+                    }
+                }
+                rows.forEachIndexed { rowIndex, (feature, values) ->
+                    HorizontalDivider(color = Color(0xFF75558F).copy(alpha = .22f), thickness = .5.dp)
+                    Row(Modifier.height(64.dp).background(if(rowIndex % 2 == 0) Color(0xFF20122F) else Color(0xFF180F25))) {
+                        PricingCell(feature, Color(0xFFE9DFF2), Modifier.weight(1.4f), label = true)
+                        values.forEachIndexed { index, value -> PricingCell(value, accents[index], Modifier.weight(1f)) }
+                    }
                 }
             }
         }
-        TestNotice("Cloud generation and credit packs stay hidden until the Django API reports a configured provider, budget and verified Play products.")
+        Text("Available AI models", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        if(vm.cloudRates.isEmpty()) Text(vm.cloudCatalogStatus, color = Muted, fontSize = 12.sp)
+        vm.cloudRates.groupBy { it.modelId }.values.forEach { variants ->
+            val cheapest = variants.minBy { it.minimumPricePaise }
+            Surface(color = Color(0xFF20122F), shape = PanelShape) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(if(cheapest.kind == "image") ImageModelCatalog.find(cheapest.modelId).title else VideoModelCatalog.find(cheapest.modelId).title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(variants.map { it.size.uppercase() }.distinct().joinToString(" · "), color = Muted, fontSize = 11.sp)
+                    }
+                    Text("From ${com.motionmagic.ai.cloud.rupees(cheapest.minimumPricePaise)}\n${if(cheapest.kind == "image") "per image" else "per ${cheapest.minimumUnits}s video"}", color = accents[1], fontSize = 12.sp, textAlign = TextAlign.End)
+                }
+            }
+        }
+        Text("The final quote depends on the model, resolution, duration and generated sound. Review it before confirming. Subscriptions are not enabled.", color = Color(0xFFBAA6CC), fontSize = 12.sp, lineHeight = 19.sp)
         GradientButton("Back to studio", { vm.tab(Screen.HOME) }, icon = Icons.Rounded.Home)
     }
+}
+
+@Composable
+private fun PlanHeader(name: String, accent: Color, current: Boolean, modifier: Modifier) {
+    Column(modifier.fillMaxHeight().background(accent.copy(alpha = .055f)).padding(vertical = 13.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterVertically)) {
+            Box(Modifier.size(31.dp).background(accent.copy(alpha = .16f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Icon(if(name == "Free") Icons.Rounded.CheckCircle else Icons.Rounded.Star, "$name plan", tint = accent, modifier = Modifier.size(21.dp))
+            }
+            Text(name, color = accent, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = (-.3).sp)
+            Text(if(current) "INCLUDED" else "PAY AS YOU CREATE", color = accent.copy(alpha = .9f), fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = .3.sp)
+        }
+}
+
+@Composable
+private fun PricingCell(value: String, color: Color, modifier: Modifier, label: Boolean = false) {
+        Box(modifier.fillMaxHeight().background(if(label) Color.Transparent else color.copy(alpha = .035f)).padding(horizontal = if(label) 12.dp else 4.dp, vertical = 8.dp), contentAlignment = if(label) Alignment.CenterStart else Alignment.Center) {
+            if(value == "✓") {
+                Box(Modifier.size(25.dp).background(color.copy(alpha = .14f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Check, "Included", Modifier.size(16.dp), tint = color)
+                }
+            } else Text(value, color = if(value == "—") Color(0xFF997DAE) else color, fontSize = if(label) 11.sp else 12.sp,
+                lineHeight = 16.sp, fontWeight = if(label) FontWeight.Medium else FontWeight.SemiBold)
+        }
 }

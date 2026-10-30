@@ -45,7 +45,7 @@ def _read_input(key, mime):
 def _request_body(job):
     payload = job.quote.payload
     model = payload.get("model")
-    config = job.quote.rate.config
+    config = payload.get("config", job.quote.rate.config)
     aspect_ratio = payload.get("aspect_ratio", "1:1")
     image_size = config.get("image_size", "1K")
     if model not in MODELS or aspect_ratio not in ASPECT_RATIOS or image_size not in IMAGE_SIZES:

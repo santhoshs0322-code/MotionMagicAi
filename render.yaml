@@ -12,7 +12,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     autoDeployTrigger: commit
-    preDeployCommand: python manage.py migrate --noinput && python manage.py sync_gemini_rates
+    preDeployCommand: python manage.py migrate --noinput && python manage.py sync_provider_rates
     healthCheckPath: /ready
     envVars:
       - key: MOTION_AI_DJANGO_SECRET
@@ -52,6 +52,8 @@ services:
       - key: MOTION_AI_AWS_SECRET_ACCESS_KEY
         sync: false
       - key: MOTION_AI_GEMINI_API_KEY
+        sync: false
+      - key: MOTION_AI_FAL_KEY
         sync: false
       - key: MOTION_AI_GEMINI_LITE_1K_COST_PAISE
         value: "0"

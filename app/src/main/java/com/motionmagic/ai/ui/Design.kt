@@ -23,17 +23,59 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.motionmagic.ai.R
 
-val Ink = Color(0xFF050A11)
-val Panel = Color(0xFF141C26)
-val Muted = Color(0xFF9BA5B7)
+val Ink = Color(0xFF08090B)
+val Panel = Color(0xFF1D1E22)
+val Muted = Color(0xFF969AA5)
 val Violet = Color(0xFFB83BFF)
 val Pink = Color(0xFFFF36AF)
 val Blue = Color(0xFF198DFF)
 val MagicGradient = Brush.horizontalGradient(listOf(Color(0xFFCF2AF5), Color(0xFF702AFF), Blue))
 val PanelShape = RoundedCornerShape(18.dp)
+
+data class StudioTone(val start: Color, val end: Color, val accent: Color) {
+    val gradient: Brush get() = Brush.linearGradient(listOf(start, end))
+}
+
+fun studioTone(title: String): StudioTone = when {
+    title.contains("Image to Video") || title.contains("Kling") -> StudioTone(Color(0xFFC52F95), Color(0xFF6428C4), Color(0xFFFFB3E6))
+    title.contains("Create Image") || title.contains("Nano") -> StudioTone(Color(0xFF7A37E8), Color(0xFF3332AD), Color(0xFFD8C1FF))
+    title.contains("Text to Video") || title.contains("Gemini") -> StudioTone(Color(0xFF245FD5), Color(0xFF3E26A7), Color(0xFFABDFFF))
+    title.contains("Voice", true) || title.contains("Audio") -> StudioTone(Color(0xFF087D91), Color(0xFF2442A0), Color(0xFF99F4EC))
+    else -> StudioTone(Color(0xFF8B39C6), Color(0xFF472799), Color(0xFFE8BDFF))
+}
+
+// Bundled static weights keep the same typography offline on every supported Android version.
+private val MotionFontFamily = FontFamily(
+    Font(R.font.plus_jakarta_sans_regular, FontWeight.Normal),
+    Font(R.font.plus_jakarta_sans_medium, FontWeight.Medium),
+    Font(R.font.plus_jakarta_sans_semibold, FontWeight.SemiBold),
+    Font(R.font.plus_jakarta_sans_bold, FontWeight.Bold),
+)
+
+private val StudioTypography = Typography(
+    displayLarge = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Bold, fontSize = 48.sp, lineHeight = 58.sp, letterSpacing = (-1.5).sp),
+    displayMedium = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Bold, fontSize = 42.sp, lineHeight = 50.sp, letterSpacing = (-1).sp),
+    displaySmall = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Bold, fontSize = 36.sp, lineHeight = 44.sp, letterSpacing = (-.8).sp),
+    headlineLarge = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 38.sp, letterSpacing = (-.8).sp),
+    headlineMedium = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 34.sp, letterSpacing = (-.6).sp),
+    headlineSmall = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 30.sp, letterSpacing = (-.4).sp),
+    titleLarge = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 28.sp, letterSpacing = (-.4).sp),
+    titleMedium = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 23.sp, letterSpacing = (-.2).sp),
+    titleSmall = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 21.sp),
+    bodyLarge = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 25.sp),
+    bodyMedium = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 22.sp),
+    bodySmall = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 19.sp, letterSpacing = .1.sp),
+    labelLarge = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 21.sp),
+    labelMedium = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 18.sp, letterSpacing = .1.sp),
+    labelSmall = TextStyle(fontFamily = MotionFontFamily, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 15.sp, letterSpacing = .2.sp),
+)
 
 @Composable
 fun MotionTheme(content: @Composable () -> Unit) {
@@ -42,7 +84,7 @@ fun MotionTheme(content: @Composable () -> Unit) {
         background = Ink, surface = Ink, surfaceVariant = Panel,
         onBackground = Color.White, onSurface = Color.White,
         outline = Color(0xFF303744), error = Color(0xFFFF8190)
-    ), content = content)
+    ), typography = StudioTypography, content = content)
 }
 
 enum class Artwork(val x: Int, val y: Int, val width: Int, val height: Int) {
@@ -113,7 +155,7 @@ fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier = Modifier, 
 }
 
 @Composable
-fun TestNotice(text: String = "Test mode · On-device previews", modifier: Modifier = Modifier) {
+fun TestNotice(text: String = "Free local tools · AI creation uses generation credits", modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF1B1530))
         .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.Science, null, Modifier.size(18.dp), tint = Color(0xFFD393FF))

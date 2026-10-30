@@ -25,4 +25,19 @@ object CreationValidation {
         if (text.isBlank()) add("Enter the words you want the voice to speak.")
         if (text.length > MAX_PROMPT_LENGTH) add("Keep your script to 500 characters or fewer.")
     })
+
+    fun validateVideo(
+        draft: CreationDraft,
+        model: VideoModelOption,
+        plan: PlanTier,
+        requirePrompt: Boolean,
+    ): ValidationResult = ValidationResult(buildList {
+        addAll(validate(draft.prompt, draft.duration, draft.aspect, requirePrompt).errors)
+        if (draft.modelId != model.id) add("Choose a valid video model.")
+        if (!plan.includes(model.requiredPlan)) add("${model.title} requires the ${model.requiredPlan.title} plan.")
+        if (!model.locallyAvailable) add("${model.title} is unavailable until a cloud video provider is connected.")
+        if (draft.duration !in model.durations) add("${model.title} does not support ${draft.duration}-second videos.")
+        if (draft.resolution !in model.resolutions) add("${model.title} does not support ${draft.resolution} output.")
+        if (draft.generatedAudio && !model.supportsGeneratedAudio) add("${model.title} does not support generated audio.")
+    }.distinct())
 }

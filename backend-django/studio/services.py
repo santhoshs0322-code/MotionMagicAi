@@ -8,7 +8,7 @@ from django.utils import timezone
 from .authentication import digest
 from .errors import Problem
 from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset
-from . import gemini, gemini_video
+from . import gemini, gemini_video, fal, fal_catalog
 
 TERMINAL = ("succeeded", "failed", "cancelled")
 
@@ -25,9 +25,11 @@ def enabled_rates():
         return Rate.objects.none()
     providers = Q(pk__in=[])
     if settings.GATEWAY_URL and settings.GATEWAY_TOKEN:
-        providers |= ~Q(provider_model__in=gemini.MODELS | gemini_video.MODELS)
+        providers |= ~Q(provider_model__in=gemini.MODELS | gemini_video.MODELS | fal_catalog.PROVIDER_MODELS)
     if gemini.configured():
         providers |= Q(provider_model__in=gemini.MODELS | gemini_video.MODELS)
+    if fal.configured():
+        providers |= Q(provider_model__in=fal_catalog.PROVIDER_MODELS)
     return Rate.objects.filter(providers, enabled=True, unit_cost_paise__gt=0, max_units__gt=0)
 
 def wallet_for_update(account):
@@ -58,12 +60,12 @@ def create_quote(account, data):
     duration = data.get("duration", 5)
     rate_config = rate.config if isinstance(rate.config, dict) else {}
     supported_durations = rate_config.get("durations", [5, 10, 15])
-    if type(duration) is not int or not isinstance(supported_durations, list) or duration not in supported_durations:
+    if rate.kind == "video" and (type(duration) is not int or not isinstance(supported_durations, list) or duration not in supported_durations):
         raise Problem("Choose a supported duration (5, 10 or 15 seconds).")
     units = duration if rate.kind == "video" else (len(prompt) + 999) // 1000 if rate.kind == "voice" else 1
     if units > rate.max_units:
         raise Problem("Requested generation exceeds this service's limit.")
-    payload = {"service": rate.pk, "kind": rate.kind, "model": rate.provider_model, "prompt": prompt.strip(), "units": units, "revision": rate.revision}
+    payload = {"service": rate.pk, "kind": rate.kind, "model": rate.provider_model, "prompt": prompt.strip(), "units": units, "revision": rate.revision, "config": rate_config}
     if rate.kind in ("image", "video"):
         default_ratio = "1:1" if rate.kind == "image" else "9:16"
         aspect_ratio = data.get("aspect_ratio", default_ratio)
@@ -75,9 +77,11 @@ def create_quote(account, data):
     elif "aspect_ratio" in data:
         raise Problem("Aspect ratio is not available for this service.")
     if rate.kind == "video":
-        generated_audio = data.get("generated_audio", True)
+        generated_audio = data.get("generated_audio", rate_config.get("generated_audio", True))
         if type(generated_audio) is not bool:
             raise Problem("generated_audio must be true or false.")
+        if rate.provider_model in fal_catalog.PROVIDER_MODELS and generated_audio is not rate_config.get("generated_audio"):
+            raise Problem("Choose the rate matching your audio setting.")
         payload["generated_audio"] = generated_audio
     elif "generated_audio" in data:
         raise Problem("Generated audio is available for video generation only.")
@@ -88,6 +92,8 @@ def create_quote(account, data):
             raise Problem("Source media is unavailable.", 404) from None
         if rate.kind == "voice" or not asset.mime.startswith("image/"):
             raise Problem("This generation only accepts image input.")
+        if asset.size > settings.GEMINI_MAX_INPUT_BYTES:
+            raise Problem("Source image is too large for this model. Choose a smaller photo.")
         payload["input_key"] = asset.key
         payload["asset_id"] = str(asset.pk)
     cost = rate.unit_cost_paise * units

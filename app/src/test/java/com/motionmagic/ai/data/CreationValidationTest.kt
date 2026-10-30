@@ -44,4 +44,26 @@ class CreationValidationTest {
         assertTrue(CreationValidation.validateVoice("a".repeat(500)).isValid)
         assertFalse(CreationValidation.validateVoice("a".repeat(501)).isValid)
     }
+
+    @Test fun videoModelValidationAcceptsTheCompleteLocalPreviewConfiguration() {
+        val model = VideoModelOption("test-local", "Test Local", "Test fixture", PlanTier.FREE, setOf(10), setOf("540p"), false, true, 0, "Photo → video", listOf("Photo", "Video"))
+        val draft = CreationDraft(prompt = "Ocean at sunset", modelId = model.id, duration = 10, aspect = "9:16", resolution = "540p")
+        assertTrue(CreationValidation.validateVideo(draft, model, PlanTier.FREE, requirePrompt = true).isValid)
+    }
+
+    @Test fun videoModelValidationRejectsLockedUnavailableAndUnsupportedSettingsTogether() {
+        val model = VideoModelCatalog.find("kling-3-omni")
+        val draft = CreationDraft(prompt = "Ocean at sunset", modelId = model.id, duration = 10, aspect = "9:16", resolution = "540p", generatedAudio = true)
+        val result = CreationValidation.validateVideo(draft, model, PlanTier.FREE, requirePrompt = true)
+        assertFalse(result.isValid)
+        assertTrue(result.message.contains("requires the Premium plan"))
+        assertTrue(result.message.contains("unavailable"))
+        assertTrue(result.message.contains("does not support 540p"))
+    }
+
+    @Test fun generatedAudioMustBeSupportedByTheSelectedModel() {
+        val model = VideoModelOption("test-no-audio", "Test No Audio", "Test fixture", PlanTier.FREE, setOf(10), setOf("540p"), false, true, 0, "Photo → video", listOf("Photo", "Video"))
+        val draft = CreationDraft(prompt = "Ocean", modelId = model.id, resolution = "540p", generatedAudio = true)
+        assertTrue(CreationValidation.validateVideo(draft, model, PlanTier.FREE, true).message.contains("does not support generated audio"))
+    }
 }

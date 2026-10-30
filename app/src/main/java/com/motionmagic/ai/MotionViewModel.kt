@@ -15,6 +15,10 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.motionmagic.ai.data.*
+import com.motionmagic.ai.cloud.*
+import com.motionmagic.ai.auth.AuthSession
+import com.motionmagic.ai.auth.AuthConfig
+import org.json.JSONObject
 import com.motionmagic.ai.media.DeviceVoiceEngine
 import com.motionmagic.ai.media.LocalMediaEngine
 import com.motionmagic.ai.media.Media3Editor
@@ -35,10 +39,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 enum class Screen(val title: String) {
-    HOME("MotionMagic AI"), IMAGE("Image to Video"), TEXT("Text to Video"),
+    HOME("MotionMagic AI"), IMAGE("Image to Video"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
     REELS("AI Reels Maker"), VOICE("AI Voice Generator"), TEMPLATES("Templates"),
     PROJECTS("My Projects"), RESULT("Video Result"), EDITOR("Video Editor"), AUDIO_EDITOR("Audio Editor"),
-    PROFILE("My Account"), SETTINGS("Settings"), PLANS("Available services")
+    PROFILE("My Account"), SETTINGS("Settings"), PLANS("Plans & pricing")
 }
 
 data class WorkState(val title: String, val progress: Float = 0f, val detail: String = "")
@@ -51,6 +55,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var projects by mutableStateOf(store.projects()); private set
     var settings by mutableStateOf(store.settings()); private set
     var draft by mutableStateOf(store.draft()); private set
+    var imageDraft by mutableStateOf(store.draft("image-generation")); private set
+    private var imageDraftSave: Job? = null
+    var currentPlan by mutableStateOf(PlanTier.FREE); private set
+    val selectedVideoModel: VideoModelOption get() = VideoModelCatalog.find(draft.modelId)
     var voiceText by mutableStateOf(store.draft("voice").prompt); private set
     var selectedProject by mutableStateOf<Project?>(null); private set
     var selectedArt by mutableStateOf(Artwork.Garden); private set
@@ -66,8 +74,149 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private val projectDir = File(app.filesDir, "projects").also { it.mkdirs() }
     private val pendingOutputs = ConcurrentHashMap.newKeySet<File>()
     private val selectedPhotoFile = File(app.filesDir, "sources/selected.png")
+    private var photoRevision = 0
+    private val cloud = CloudApi(app)
+    private val cloudPending = app.getSharedPreferences("motion_cloud_jobs", Application.MODE_PRIVATE)
+    var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
+    var cloudCatalogStatus by mutableStateOf("Checking model availability…"); private set
+    var cloudQuote by mutableStateOf<CloudQuote?>(null); private set
+    private var cloudWork = false
+
+    fun refreshCloudCatalog() {
+        viewModelScope.launch {
+            try {
+                cloudRates = cloud.catalog()
+                cloudCatalogStatus = if(cloudRates.isEmpty()) "Cloud models are not enabled on the server yet." else "Generation credits · review the price before you create"
+            } catch(e: CancellationException) { throw e }
+            catch(e: Exception) { cloudCatalogStatus = "Cannot check model availability. Reconnect and try Create again." }
+        }
+    }
+
+    fun dismissCloudQuote() { cloudQuote = null }
+    private fun cloudKey(session: AuthSession) = AuthConfig.fromBuildConfig().normalizedBaseUrl + "|" + session.user.id
+    private fun saveCloudPending(session: AuthSession, data: JSONObject?) {
+        val edit = cloudPending.edit()
+        if(data == null) edit.remove(cloudKey(session)) else edit.putString(cloudKey(session), data.toString())
+        check(edit.commit()) { "Could not save generation recovery details. Free some device storage and retry." }
+    }
+
+    fun prepareCloudGeneration() {
+        if(!validateCreationInput()) return
+        val image = screen == Screen.CREATE_IMAGE
+        val request = if(image) imageDraft else draft
+        val withPhoto = screen != Screen.TEXT && screen != Screen.REELS && photo != null
+        startWork("Checking your creation", "Preparing a price. Generation starts only after you confirm.") {
+            val session = cloud.session()
+            if(cloudPending.contains(cloudKey(session))) {
+                error("You have a saved generation request. Use Check cloud generation before starting another.")
+            }
+            cloudRates = cloud.catalog()
+            val rate = cloudRates.firstOrNull { it.matches(request, image) }
+                ?: error("This model and resolution are not enabled on the server yet. Choose an available setting or try again after setup.")
+            require(request.aspect in rate.ratios) { "This model supports ${rate.ratios.joinToString()}. Change the aspect ratio in Settings." }
+            require(image || request.duration in rate.durations) { "Choose a supported video duration." }
+            val wallet = cloud.request("GET", "/wallet", session)
+            val payload = JSONObject().put("service", rate.id).put("aspect_ratio", request.aspect)
+                .put("prompt", request.prompt.trim().ifBlank { "Animate this photo with gentle natural movement." })
+            if(!image) payload.put("duration", request.duration).put("generated_audio", request.generatedAudio)
+            if(withPhoto) payload.put("asset_id", cloud.uploadImage(selectedPhotoFile, session))
+            val quote = cloud.request("POST", "/quotes", session, payload)
+            cloudQuote = CloudQuote(quote.getString("id"), quote.getLong("maximum_charge_paise"), wallet.getLong("available_paise"),
+                quote.getString("title"), session, request.copy(outputCount = 1), image)
+        }
+    }
+
+    fun confirmCloudGeneration() {
+        val quote = cloudQuote ?: return
+        if(work.value != null) return
+        cloudQuote = null
+        startWork("Starting your creation", "Your credits are reserved while the server generates your media.") {
+            cloudWork = true
+            try {
+                val session = cloud.session()
+                require(session.user.id == quote.session.user.id) { "Your account changed. Request a new price." }
+                val pending = JSONObject().put("quote_id", quote.id).put("key", UUID.randomUUID().toString())
+                    .put("title", quote.draft.prompt.take(55).ifBlank { quote.title }).put("image", quote.image)
+                    .put("duration", if(quote.image) 0 else quote.draft.duration).put("aspect", quote.draft.aspect)
+                withContext(Dispatchers.IO) { saveCloudPending(session, pending) }
+                followCloudJob(session, pending)
+            } finally { cloudWork = false }
+        }
+    }
+
+    fun resumeCloudGeneration() = startWork("Checking cloud generation", "Recovering your saved request and finished media.") {
+        cloudWork = true
+        try {
+            val session = cloud.session()
+            var pending = withContext(Dispatchers.IO) { cloudPending.getString(cloudKey(session), null)?.let(::JSONObject) }
+            if(pending == null) {
+                val rows = cloud.request("GET", "/jobs", session).getJSONArray("results")
+                val job = (0 until rows.length()).map { rows.getJSONObject(it) }.firstOrNull {
+                    it.getString("state") !in listOf("failed", "cancelled") && projects.none { p -> p.id == "cloud_" + it.getString("id") && File(p.path).isFile }
+                }
+                if(job == null) { message("No pending or new cloud creations."); return@startWork }
+                pending = JSONObject().put("job_id", job.getString("id")).put("title", job.optString("title", "AI creation"))
+                    .put("image", job.optString("kind") == "image").put("duration", job.optInt("duration"))
+                    .put("aspect", job.optString("aspect_ratio", "9:16"))
+                withContext(Dispatchers.IO) { saveCloudPending(session, pending) }
+            }
+            followCloudJob(session, pending)
+        } finally { cloudWork = false }
+    }
+
+    private suspend fun followCloudJob(session: AuthSession, pending: JSONObject) {
+        var job = if(pending.has("job_id")) cloud.request("GET", "/jobs/${pending.getString("job_id")}", session)
+        else try {
+            cloud.request("POST", "/jobs", session, JSONObject().put("quote_id", pending.getString("quote_id")), pending.getString("key"))
+        } catch(e: CloudException) {
+            // Definitive rejection: no job exists for this quote/key. Network errors keep recovery data.
+            if(e.status in listOf(400, 402, 404, 409)) withContext(Dispatchers.IO) { saveCloudPending(session, null) }
+            throw e
+        }
+        pending.put("job_id", job.getString("id"))
+        withContext(Dispatchers.IO) { saveCloudPending(session, pending) }
+        repeat(120) {
+            when(job.getString("state")) {
+                "succeeded" -> {
+                    val id = "cloud_" + job.getString("id")
+                    projects.firstOrNull { it.id == id && File(it.path).isFile }?.let {
+                        withContext(Dispatchers.IO) { saveCloudPending(session, null) }; open(it); return
+                    }
+                    work.value = WorkState("Downloading your creation", detail = "Your media is saved on the server. You can retry this download.")
+                    val output = File(projectDir, "$id.media")
+                    pendingOutputs.add(output)
+                    val mime = cloud.download(job.getString("output_asset_id"), session, output)
+                    val image = mime.startsWith("image/")
+                    val duration = if(image) 0L else withContext(Dispatchers.IO) {
+                        val retriever = MediaMetadataRetriever()
+                        try { retriever.setDataSource(output.path); retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: pending.optInt("duration") * 1000L }
+                        finally { retriever.release() }
+                    }
+                    val project = Project(id = id, title = pending.optString("title", "AI creation"), path = output.path,
+                        kind = if(image) MediaKind.IMAGE else MediaKind.VIDEO, duration = (duration / 1000).toInt(), durationMs = duration,
+                        aspect = pending.optString("aspect", "9:16"), mimeType = mime)
+                    persistProject(project)
+                    withContext(Dispatchers.IO) { saveCloudPending(session, null) }
+                    selectedProject = project; go(Screen.RESULT); autoSave(project)
+                    message("Saved · ${rupees(job.getLong("charged_paise"))} charged")
+                    return
+                }
+                "failed", "cancelled" -> {
+                    withContext(Dispatchers.IO) { saveCloudPending(session, null) }
+                    error("Generation did not complete. The server released your reserved credits. You can try another prompt or model.")
+                }
+                else -> {
+                    work.value = WorkState("Creating your media", detail = "${if(job.getString("state") == "uncertain") "Checking provider status" else "Generation in progress"}. You can close this progress window and use Check cloud generation later.")
+                    delay(job.optInt("poll_after_seconds", 30).coerceIn(15, 120) * 1000L)
+                    job = cloud.request("GET", "/jobs/${pending.getString("job_id")}", session)
+                }
+            }
+        }
+        message("Your generation is still processing. Check cloud generation again later.")
+    }
 
     init {
+        val restoredRevision = photoRevision
         val referenced = projects.map { it.path }.toSet()
         val abandoned = if(store.lastReadWarning == null) projectDir.listFiles()?.filter { it.path !in referenced } else null
         viewModelScope.launch {
@@ -75,7 +224,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 abandoned?.forEach { it.delete() }
                 if(selectedPhotoFile.isFile) BitmapFactory.decodeFile(selectedPhotoFile.path) else null
             }
-            if(restoredPhoto != null && photo == null) { photo = restoredPhoto; photoName = "Your photo" }
+            if(restoredPhoto != null && photo == null && restoredRevision == photoRevision) { photo = restoredPhoto; photoName = "Your photo" }
         }
         store.lastReadWarning?.let { failure = it }
     }
@@ -107,8 +256,68 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         draftSave = viewModelScope.launch {
             delay(250)
             try { withContext(Dispatchers.IO) { store.saveDraft(value) } }
+            catch (e: CancellationException) { throw e }
             catch (e: Exception) { failure = e.message ?: "Could not save your draft." }
         }
+    }
+    fun selectVideoModel(model: VideoModelOption) {
+        updateDraft(draft.copy(
+            modelId = model.id,
+            duration = draft.duration.takeIf { it in model.durations } ?: model.durations.min(),
+            resolution = draft.resolution.takeIf { it in model.resolutions } ?: model.resolutions.first(),
+            generatedAudio = draft.generatedAudio && model.supportsGeneratedAudio,
+            aspect = if(model.id == "gemini-omni-1.1-flash" && draft.aspect == "1:1") "9:16" else draft.aspect,
+        ))
+    }
+
+    fun switchCreationMode(mode: CreationMode) {
+        screen = when(mode) {
+            CreationMode.IMAGE_TO_VIDEO -> Screen.IMAGE
+            CreationMode.TEXT_TO_VIDEO -> Screen.TEXT
+            CreationMode.CREATE_IMAGE -> Screen.CREATE_IMAGE
+        }
+    }
+
+    fun updateImageDraft(value: CreationDraft) {
+        imageDraft = value
+        imageDraftSave?.cancel()
+        imageDraftSave = viewModelScope.launch {
+            delay(250)
+            try { withContext(Dispatchers.IO) { store.saveDraft(value, "image-generation") } }
+            catch(e: CancellationException) { throw e }
+            catch(e: Exception) { failure = e.message ?: "Could not save your image draft." }
+        }
+    }
+
+    fun removePhoto() {
+        photoRevision += 1
+        photo = null
+        photoName = ""
+        selectedPhotoFile.delete()
+    }
+
+    fun validateCreationInput(): Boolean {
+        val input = if(screen == Screen.CREATE_IMAGE) imageDraft else draft
+        val errors = buildList {
+            if(screen == Screen.IMAGE && photo == null) add("Add a photo to animate.")
+            if(screen != Screen.IMAGE && input.prompt.isBlank()) add("Describe what you want to create.")
+            if(input.prompt.length > 500) add("Keep your prompt to 500 characters or fewer.")
+        }
+        if(errors.isNotEmpty()) failure = errors.joinToString("\n")
+        return errors.isEmpty()
+    }
+
+    fun generationValidation(): ValidationResult = CreationValidation.validateVideo(
+        draft = draft,
+        model = selectedVideoModel,
+        plan = currentPlan,
+        requirePrompt = screen == Screen.TEXT || screen == Screen.REELS,
+    )
+
+    fun showGenerationErrors(): Boolean {
+        val validation = generationValidation()
+        if (!validation.isValid) failure = validation.message
+        return validation.isValid
     }
     fun updateVoiceText(text: String) {
         voiceText = text
@@ -117,13 +326,18 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 .onFailure { _messages.tryEmit("Voice draft could not be saved.") }
         }
     }
-    fun useTemplate(art: Artwork, title: String) {
+    fun useTemplate(art: Artwork, title: String, prompt: String = "A $title scene with a slow cinematic camera movement",
+                    mode: CreationMode = CreationMode.IMAGE_TO_VIDEO, aspect: String = "9:16", duration: Int = 5) {
         selectedArt = art
-        photo = null
-        photoName = "$title sample"
-        selectedPhotoFile.delete()
-        updateDraft(draft.copy(selectedStyle = title, prompt = "A $title scene with a slow cinematic camera movement"))
-        go(Screen.IMAGE)
+        if(mode == CreationMode.CREATE_IMAGE) updateImageDraft(imageDraft.copy(selectedStyle = title, prompt = prompt, aspect = aspect))
+        else updateDraft(draft.copy(selectedStyle = title, prompt = prompt, aspect = aspect,
+            duration = duration.takeIf { it in selectedVideoModel.durations } ?: selectedVideoModel.durations.min()))
+        val target = when(mode) {
+            CreationMode.IMAGE_TO_VIDEO -> Screen.IMAGE
+            CreationMode.TEXT_TO_VIDEO -> Screen.TEXT
+            CreationMode.CREATE_IMAGE -> Screen.CREATE_IMAGE
+        }
+        if(screen !in listOf(Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE)) go(target) else switchCreationMode(mode)
     }
     fun saveSettings(value: AppSettings) {
         viewModelScope.launch {
@@ -230,8 +444,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun generate() {
         val request = draft
-        val needsPrompt = screen == Screen.TEXT || screen == Screen.REELS
-        val validation = CreationValidation.validate(request.prompt, request.duration, request.aspect, needsPrompt)
+        val validation = generationValidation()
         if (!validation.isValid) { failure = validation.message; return }
         val source = photo ?: ArtRepository.bitmap(app, selectedArt)
         startWork("Creating your preview", "Animating the photo on this device. No AI credits are used.") {
@@ -347,7 +560,11 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun cancelWork() { activeJob?.cancel(); message("Cancelled. No credits were used.") }
+    fun cancelWork() {
+        val submitted = cloudWork
+        activeJob?.cancel()
+        message(if(submitted) "Progress closed. Submitted generations continue on the server; check your cloud generation later." else "Operation cancelled.")
+    }
 
     private fun startWork(title: String, detail: String = "", action: suspend () -> Unit) {
         if (work.value != null) return

@@ -1,4 +1,5 @@
 import uuid
+import time
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -89,7 +90,8 @@ def existing_generated_image(job):
                 continue
             raise
         size = info.get("ContentLength")
-        if info.get("ContentType") == mime and type(size) is int and 0 < size <= settings.GEMINI_MAX_OUTPUT_BYTES:
+        expected = info.get("Metadata", {}).get("expected-bytes")
+        if info.get("ContentType") == mime and type(size) is int and 0 < size <= settings.GEMINI_MAX_OUTPUT_BYTES and (expected is None or expected == str(size)):
             return {"key": key, "mime": mime, "size": size}
     return None
 
@@ -98,8 +100,11 @@ class LimitedReader:
         self.source = source
         self.limit = limit
         self.read_bytes = 0
+        self.deadline = time.monotonic() + 300
 
     def read(self, size=-1):
+        if time.monotonic() > self.deadline:
+            raise ValueError("provider media transfer exceeded time limit")
         remaining = self.limit + 1 - self.read_bytes
         if remaining <= 0:
             raise ValueError("provider media exceeded limit")
@@ -121,11 +126,14 @@ def put_generated_stream(job, source, mime, maximum_size, declared_size=None):
         reader,
         settings.S3_BUCKET,
         key,
-        ExtraArgs={"ContentType": mime, "Metadata": {"motion-job": str(job.pk)}},
+        ExtraArgs={"ContentType": mime, "Metadata": {"motion-job": str(job.pk), **({"expected-bytes": str(declared_size)} if declared_size else {})}},
         Config=TransferConfig(multipart_threshold=8 * 1024**2, multipart_chunksize=8 * 1024**2, max_concurrency=2, use_threads=True),
     )
     info = client().head_object(Bucket=settings.S3_BUCKET, Key=key)
     size = info.get("ContentLength")
+    if declared_size is not None and size != declared_size:
+        client().delete_object(Bucket=settings.S3_BUCKET, Key=key)
+        raise Problem("Generated media download was incomplete.", 503)
     if type(size) is not int or not 0 < size <= maximum_size or info.get("ContentType") != mime:
         raise Problem("Generated media upload could not be verified.", 503)
     return {"key": key, "mime": mime, "size": size}
@@ -139,6 +147,7 @@ def existing_generated_video(job):
             return None
         raise
     size = info.get("ContentLength")
-    if info.get("ContentType") == "video/mp4" and type(size) is int and 0 < size <= settings.GEMINI_MAX_VIDEO_BYTES:
+    expected = info.get("Metadata", {}).get("expected-bytes")
+    if info.get("ContentType") == "video/mp4" and type(size) is int and 0 < size <= settings.GEMINI_MAX_VIDEO_BYTES and (expected is None or expected == str(size)):
         return {"key": key, "mime": "video/mp4", "size": size}
     return None

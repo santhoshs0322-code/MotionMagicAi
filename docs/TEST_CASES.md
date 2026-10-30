@@ -13,7 +13,16 @@ This checklist tracks behavior needed for the reference design. An item being li
 - The editor choices of 5/10/15 seconds and 9:16/16:9/1:1 validate.
 - Voice scripts require text and respect the same length limit, including non-English input.
 
-These are editor rules. They do not certify that an AI provider supports every editor option. Provider requests need capability validation before submission.
+These editor rules are supplemented by `CloudRateTest` and backend `studio.test_fal` for provider contracts, native-audio pricing and wallet/job recovery. Live providers still need account and paid-request verification; see the latest verification record.
+
+## Cloud generation acceptance
+
+- Sign in, choose an enabled service and confirm the actual server quote; insufficient credits must never start a provider request.
+- Exercise text-to-image, reference-image editing, text-to-video and image-to-video across configured models. Check sound on/off, resolution, duration and source-shaped I2V output.
+- Disconnect during submission and retry the saved quote/key; exactly one job and one settlement must exist. Close progress or kill/reopen the app, then use Check cloud generation.
+- Interrupt a download or exhaust device storage; retain the server result and offer download recovery. Image results must show an image, not a video-player error.
+- Verify provider rejection, moderation, invalid credentials, queue outage, and 24-hour unresolved-job expiry release customer holds. A known provider request must never be resubmitted on polling failure.
+- Confirm the live price table contains only configured variants. Changing keys/costs requires rate sync. Native voice and simple editing remain free.
 
 ## Data persistence implemented; device verification required
 
@@ -40,7 +49,7 @@ These are editor rules. They do not certify that an AI provider supports every e
 |---|---|
 | Launch / splash | First launch, recreation, background/resume, system back; splash never traps the user. |
 | Home | Six feature tiles and all navigation tabs lead to their intended destination; hero and template artwork load or show a usable fallback. |
-| Image to Video | Choose/cancel/change photo; inaccessible or malformed URI; unsupported media; large image; selected style/duration/aspect; no image; duplicate Generate taps; draft recovery. |
+| Image to Video | Choose/cancel/change photo; inaccessible or malformed URI; unsupported media; large image; selected model/style/duration/aspect/resolution/audio; plan/provider locks; review-popup changes; duplicate confirmation; draft recovery. |
 | Text to Video | Empty/whitespace/maximum-length prompt; keyboard and counter; selected style; invalid restored options; retry after correcting input. |
 | AI Reels Maker | Template selection; missing source; supported portrait export; generation status; failed or cancelled job; preserve draft. |
 | Templates | All/Reels/Love/Travel/Birthday filters; no matching cards; select a template then return; image loading failure; clear selected state. |

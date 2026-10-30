@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,6 +49,22 @@ import java.io.File
 @OptIn(UnstableApi::class)
 @Composable
 fun MediaPreview(project: Project, modifier: Modifier = Modifier, onError: (String) -> Unit = {}) {
+    if(project.kind == MediaKind.IMAGE) {
+        val bitmap by produceState<android.graphics.Bitmap?>(null, project.path) {
+            value = withContext(Dispatchers.IO) {
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(project.path, bounds)
+                var sample = 1
+                while(bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
+                android.graphics.BitmapFactory.decodeFile(project.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+            }
+        }
+        Box(modifier.clip(PanelShape), contentAlignment = Alignment.Center) {
+            bitmap?.let { Image(it.asImageBitmap(), project.title, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                ?: Text("Opening image…")
+        }
+        return
+    }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentError by rememberUpdatedState(onError)
@@ -91,7 +112,7 @@ fun ResultScreen(vm: MotionViewModel, onDownload: (Project) -> Unit, onShare: (P
         MediaPreview(project, Modifier.fillMaxWidth().height(if(project.kind == MediaKind.AUDIO) 110.dp else if(project.aspect == "9:16") 400.dp else 230.dp)) { playbackError = it }
         playbackError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
         Text(project.title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-        Text(if(project.kind == MediaKind.AUDIO) "Audio · ${if(project.mimeType == "audio/mp4") "AAC / M4A" else project.mimeType.substringAfter('/')}" else "${project.duration}s · ${project.aspect} · ${if(project.title.endsWith("· edited")) "Edited video" else "Saved video"}",
+        Text(if(project.kind == MediaKind.IMAGE) "Saved image · ${project.mimeType.substringAfter('/').uppercase()}" else if(project.kind == MediaKind.AUDIO) "Audio · ${if(project.mimeType == "audio/mp4") "AAC / M4A" else project.mimeType.substringAfter('/')}" else "${project.duration}s · ${project.aspect} · ${if(project.title.endsWith("· edited")) "Edited video" else "Saved video"}",
             color = Muted, fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             listOf(Triple("Download", Icons.Rounded.Download, { onDownload(project) }),
@@ -105,7 +126,7 @@ fun ResultScreen(vm: MotionViewModel, onDownload: (Project) -> Unit, onShare: (P
             }
         }
         if(project.kind == MediaKind.VIDEO) GradientButton("Edit Further", { vm.edit(project) }, icon = Icons.Rounded.ContentCut)
-        else GradientButton("Edit Audio", { vm.edit(project) }, icon = Icons.Rounded.GraphicEq)
+        else if(project.kind == MediaKind.AUDIO) GradientButton("Edit Audio", { vm.edit(project) }, icon = Icons.Rounded.GraphicEq)
         OutlinedButton(onClick = { vm.tab(Screen.PROJECTS) }, Modifier.fillMaxWidth()) { Text("My Projects") }
     }
     if(deleting) DeleteDialog(project.title, { deleting = false }) { deleting = false; vm.delete(project) }

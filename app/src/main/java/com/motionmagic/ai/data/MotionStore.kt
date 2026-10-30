@@ -82,15 +82,25 @@ class MotionStore(context: Context) {
     fun draft(key: String = "video"): CreationDraft {
         val fallback = CreationDraft(aspect = settings().defaultAspect)
         val json = readObject(draftKey(key)) ?: return fallback
+        val model = VideoModelCatalog.find(json.optString("modelId", fallback.modelId))
+        val imageModel = ImageModelCatalog.find(json.optString("imageModelId", fallback.imageModelId))
         return CreationDraft(
             // Keep the user's text intact, even if invalid, so validation can explain it.
             prompt = json.optString("prompt", ""),
             selectedStyle = json.optString("selectedStyle", fallback.selectedStyle)
                 .ifBlank { fallback.selectedStyle },
             duration = json.optInt("duration", fallback.duration)
-                .takeIf { it in CreationValidation.supportedDurations } ?: fallback.duration,
+                .takeIf { it in model.durations } ?: model.durations.min(),
             aspect = json.optString("aspect", fallback.aspect)
-                .takeIf { it in CreationValidation.supportedAspects } ?: fallback.aspect,
+                .takeIf { it in (if(key == "image-generation") ImageModelCatalog.aspects else CreationValidation.supportedAspects) } ?: fallback.aspect,
+            modelId = model.id,
+            resolution = json.optString("resolution", fallback.resolution)
+                .takeIf { it in model.resolutions } ?: model.resolutions.first(),
+            generatedAudio = json.optBoolean("generatedAudio", fallback.generatedAudio) && model.supportsGeneratedAudio,
+            imageQuality = json.optString("imageQuality", "1K").takeIf { it in imageModel.resolutions } ?: imageModel.resolutions.first(),
+            audioPrompt = json.optString("audioPrompt", ""),
+            imageModelId = imageModel.id,
+            outputCount = json.optInt("outputCount", 1).coerceIn(1, 4),
         )
     }
 
@@ -101,6 +111,13 @@ class MotionStore(context: Context) {
             .put("selectedStyle", value.selectedStyle)
             .put("duration", value.duration)
             .put("aspect", value.aspect)
+            .put("modelId", value.modelId)
+            .put("resolution", value.resolution)
+            .put("generatedAudio", value.generatedAudio)
+            .put("imageQuality", value.imageQuality)
+            .put("audioPrompt", value.audioPrompt)
+            .put("imageModelId", value.imageModelId)
+            .put("outputCount", value.outputCount)
         commit(preferences.edit().putString(draftKey(key), json.toString()))
     }
 

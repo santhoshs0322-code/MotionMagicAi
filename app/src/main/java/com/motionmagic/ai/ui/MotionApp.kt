@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -47,7 +48,7 @@ fun MotionApp(vm: MotionViewModel) {
     var splash by rememberSaveable { mutableStateOf(true) }
     var menu by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Project?>(null) }
-    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importPhoto) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::importPhoto) }
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importAudio) }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importVideo) }
     val documentSaver = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -77,15 +78,18 @@ fun MotionApp(vm: MotionViewModel) {
         return
     }
     val roots = listOf(Screen.HOME, Screen.TEMPLATES, Screen.PROJECTS, Screen.PROFILE)
-    Scaffold(containerColor = Ink, snackbarHost = { SnackbarHost(snackbar) },
+    val creating = vm.screen in listOf(Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE)
+    Scaffold(containerColor = Ink, snackbarHost = {
+        SnackbarHost(snackbar, Modifier.padding(bottom = if(creating) 128.dp else 0.dp))
+    },
         topBar = {
-            if(vm.screen !in listOf(Screen.EDITOR, Screen.AUDIO_EDITOR)) CenterAlignedTopAppBar(
+            if(vm.screen !in listOf(Screen.EDITOR, Screen.AUDIO_EDITOR, Screen.HOME, Screen.TEMPLATES, Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE)) CenterAlignedTopAppBar(
                 title = {
                     if(vm.screen == Screen.HOME) Text(buildAnnotatedString {
                         append("MotionMagic ")
                         withStyle(SpanStyle(color = Violet)) { append("AI") }
                     }, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                    else Text(if(vm.screen == Screen.RESULT && vm.selectedProject?.kind == MediaKind.AUDIO) "Voice Result" else vm.screen.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    else Text(if(vm.screen in listOf(Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE)) "Create" else if(vm.screen == Screen.RESULT && vm.selectedProject?.kind == MediaKind.AUDIO) "Voice Result" else if(vm.screen == Screen.RESULT && vm.selectedProject?.kind == MediaKind.IMAGE) "Image Result" else vm.screen.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 },
                 navigationIcon = {
                     IconButton(onClick = { if(vm.screen == Screen.HOME) menu = true else vm.back() }) {
@@ -106,14 +110,19 @@ fun MotionApp(vm: MotionViewModel) {
             )
         },
         bottomBar = {
-            if(vm.screen in roots) NavigationBar(containerColor = Color(0xFF0C111D), tonalElevation = 0.dp) {
-                listOf(Triple(Screen.HOME, Icons.Rounded.Home, "Home"),
-                    Triple(Screen.TEMPLATES, Icons.Rounded.GridView, "Templates"),
+            if(vm.screen in roots) NavigationBar(containerColor = Ink, tonalElevation = 0.dp) {
+                listOf(Triple(Screen.HOME, Icons.Rounded.Home, "Create"),
+                    Triple(Screen.TEMPLATES, Icons.Rounded.CollectionsBookmark, "Template"),
+                    Triple(Screen.IMAGE, Icons.Rounded.Add, ""),
                     Triple(Screen.PROJECTS, Icons.Rounded.FolderOpen, "Projects"),
-                    Triple(Screen.PROFILE, Icons.Rounded.PersonOutline, "Profile")).forEach { (screen, icon, label) ->
+                    Triple(Screen.PROFILE, Icons.Rounded.PersonOutline, "Me")).forEach { (screen, icon, label) ->
+                    if(screen == Screen.IMAGE) NavigationBarItem(selected = false, onClick = { vm.go(Screen.IMAGE) },
+                        icon = { Box(Modifier.size(40.dp).background(ReferenceGradient, RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) { Icon(icon, "Create a new project", Modifier.size(27.dp), tint = Color.White) } },
+                        colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent))
+                    else
                     NavigationBarItem(selected = vm.screen == screen, onClick = { vm.tab(screen) },
                         icon = { Icon(icon, null, Modifier.size(24.dp)) }, label = { Text(label, fontSize = 11.sp) },
-                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Violet, selectedTextColor = Violet,
+                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Color.White, selectedTextColor = Color.White,
                             indicatorColor = Color.Transparent, unselectedTextColor = Muted, unselectedIconColor = Muted))
                 }
             }
@@ -121,7 +130,7 @@ fun MotionApp(vm: MotionViewModel) {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when(vm.screen) {
                 Screen.HOME -> HomeScreen(vm)
-                Screen.IMAGE, Screen.TEXT, Screen.REELS -> CreateScreen(vm, onPickPhoto = { photoPicker.launch(arrayOf("image/*")) })
+                Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE -> CreateScreen(vm, onPickPhoto = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
                 Screen.VOICE -> VoiceScreen(vm)
                 Screen.TEMPLATES -> TemplatesScreen(vm)
                 Screen.PROJECTS -> ProjectsScreen(vm, onImport = { videoPicker.launch(arrayOf("video/*")) })
@@ -165,6 +174,19 @@ fun MotionApp(vm: MotionViewModel) {
                 }
             }, confirmButton = { TextButton(onClick = vm::cancelWork) { Text("Cancel") } }, containerColor = Panel)
     }
+    vm.cloudQuote?.let { quote ->
+        val enough = quote.availablePaise >= quote.chargePaise
+        AlertDialog(onDismissRequest = vm::dismissCloudQuote, containerColor = Panel,
+            title = { Text("Create with ${quote.title}") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Maximum charge: ${com.motionmagic.ai.cloud.rupees(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
+                Text("Available balance: ${com.motionmagic.ai.cloud.rupees(quote.availablePaise)}")
+                Text("One creation. Credits are reserved when you confirm and released if generation fails. Closing progress does not cancel a submitted generation.", fontSize = 13.sp)
+                if(!enough) Text("Add generation credits before continuing. Your account balance is managed by the server.", color = MaterialTheme.colorScheme.error)
+            } },
+            confirmButton = { TextButton(onClick = vm::confirmCloudGeneration, enabled = enough) { Text("Confirm & create") } },
+            dismissButton = { TextButton(onClick = vm::dismissCloudQuote) { Text("Keep editing") } })
+    }
     vm.failure?.let { error ->
         AlertDialog(onDismissRequest = vm::dismissFailure,
             icon = { Icon(Icons.Rounded.ErrorOutline, null, tint = Color(0xFFFF8190)) },
@@ -178,7 +200,7 @@ fun MotionApp(vm: MotionViewModel) {
     }
 }
 
-fun showHelp(vm: MotionViewModel) = vm.notice("Your test studio", "1. Pick a photo or a template, then create a 5, 10 or 15 second preview.\n\n2. Preview videos in Projects. Use Edit Further to trim, add a caption, apply a filter or mix your music.\n\n3. Download saves an actual media file. Share opens Android’s share sheet.\n\nTest previews animate an existing photo on your device. They are not generated by an AI model. Voice samples use the installed Android speech engine.\n\nIf a file fails, select it again. Keep the app open during rendering. Optional Google sign-in uses your configured login server. Live AI, purchases and rewarded ads still need production services.")
+fun showHelp(vm: MotionViewModel) = vm.notice("Your creative studio", "Choose Image to Video, Text to Video or Create Image. Add your photo or prompt, then choose a model and settings. Available models depend on the server configuration. Tap Create to review the credit price before confirming. Use Check cloud generation to recover a submitted request or download after reconnecting. Kling and PixVerse image-to-video follow the source photo’s shape.\n\nUse Video Editor or Audio Editor to edit your own media. Device Voice uses your installed Android speech engine.")
 
 @Composable
 fun SplashScreen() {

@@ -28,6 +28,7 @@ class Command(BaseCommand):
                 "provider_model": model,
                 "config": {
                     "provider": "google_gemini",
+                    "app_model_id": {"gemini-nano-banana-2.1": "nano-banana-2-1", "gemini-3.1-flash-image": "nano-banana-2", "gemini-3.1-flash-lite-image": "nano-banana-2-lite", "gemini-3-pro-image": "nano-banana-pro"}[model],
                     "image_size": size,
                     "aspect_ratios": sorted(ASPECT_RATIOS),
                     "input_modes": ["text", "image_and_text"],
@@ -58,6 +59,7 @@ class Command(BaseCommand):
                 "provider_model": "gemini-omni-1.1-flash",
                 "config": {
                     "provider": "google_gemini",
+                    "app_model_id": "gemini-omni-1.1-flash",
                     "resolution": resolution,
                     "aspect_ratios": ["16:9", "9:16"],
                     "durations": [5, 10],

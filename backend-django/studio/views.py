@@ -103,8 +103,12 @@ class Logout(Private):
 
 class Capabilities(Public):
     def get(self, request):
-        rates = list(services.enabled_rates().order_by("slug")[:50])
-        return ok(local=["photo_animation", "device_voice", "video_editor", "audio_editor", "local_projects"], cloud=[{"id": r.pk, "title": r.title, "kind": r.kind, "model": r.provider_model, "max_units": r.max_units, "config": r.config} for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=False, currency="INR", markup_bps=settings.MARKUP_BPS)
+        rates = list(services.enabled_rates().order_by("slug")[:200])
+        return ok(local=["photo_animation", "device_voice", "video_editor", "audio_editor", "local_projects"], cloud=[{
+            "id": r.pk, "title": r.title, "kind": r.kind, "model": r.provider_model, "max_units": r.max_units, "config": r.config,
+            "minimum_units": min(r.config.get("durations", [5])) if r.kind == "video" else 1,
+            "minimum_charge_paise": services.price(r.unit_cost_paise * (min(r.config.get("durations", [5])) if r.kind == "video" else 1) + r.overhead_paise),
+        } for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=False, currency="INR", markup_bps=settings.MARKUP_BPS)
 
 class WalletView(Private):
     def get(self, request):
@@ -119,10 +123,12 @@ class Quotes(Private):
     def post(self, request):
         authentication.rate_limit("quotes:" + str(request.user.pk), 20)
         quote = services.create_quote(request.user, request.data)
-        return ok(id=str(quote.pk), currency="INR", maximum_charge_paise=quote.charge_paise, expires_at=quote.expires_at, markup_bps=quote.markup_bps)
+        return ok(id=str(quote.pk), currency="INR", maximum_charge_paise=quote.charge_paise, expires_at=quote.expires_at, markup_bps=quote.markup_bps, title=quote.rate.title)
 
 def job_public(job):
-    return {"id": str(job.pk), "state": job.state, "maximum_charge_paise": job.quote.charge_paise, "charged_paise": job.charged_paise, "output_asset_id": str(job.output_id) if job.output_id else None, "error_code": job.error_code, "created_at": job.created_at, "poll_after_seconds": 30 if job.state not in services.TERMINAL else None}
+    payload = job.quote.payload
+    return {"id": str(job.pk), "state": job.state, "maximum_charge_paise": job.quote.charge_paise, "charged_paise": job.charged_paise, "output_asset_id": str(job.output_id) if job.output_id else None, "error_code": job.error_code, "created_at": job.created_at, "poll_after_seconds": 30 if job.state not in services.TERMINAL else None,
+            "title": payload.get("prompt", "AI creation")[:55], "kind": payload.get("kind"), "aspect_ratio": payload.get("aspect_ratio"), "duration": payload.get("units", 0) if payload.get("kind") == "video" else 0}
 
 class Jobs(Private):
     def get(self, request):
@@ -166,7 +172,7 @@ class AssetDetail(Private):
         asset = self.find(request, identifier)
         if not asset.ready:
             raise Problem("Media upload is incomplete.", 409)
-        return ok(url=storage.download(asset), expires_in=60)
+        return ok(url=storage.download(asset), expires_in=60, asset=asset_public(asset))
     def delete(self, request, identifier):
         asset = self.find(request, identifier)
         if Job.objects.filter(account=request.user, quote__payload__asset_id=str(identifier)).exclude(state__in=services.TERMINAL).exists():

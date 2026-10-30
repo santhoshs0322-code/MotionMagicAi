@@ -97,6 +97,7 @@ class Job(models.Model):
     idempotency_key = models.CharField(max_length=128)
     state = models.CharField(max_length=16, default="queued")
     provider_id = models.CharField(max_length=200, blank=True)
+    provider_context = models.JSONField(default=dict)
     output = models.ForeignKey(Asset, on_delete=models.PROTECT, null=True)
     budget = models.ForeignKey(Budget, on_delete=models.PROTECT)
     actual_cost_paise = models.PositiveIntegerField(null=True)

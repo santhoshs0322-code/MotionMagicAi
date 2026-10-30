@@ -82,6 +82,10 @@ MAX_UPLOAD_BYTES = int(env("MAX_UPLOAD_BYTES", str(2 * 1024**3)))
 GATEWAY_URL = env("GATEWAY_URL").rstrip("/")
 GATEWAY_TOKEN = env("GATEWAY_TOKEN")
 GEMINI_API_KEY = env("GEMINI_API_KEY")
+FAL_KEY = env("FAL_KEY")
+FAL_OVERHEAD_PAISE = int(env("FAL_OVERHEAD_PAISE", "0"))
+from studio.fal_catalog import variants as fal_variants
+FAL_RATE_COSTS = {slug: int(env(cost_env, "0")) for slug, _, _, cost_env in fal_variants()}
 GEMINI_BASE_URL = env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1").rstrip("/")
 GEMINI_INTERACTIONS_URL = env("GEMINI_INTERACTIONS_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
 GEMINI_MAX_INPUT_BYTES = int(env("GEMINI_MAX_INPUT_BYTES", str(10 * 1024**2)))
@@ -136,3 +140,5 @@ if not 1024**2 <= GEMINI_MAX_VIDEO_BYTES <= MAX_UPLOAD_BYTES:
     raise ImproperlyConfigured("Invalid Gemini video byte limit")
 if GEMINI_OVERHEAD_PAISE < 0 or any(value < 0 for value in (*GEMINI_RATE_COSTS.values(), *GEMINI_VIDEO_RATE_COSTS.values())):
     raise ImproperlyConfigured("Gemini costs must be non-negative integer paise")
+if FAL_OVERHEAD_PAISE < 0 or any(value < 0 for value in FAL_RATE_COSTS.values()):
+    raise ImproperlyConfigured("fal costs must be non-negative integer paise")

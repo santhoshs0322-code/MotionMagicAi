@@ -2,7 +2,7 @@
 
 A native Kotlin / Jetpack Compose MotionMagic studio with a separate Django backend for accounts, server-priced generation jobs, transaction ledger and verified credit packs.
 
-**This build runs without an API key.** It makes real local media files, but does not call a generative AI service. A fake key is never treated as a working credential.
+Local editing and native voice work without provider keys. **AI image/video generation is now connected through Django**, using Google plus fal.ai. Configure the server keys, costs, private storage, worker and wallet before generating. Fake keys never count as working credentials. See [provider setup and environment variables](backend-django/PROVIDERS.md).
 
 ## Open and build
 
@@ -18,7 +18,7 @@ The script finds the installed JDK/SDK and keeps build caches and the debug sign
 
 The APK is produced at `app/build/outputs/apk/debug/app-debug.apk`. It supports Android 8.0 / API 26 and newer. This is a debug-signed test APK, not a Play Store release.
 
-The packaged Django-ready build is [MotionMagic-AI-django-test.apk](artifacts/MotionMagic-AI-django-test.apk) (0.4.0), with an adjacent SHA-256 file. Earlier editor screenshots remain in `artifacts/`; the current editor intentionally shows fewer controls.
+The current integration build is [MotionMagic-AI-cloud-test.apk](artifacts/MotionMagic-AI-cloud-test.apk), configured for `https://motionmagicai.onrender.com`. Earlier APKs and editor screenshots remain in `artifacts/`.
 
 To install on a connected test device:
 
@@ -28,10 +28,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## What works
 
-- Splash, home, image-to-video, text-to-video, reels, voice, templates, projects, result, editor, account, settings and plan screens.
-- Photo import through Android's file picker, image validation, EXIF orientation handling and a restored selected photo.
-- Local photo animations exported as playable H.264 MP4 files: 5, 10 or 15 seconds; 9:16, 16:9 or 1:1; 540-pixel short edge.
-- Text/reel prompts are retained as project titles. In test mode, the visuals animate sample artwork; prompts do not generate new scenes.
+- A three-mode creation studio: Image to Video, Text to Video and Create Image, with a mode dropdown, expandable settings and a persistent Create action.
+- Photo import through Android's photo picker, image validation, EXIF orientation handling, replace/remove controls and a restored selected photo.
+- Model tiles, resolution segments, aspect-ratio tiles, video duration and generated sound. One job creates one output. Image creation keeps a separate prompt, model, quality and ratio draft.
+- Model selection backed by live server availability, price confirmation, authenticated photo upload, credit reservation, job polling/recovery, bounded downloads and image/video result previews. All catalog models have adapters; unavailable or unpriced variants cannot run.
+- Home creation cards, expandable local tools, searchable template rows, portrait template previews and a central creation button.
+- Violet, pink, blue and teal creation cards with distinct icons, matching model tiles and bundled typography. Pricing compares free tools with AI credits and lists only enabled models with server prices. Subscriptions are not advertised as available.
+- Bundled Plus Jakarta Sans in Regular, Medium, Semibold and Bold, applied to all Material typography roles without a runtime download. See [font provenance and license](docs/FONTS.md).
+- Template previews apply mode-specific prompts and settings while preserving the user's uploaded photo. Sample artwork illustrates the look; it is never substituted for a required user photo.
 - Separate video and audio editing workspaces: timelines, waveform preview, undo/redo, trim/split/append, speed, volume and background music. Video adds captions, color treatments and resolution selection; audio adds fades and AAC/M4A export. Unsupported advanced-AI and voice-cloning controls are not displayed.
 - Large media documents use retained URI access rather than a full copy where supported. Thumbnail/waveform analysis has fixed budgets and runs away from the UI thread. See [editor performance and complexity](docs/EDITOR_PERFORMANCE.md).
 - Device text-to-speech synthesis to WAV with five pitch/pace styles. An installed speech engine and English voice data are required. This is device synthesis, not the planned cloud voice model.
@@ -41,15 +45,15 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Filters expose supported color treatments. Preview applies color/text, speed and background music; audio fades apply on export. Originals remain available. Editor sessions survive rotation but not process death.
 
-For a quick walkthrough: **Image to Video → 5s → Generate Test Video → Edit Further → Text → Apply → Export → Download.** Open **Audio Editor** from Home to import an audio file, or from the video editor to edit/extract its sound.
+For a walkthrough: **Sign in → choose a creation mode → add a photo or prompt → choose an enabled model/settings → Create → review the price → Confirm.** A funded server wallet is required. Check cloud generation recovers submitted requests after reconnecting. Create Image accepts an optional reference. Kling/PixVerse image-to-video follows the photo's shape; text-to-video uses the chosen ratio.
 
 ## Test mode and production work
 
 Google login is implemented in `app/src/main/java/com/motionmagic/ai/auth/` and served by the separate [`backend-django`](backend-django/README.md) project. Deploy it on AWS and configure Google OAuth before using it; see [login setup](docs/LOGIN_SETUP.md). Local projects remain device-wide and do not sync with accounts.
 
-There is no configured live generation provider or Play product in this test build. The app lists its working local services. The backend hides cloud services and products until their gateway, rate, budget, storage and purchase verification are enabled. See [API costs and margin planning](docs/API_COSTS_AND_MARGIN.md).
+No provider key or paid product is embedded in the app. Server configuration decides which cloud variants are available. Rate defaults remain zero, and no live paid provider call is part of the automated tests. Use [PROVIDERS.md](backend-django/PROVIDERS.md) for current model contracts and pricing configuration.
 
-The Django backend supplies authenticated quotes, idempotent wallet reservations, a durable PostgreSQL job outbox, provider reconciliation, S3 ownership, purchase history and refund-aware ledger entries. A private provider gateway still needs to be selected and validated before enabling a rate. No provider name or price is treated as production-ready in source.
+The Django backend supplies authenticated quotes, idempotent wallet reservations, a durable PostgreSQL job queue, Google/fal adapters, S3 ownership, purchase history and refund-aware ledger entries. No private gateway is required for these models. Cost allowances must be configured and reviewed against provider invoices.
 
 One-time Google Play credit verification and reconciliation are implemented server-side but remain disabled until credentials and real products are configured and tested. Subscriptions, ads and referral rewards are absent. Release signing, licensed production artwork, a support destination, privacy/terms documents and device coverage are still required before publishing.
 

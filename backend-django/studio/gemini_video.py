@@ -48,7 +48,7 @@ def _source_image(job):
 
 def _body(job):
     payload = job.quote.payload
-    config = job.quote.rate.config
+    config = payload.get("config", job.quote.rate.config)
     aspect_ratio = payload.get("aspect_ratio", "9:16")
     resolution = config.get("resolution", "720p")
     if aspect_ratio not in ASPECT_RATIOS or resolution not in RESOLUTIONS:

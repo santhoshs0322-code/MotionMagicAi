@@ -2,7 +2,7 @@
 
 This is the dedicated MotionMagic backend. It replaces the shared CandyCraze/Node authentication module and owns MotionMagic accounts, wallet transactions, quotes, generation jobs, media metadata and verified one-time Google Play credit packs.
 
-It is deliberately closed by default. Without a configured Gemini key or provider gateway, S3, a positive provider budget, positive rate rows and enabled Play products, `/api/v1/capabilities` returns no cloud services and `/api/v1/billing/products` returns no products. The Android app continues to provide its local tools.
+Cloud services require the appropriate Google or fal.ai key, private S3 storage, positive configured costs and a positive provider budget. Missing configuration keeps the affected services out of `/api/v1/capabilities`. Play credit products additionally require billing configuration. Android now uploads references, obtains a quote, confirms a credit hold, polls jobs and downloads image/video results; native voice and editing remain local. See [PROVIDERS.md](PROVIDERS.md) for the complete model and environment mapping.
 
 ## Deploy on Render first
 
@@ -32,14 +32,14 @@ The API preserves the existing Android login paths, so the app only needs a new 
 
 `charge = ceil(cost × (1 + markup) / (1 - store fee))`
 
-Rates use integer paise. Quotes freeze cost, markup and fee assumptions for five minutes. Submission locks the wallet, holds the maximum charge, and uses an account-scoped idempotency key. Settlement charges from reported actual cost and releases the remainder. Uncertain provider requests remain held for reconciliation instead of being blindly retried.
+Rates use integer paise. Quotes freeze model settings, cost, markup and fee assumptions for five minutes. Submission locks the wallet, holds the maximum charge, and uses an account-scoped idempotency key. Google/fal responses do not supply an authoritative INR invoice cost: successful jobs settle at the configured conservative cost allowance; the `actual_cost_paise` field records that allowance for these adapters. Gateway adapters may report actual costs. Failed jobs release the customer's entire hold. Ambiguous submissions are never repeated automatically. fal polling failures preserve the request ID and retry for up to 24 hours before refunding; ambiguous failed submissions still consume the daily budget allowance.
 
 Google Play products are one-time credit packs only. Products remain hidden until Play verification is enabled. The backend verifies the token, product, purchase state, consumption state, quantity and obfuscated account ID before granting credits; token hashes are unique, token values are encrypted, and retries cannot grant twice. Refund reconciliation creates a negative ledger entry and can produce account debt if credits were already spent. Subscriptions are not advertised or implemented.
 
 ## Commands
 
-- `python manage.py sync_gemini_rates`: synchronize fail-closed Nano Banana and Gemini Omni model/resolution rows from current integer-paise environment costs.
-- `python manage.py run_generation_worker`: claim jobs from the PostgreSQL outbox with `SKIP LOCKED`, submit/reconcile Gemini or private-gateway jobs, stream outputs to S3 and settle them.
+- `python manage.py sync_provider_rates`: synchronize all Google and fal model/resolution/audio rates from integer-paise environment costs. Zero disables a rate. The older `sync_gemini_rates` remains Google-only.
+- `python manage.py run_generation_worker`: claim jobs from the PostgreSQL outbox with `SKIP LOCKED`, submit/reconcile Google, fal or private-gateway jobs, stream outputs to S3 and settle them.
 - `python manage.py reconcile_purchases`: scheduled Play status/consumption/refund reconciliation.
 - `python manage.py cleanup_expired`: bounded cleanup for expired sessions and unused quotes.
 - `python manage.py import_motion_accounts export.jsonl --apply`: import only the old MotionMagic users. Run without `--apply` first.

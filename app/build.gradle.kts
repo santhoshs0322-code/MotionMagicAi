@@ -16,8 +16,8 @@ android {
         applicationId = "com.motionmagic.ai"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 8
+        versionName = "0.8.0"
         buildConfigField("String", "AUTH_BASE_URL", "\"$motionAiApiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
