@@ -58,7 +58,7 @@ class AppFlowTest {
         app.onNodeWithTag("creation-prompt").performTextInput("Ocean at sunrise with cinematic light")
         app.onNodeWithTag("settings-toggle").performClick()
         await("Model")
-        app.onNodeWithTag("model-option-Gemini Omni Flash").performClick()
+        app.onNodeWithTag("model-option-PixVerse V6").performClick()
         app.onNodeWithText("Create with Premium").assertDoesNotExist()
         app.onNodeWithTag("ratio-16:9").performScrollTo().performClick()
         app.onNodeWithTag("duration-5").performScrollTo().performClick()

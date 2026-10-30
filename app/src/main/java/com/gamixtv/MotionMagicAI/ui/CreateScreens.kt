@@ -138,7 +138,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
     if(settings) ModalBottomSheet(onDismissRequest = { settings = false }, containerColor = RefField, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth()) {
             ReferenceSettings(draft, still, video, image, vm.currentPlan, update, vm::selectVideoModel, { settings = false },
-                vm.cloudRates, mode == CreationMode.IMAGE_TO_VIDEO && video.id != "gemini-omni-1.1-flash")
+                vm.cloudRates, mode == CreationMode.IMAGE_TO_VIDEO)
             ReferenceComposerBar(draft, still, modelName, ready, true, { settings = false }, update, { settings = false; create() })
         }
     }
@@ -295,7 +295,7 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
         Text(if(sourceRatio) "Aspect ratio follows your photo" else "Aspect Ratio", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         if(!sourceRatio) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            items(activeRate?.ratios ?: if(still) ImageModelCatalog.aspects else if(video.id == "gemini-omni-1.1-flash") listOf("16:9", "9:16") else listOf("16:9", "1:1", "9:16")) { ratio ->
+            items(activeRate?.ratios ?: if(still) ImageModelCatalog.aspects else listOf("16:9", "1:1", "9:16")) { ratio ->
                 RatioSquare(ratio, ratio == draft.aspect) { update(draft.copy(aspect = ratio)) }
             }
         }

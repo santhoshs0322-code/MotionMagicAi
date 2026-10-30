@@ -38,7 +38,7 @@ class Ledger(models.Model):
     balance_after = models.BigIntegerField()
     held_after = models.PositiveBigIntegerField()
     reference = models.CharField(max_length=160, unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     class Meta:
         indexes = [models.Index(fields=["account", "-created_at", "-id"])]
 
@@ -107,6 +107,9 @@ class Job(models.Model):
     lease_until = models.DateTimeField(null=True)
     lease_id = models.UUIDField(null=True)
     attempts = models.PositiveIntegerField(default=0)
+    settled_at = models.DateTimeField(null=True, db_index=True)
+    cost_checked_at = models.DateTimeField(null=True, db_index=True)
+    cost_record = models.ForeignKey("ProviderCost", on_delete=models.PROTECT, null=True, related_name="current_for_jobs")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:
@@ -135,3 +138,44 @@ class Purchase(models.Model):
     class Meta:
         indexes = [models.Index(fields=["account", "-created_at", "-id"])]
         constraints = [models.CheckConstraint(condition=Q(state__in=("granted", "refunded")), name="purchase_valid_state")]
+
+
+class ProviderCost(models.Model):
+    """Append-only revisions; never change customer charges when bills are reconciled."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="cost_history")
+    amount_paise = models.PositiveBigIntegerField()
+    original_usd = models.DecimalField(max_digits=20, decimal_places=9, null=True)
+    usd_inr = models.DecimalField(max_digits=14, decimal_places=6, null=True)
+    source = models.CharField(max_length=16, choices=[("fal_billing", "fal billed USD"), ("invoice", "INR invoice")])
+    evidence = models.CharField(max_length=250)
+    fingerprint = models.CharField(max_length=64)
+    recorded_by = models.ForeignKey("auth.User", on_delete=models.PROTECT, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        indexes = [models.Index(fields=["job", "-created_at"])]
+
+
+class CashEntry(models.Model):
+    """Actual cash movements supplied from payment/bank statements, not wallet credits."""
+    KINDS = [("receipt", "Customer payment (gross)"), ("refund", "Customer refund"), ("store_fee", "Store/payment fee"), ("expense", "Hosting, tax or other expense"), ("provider_topup", "Provider credit top-up")]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    occurred_at = models.DateTimeField(db_index=True)
+    kind = models.CharField(max_length=20, choices=KINDS)
+    amount_paise = models.BigIntegerField()
+    account = models.ForeignKey(Account, on_delete=models.PROTECT, null=True)
+    purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, null=True)
+    reference = models.CharField(max_length=160, unique=True)
+    note = models.CharField(max_length=500)
+    reversal_of = models.OneToOneField("self", on_delete=models.PROTECT, null=True, related_name="reversal")
+    recorded_by = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        indexes = [models.Index(fields=["account", "occurred_at"])]
+
+
+class OwnerAudit(models.Model):
+    owner = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    action = models.CharField(max_length=40)
+    reference = models.CharField(max_length=250, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)

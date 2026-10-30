@@ -1,0 +1,1 @@
+{% extends 'owner/base.html' %}{% block content %}<section class="panel login"><h1>Owner sign-in</h1><p class="muted">Use your separate owner username and password.</p><form method="post">{% csrf_token %}{{ form.as_p }}<button>Sign in securely</button></form><p class="muted">No public registration. Sessions expire after one hour.</p></section>{% endblock %}

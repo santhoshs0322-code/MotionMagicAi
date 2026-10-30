@@ -16,7 +16,7 @@ class CloudRateTest {
         assertFalse(silent.matches(CreationDraft(), true))
     }
     @Test fun providerSpecificImageSizesAndSavedPixverseIdsRemainUsable() {
-        assertEquals(listOf("1K"), ImageModelCatalog.find("nano-banana").resolutions)
+        assertEquals("qwen-image", ImageModelCatalog.find("nano-banana").id)
         assertEquals(listOf("2K"), ImageModelCatalog.find("seedream-5-lite").resolutions)
         assertEquals("pixverse-v6", VideoModelCatalog.find("pixverse-v6-max").id)
         assertEquals("PixVerse V6", VideoModelCatalog.find("pixverse-v6-max").title)

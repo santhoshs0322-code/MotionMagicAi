@@ -1,3 +1,5 @@
+> Launch update: fal-only image/video generation; Nano Banana is excluded. Private financial reporting is available at `/owner/` after owner setup. See [Owner setup](backend-django/OWNER_SETUP.md) for permissions, billing reconciliation, cash records and Render environment values.
+
 # MotionMagicAi
 
 A native Kotlin / Jetpack Compose MotionMagic studio with a separate Django backend for accounts, server-priced generation jobs, transaction ledger and verified credit packs.

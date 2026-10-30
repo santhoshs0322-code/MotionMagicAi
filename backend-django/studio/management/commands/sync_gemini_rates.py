@@ -17,7 +17,7 @@ class Command(BaseCommand):
     help = "Create/update only configured Gemini image rates; zero-cost services stay disabled."
 
     def handle(self, *args, **options):
-        configured = bool(settings.GEMINI_API_KEY and settings.S3_BUCKET and settings.DAILY_PROVIDER_BUDGET_PAISE > 0)
+        configured = bool(not settings.FAL_ONLY and settings.GEMINI_API_KEY and settings.S3_BUCKET and settings.DAILY_PROVIDER_BUDGET_PAISE > 0)
         for (model, size), cost in settings.GEMINI_RATE_COSTS.items():
             title, prefix = CATALOG[model]
             slug = f"{prefix}-{size.lower()}"

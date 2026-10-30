@@ -12,7 +12,7 @@ from .billing import verify_purchase
 from .authentication import digest
 from . import gemini, gemini_video
 
-RUNTIME = dict(GATEWAY_URL="https://gateway.example.test", GATEWAY_TOKEN="server-token", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000, MARKUP_BPS=15_000, STORE_FEE_BPS=0)
+RUNTIME = dict(FAL_ONLY=False, GATEWAY_URL="https://gateway.example.test", GATEWAY_TOKEN="server-token", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000, MARKUP_BPS=15_000, STORE_FEE_BPS=0)
 
 class PricingTests(TestCase):
     def test_150_percent_markup_and_store_fee_are_integer_safe(self):
@@ -50,7 +50,7 @@ class PricingTests(TestCase):
             submit_job(account, quote.pk, "request-key-123")
         self.assertFalse(Job.objects.exists())
 
-    @override_settings(GATEWAY_URL="", GATEWAY_TOKEN="", GEMINI_API_KEY="server-key", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000)
+    @override_settings(FAL_ONLY=False, GATEWAY_URL="", GATEWAY_TOKEN="", GEMINI_API_KEY="server-key", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000)
     def test_gemini_rate_quote_freezes_aspect_ratio_and_price(self):
         account = Account.objects.create(google_sub="google-image", email="image@example.test", name="Image")
         Wallet.objects.create(account=account, balance_paise=5000)

@@ -1,3 +1,5 @@
+> Current launch uses fal only, excludes Nano Banana, and adds a private owner finance panel. Follow [OWNER_SETUP.md](OWNER_SETUP.md) for the new environment values, migrations and owner login. Older Google generation instructions below are historical and are not required for this launch. Google OAuth login is still used.
+
 # Render first, AWS later
 
 Deploy the dedicated Django backend from this repository. The root [`render.yaml`](../render.yaml) creates a Docker web service in Singapore and accepts your external PostgreSQL and Valkey connection URLs (such as Aiven) as private settings. Application settings retain the `MOTION_AI_` prefix. The same container can move to AWS later.
@@ -102,20 +104,20 @@ Confirm `/auth/motion-ai/config` reports enabled and returns the correct Web cli
 
 ## Enable image and video generation
 
-The Blueprint does not automatically create a generation worker because it is another paid Render service. The Google key serves the implemented Nano Banana models and Gemini Omni video. `MOTION_AI_FAL_KEY` serves the other image models, Kling O3 and PixVerse V6 through fal.ai. Follow [PROVIDERS.md](PROVIDERS.md) for the full mapping, per-resolution/audio cost variables, rollout and limits.
+The Blueprint does not automatically create a generation worker because it is another paid Render service. The launch uses `MOTION_AI_FAL_KEY` for image models, Kling O3 and PixVerse V6 through fal.ai. Nano Banana and Google generation are excluded. Follow [PROVIDERS.md](PROVIDERS.md) for the full mapping, per-resolution/audio cost variables, rollout and limits.
 
-1. Create a paid Gemini API key in Google AI Studio. Put it only in the API and generation worker as `MOTION_AI_GEMINI_API_KEY`; never paste it into Android, Git, chat, logs or screenshots.
+1. Create a fal generation API key. Put it only in the API and generation worker as `MOTION_AI_FAL_KEY`; never paste it into Android, Git, chat, logs or screenshots.
 2. Create a private S3 bucket with Block Public Access enabled. On Render create an IAM user limited to that bucket/prefix and set `MOTION_AI_S3_BUCKET`, `MOTION_AI_AWS_REGION`, `MOTION_AI_AWS_ACCESS_KEY_ID`, and `MOTION_AI_AWS_SECRET_ACCESS_KEY` on both services. On ECS later, remove access-key variables and use a task role.
 3. Set `MOTION_AI_DAILY_PROVIDER_BUDGET_PAISE` on both services after reviewing costs. It limits configured cost allowances; it does not independently measure the provider bill. The budget is split into 64 shards, so allow at least 64 times the largest single-job cost. Keep it zero until the worker and prices are ready.
 4. On the API only, set the current complete provider cost in paise for each model/resolution you will sell. Zero keeps it hidden. Start with `MOTION_AI_GEMINI_NANO_21_1K_COST_PAISE` for images and `MOTION_AI_GEMINI_OMNI_720P_COST_PAISE_PER_SECOND` for video. The complete list is in `.env.example`.
 5. Keep `MOTION_AI_MARKUP_BPS=15000`. The quote engine charges 2.5 times complete variable cost before configured store-fee gross-up. Include input-token cost, currency conversion, S3/egress and a safety allowance through the cost/overhead settings; do not enter only the advertised output price.
-6. Deploy the API migration, then create a Render Background Worker from branch `dev`, root `backend-django`, the same Dockerfile, and command `python manage.py run_generation_worker`. Copy the database, Valkey, S3, Google/fal keys, budget and pricing settings from the API; use `MOTION_AI_ALLOWED_HOSTS=localhost`, `MOTION_AI_PROXY_MODE=none`, and `MOTION_AI_SSL_REDIRECT=false`. Once both run the new code, enable the reviewed costs and run `sync_provider_rates` (or redeploy). Confirm `/api/v1/capabilities` lists only configured services. Test a low-cost generation with a funded test wallet before enabling Play billing.
+6. Deploy the API migration, then create a Render Background Worker from branch `dev`, root `backend-django`, the same Dockerfile, and command `python manage.py run_generation_worker`. Copy the database, Valkey, S3, fal keys, budget and pricing settings from the API; use `MOTION_AI_ALLOWED_HOSTS=localhost`, `MOTION_AI_PROXY_MODE=none`, and `MOTION_AI_SSL_REDIRECT=false`. Once both run the new code, enable the reviewed costs and run `sync_provider_rates` (or redeploy). Confirm `/api/v1/capabilities` lists only configured services. Test a low-cost generation with a funded test wallet before enabling Play billing.
 
-The worker uses a 20-minute database lease, never automatically repeats an ambiguous paid Gemini request, pessimistically consumes its reserved provider budget on uncertain failure, and releases the customer's held credits when no output is delivered. Omni video uses URI delivery and streams into S3, so memory usage is bounded by multipart chunks instead of video size.
+The worker uses a 20-minute database lease, never automatically repeats an ambiguous paid provider request, pessimistically consumes its reserved provider budget on uncertain failure, and releases the customer's held credits when no output is delivered. Video results stream into S3, so memory usage is bounded by multipart chunks instead of video size.
 
-Kling O3, PixVerse V6, Qwen, GPT Image, Seedream and original Nano Banana now have queued fal adapters and mocked contract/financial tests. Live requests still need your fal account access, key, provider balance and configured cost allowances. Google does not unlock these fal routes.
+Kling O3, PixVerse V6, Qwen, GPT Image, Seedream have queued fal adapters and mocked contract/financial tests. Live requests still need your fal account access, key, provider balance and configured cost allowances. Google does not unlock these fal routes.
 
-Run `python manage.py cleanup_expired` periodically. Configure `reconcile_purchases` only after real Play verification is enabled. Android credit-pack checkout, subscriptions and provider-invoice cost reconciliation remain separate work.
+Run `python manage.py cleanup_expired` periodically. Configure `reconcile_purchases` only after real Play verification is enabled. Android credit-pack checkout and subscriptions remain separate work. Provider-cost reconciliation and owner-only cash reporting are implemented; see [OWNER_SETUP.md](OWNER_SETUP.md).
 
 ## Move to AWS after validation
 

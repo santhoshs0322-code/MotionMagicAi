@@ -35,10 +35,26 @@ if PROXY_MODE == "render":
         ALLOWED_HOSTS.append(render_hostname)
 if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
     raise ImproperlyConfigured("Set explicit MOTION_AI_ALLOWED_HOSTS")
-INSTALLED_APPS = ["django.contrib.auth", "django.contrib.contenttypes", "rest_framework", "studio"]
-MIDDLEWARE = ["django.middleware.security.SecurityMiddleware", "django.middleware.common.CommonMiddleware", "django.middleware.csrf.CsrfViewMiddleware", "django.middleware.clickjacking.XFrameOptionsMiddleware", "studio.middleware.ApiHeaders"]
+INSTALLED_APPS = ["django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions", "rest_framework", "studio"]
+MIDDLEWARE = ["django.middleware.security.SecurityMiddleware", "django.contrib.sessions.middleware.SessionMiddleware", "django.middleware.common.CommonMiddleware", "django.middleware.csrf.CsrfViewMiddleware", "django.contrib.auth.middleware.AuthenticationMiddleware", "django.middleware.clickjacking.XFrameOptionsMiddleware", "studio.middleware.ApiHeaders"]
 ROOT_URLCONF = "config.urls"
-TEMPLATES = []
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True, "OPTIONS": {"context_processors": ["django.template.context_processors.request", "django.contrib.auth.context_processors.auth"]}}]
+OWNER_USERNAME = env("OWNER_USERNAME")
+SESSION_COOKIE_NAME = "motion_owner_session"
+SESSION_COOKIE_PATH = "/owner/"
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Strict"
+SESSION_COOKIE_AGE = 3600
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+FAL_ONLY = flag("FAL_ONLY", True)
+FAL_BILLING_KEY = env("FAL_BILLING_KEY")
+from decimal import Decimal, InvalidOperation
+try:
+    USD_INR_RATE = Decimal(env("USD_INR_RATE", "0"))
+    if not USD_INR_RATE.is_finite() or not 0 <= USD_INR_RATE <= 10000 or USD_INR_RATE != USD_INR_RATE.quantize(Decimal('0.000001')):
+        raise ValueError()
+except (InvalidOperation, ValueError):
+    raise ImproperlyConfigured("MOTION_AI_USD_INR_RATE must be between 0 and 10000 with at most six decimal places") from None
 WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {"default": dj_database_url.parse(env("DATABASE_URL", "sqlite:///" + str(BASE_DIR / "test.sqlite3") if TESTING else ""), conn_max_age=0, conn_health_checks=True)}
 if not TESTING and DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
@@ -130,7 +146,7 @@ if PLAY_ENABLED and (not PLAY_CREDENTIALS_FILE or not BILLING_ENCRYPTION_KEY):
     raise ImproperlyConfigured("Play Billing requires service credentials and an encryption key")
 if GATEWAY_URL and (not GATEWAY_URL.startswith("https://") or not GATEWAY_TOKEN or not S3_BUCKET):
     raise ImproperlyConfigured("The generation gateway requires HTTPS, a server token and an S3 bucket")
-if GEMINI_API_KEY and (not GEMINI_BASE_URL.startswith("https://") or not GEMINI_INTERACTIONS_URL.startswith("https://") or not S3_BUCKET):
+if not FAL_ONLY and GEMINI_API_KEY and (not GEMINI_BASE_URL.startswith("https://") or not GEMINI_INTERACTIONS_URL.startswith("https://") or not S3_BUCKET):
     raise ImproperlyConfigured("Gemini image generation requires HTTPS and an S3 bucket")
 if bool(AWS_ACCESS_KEY_ID) != bool(AWS_SECRET_ACCESS_KEY):
     raise ImproperlyConfigured("Set both MOTION_AI_AWS_ACCESS_KEY_ID and MOTION_AI_AWS_SECRET_ACCESS_KEY")

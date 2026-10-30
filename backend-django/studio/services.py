@@ -24,6 +24,8 @@ def enabled_rates():
     if not settings.S3_BUCKET or settings.DAILY_PROVIDER_BUDGET_PAISE <= 0:
         return Rate.objects.none()
     providers = Q(pk__in=[])
+    if settings.FAL_ONLY:
+        return Rate.objects.filter(provider_model__in=fal_catalog.LAUNCH_MODELS, enabled=True, unit_cost_paise__gt=0, max_units__gt=0) if fal.configured() else Rate.objects.none()
     if settings.GATEWAY_URL and settings.GATEWAY_TOKEN:
         providers |= ~Q(provider_model__in=gemini.MODELS | gemini_video.MODELS | fal_catalog.PROVIDER_MODELS)
     if gemini.configured():
@@ -157,6 +159,7 @@ def finish_job(job_id, state, actual_cost=0, asset=None, error="", lease_id=None
     job.state, job.actual_cost_paise, job.charged_paise = state, actual_cost, charged
     job.output, job.error_code = asset, error
     job.lease_id, job.lease_until = None, None
+    job.settled_at = timezone.now()
     job.save()
     return job
 

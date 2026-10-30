@@ -63,7 +63,7 @@ def submit(job):
             return terminal(job)
         # Save before any result fetch. Reconciliation uses this ID after a worker restart.
         root = "/".join(endpoint.split("/")[:2])
-        saved = Job.objects.filter(pk=job.pk, lease_id=job.lease_id).update(provider_id=identifier, provider_context={"root": root})
+        saved = Job.objects.filter(pk=job.pk, lease_id=job.lease_id).update(provider_id=identifier, provider_context={"root": root, "endpoint": endpoint})
         if not saved:
             raise ValueError("Worker lease was lost")
         return {"state": "running", "id": identifier}

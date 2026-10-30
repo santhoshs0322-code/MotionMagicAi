@@ -92,7 +92,7 @@ class FalFlowTests(TestCase):
         return services.submit_job(self.account, quote.pk, "request-12345")[0]
 
     def test_catalog_only_advertises_configured_rates_and_revision_invalidates_old_quote(self):
-        self.assertEqual(services.enabled_rates().count(), len(RUNTIME["FAL_RATE_COSTS"]))
+        self.assertEqual(services.enabled_rates().count(), len(RUNTIME["FAL_RATE_COSTS"]) - 1)
         with override_settings(FAL_KEY="", GATEWAY_URL="https://gateway.test", GATEWAY_TOKEN="token"):
             self.assertFalse(services.enabled_rates().exists())
         quote = services.create_quote(self.account, {"service": "qwen-image-720p", "prompt": "A lake"})
@@ -132,7 +132,7 @@ class FalFlowTests(TestCase):
         post.return_value = Response({"request_id": "fal-request-123"}, status=202)
         worker.run_one()
         job.refresh_from_db()
-        self.assertEqual((job.state, job.provider_id, job.provider_context), ("running", "fal-request-123", {"root": "fal-ai/qwen-image"}))
+        self.assertEqual((job.state, job.provider_id, job.provider_context), ("running", "fal-request-123", {"root": "fal-ai/qwen-image", "endpoint": "fal-ai/qwen-image"}))
         self.wallet.refresh_from_db(); self.assertEqual(self.wallet.held_paise, 25)
         asset = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/outputs/{job.pk}/generated.png", mime="image/png", size=5, ready=True)
         output_asset.return_value = asset

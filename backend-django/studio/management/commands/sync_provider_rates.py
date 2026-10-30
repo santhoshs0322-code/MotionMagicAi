@@ -16,7 +16,7 @@ class Command(BaseCommand):
             video = "resolution" in config
             cost = settings.FAL_RATE_COSTS.get(slug, 0)
             values = dict(title=f"{model['title']} {config.get('resolution', config.get('image_size'))}" + (" + audio" if config.get("generated_audio") else ""),
-                          kind="video" if video else "image", enabled=bool(configured and cost > 0),
+                          kind="video" if video else "image", enabled=bool(configured and cost > 0 and (not settings.FAL_ONLY or "fal:" + config["app_model_id"] in fal_catalog.LAUNCH_MODELS)),
                           provider_model="fal:" + config["app_model_id"], config=config,
                           unit_cost_paise=cost, overhead_paise=settings.FAL_OVERHEAD_PAISE,
                           max_units=max(config["durations"]) if video else 1)

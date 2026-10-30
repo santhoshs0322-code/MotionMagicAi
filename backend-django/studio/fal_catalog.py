@@ -19,6 +19,7 @@ MODELS = {
     "pixverse-v6": dict(title="PixVerse V6", family="pixverse", sizes=["720p", "1080p"]),
 }
 PROVIDER_MODELS = {"fal:" + name for name in MODELS}
+LAUNCH_MODELS = PROVIDER_MODELS - {"fal:nano-banana"}
 
 
 def variants():

@@ -47,17 +47,12 @@ object ImageModelCatalog {
         PremiumWorkflowOption("gpt-image-2-5-s", "GPT Image 2.5 Sunburst", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
         PremiumWorkflowOption("gpt-image-2-5-f", "GPT Image 2.5 Flare", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
         PremiumWorkflowOption("gpt-image-2", "GPT Image 2", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
-        PremiumWorkflowOption("nano-banana-2-1", "Nano Banana 2.1", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
-        PremiumWorkflowOption("nano-banana-pro", "Nano Banana Pro", "Detailed reference images", "Text + photo → image", listOf("Text", "Photo")),
-        PremiumWorkflowOption("nano-banana-2", "Nano Banana 2", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
-        PremiumWorkflowOption("nano-banana-2-lite", "Nano Banana 2 Lite", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo"), resolutions = listOf("1K")),
-        PremiumWorkflowOption("nano-banana", "Nano Banana", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo"), resolutions = listOf("1K")),
         PremiumWorkflowOption("seedream-5-pro", "Seedream 5.0 Pro", "Image model catalog preview", "Text + photo → image", listOf("Text", "Photo")),
         PremiumWorkflowOption("seedream-5-lite", "Seedream 5.0 Lite", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo"), resolutions = listOf("2K")),
         PremiumWorkflowOption("seedream-4-5", "Seedream 4.5", "Image creation", "Text + photo → image", listOf("Text", "Photo"), resolutions = listOf("2K")),
     )
     val aspects = listOf("16:9", "1:1", "9:16", "4:3", "3:4", "5:4", "4:5", "3:2", "2:3", "21:9")
-    fun find(id: String): PremiumWorkflowOption = models.firstOrNull { it.id == id } ?: models.first { it.id == "nano-banana-2-1" }
+    fun find(id: String): PremiumWorkflowOption = models.firstOrNull { it.id == id } ?: models.first()
 }
 
 data class VideoResolutionOption(val label: String, val requiredPlan: PlanTier)
@@ -91,19 +86,6 @@ object VideoModelCatalog {
             capabilityLabels = listOf("Photo", "Prompt", "Video", "Audio"),
         ),
         VideoModelOption(
-            id = "gemini-omni-1.1-flash",
-            title = "Gemini Omni Flash",
-            description = "Multimodal video creation and refinement",
-            requiredPlan = PlanTier.PREMIUM,
-            durations = setOf(5, 10),
-            resolutions = setOf("720p", "1080p"),
-            supportsGeneratedAudio = true,
-            locallyAvailable = false,
-            creditsPerSecond = 0,
-            workflow = "Text or photo + prompt → video + audio",
-            capabilityLabels = listOf("Text", "Photo", "Audio", "Video"),
-        ),
-        VideoModelOption(
             id = "pixverse-v6",
             title = "PixVerse V6",
             description = "Prompt and image-led premium video",
@@ -124,8 +106,8 @@ object VideoModelCatalog {
 object PremiumWorkflowCatalog {
     val models = listOf(
         PremiumWorkflowOption(
-            id = "nano-banana-2-1",
-            title = "Nano Banana 2.1",
+            id = "qwen-image",
+            title = "Qwen Image",
             description = "Create or edit a reference image before video generation",
             workflow = "Photo + prompt → reference image → video model",
             capabilityLabels = listOf("Photo", "Prompt", "Reference image"),
@@ -162,9 +144,9 @@ data class CreationDraft(
     val modelId: String = "kling-3-omni",
     val resolution: String = "720p",
     val generatedAudio: Boolean = false,
-    val imageQuality: String = "1K",
+    val imageQuality: String = "720p",
     val audioPrompt: String = "",
-    val imageModelId: String = "nano-banana-2-1",
+    val imageModelId: String = "qwen-image",
     val outputCount: Int = 1,
 )
 
