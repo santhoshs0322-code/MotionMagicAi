@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import java.security.MessageDigest
 
 /**
  * Small, local metadata store. Media bytes are stored separately by the media layer.
@@ -79,9 +80,9 @@ class MotionStore(context: Context) {
     }
 
     @Synchronized
-    fun draft(key: String = "video"): CreationDraft {
+    fun draft(key: String = "video", accountId: String? = null): CreationDraft {
         val fallback = CreationDraft(aspect = settings().defaultAspect)
-        val json = readObject(draftKey(key)) ?: return fallback
+        val json = accountId?.let { readObject(draftKey(key, it)) } ?: return fallback
         val model = VideoModelCatalog.find(json.optString("modelId", fallback.modelId))
         val imageModel = ImageModelCatalog.find(json.optString("imageModelId", fallback.imageModelId))
         return CreationDraft(
@@ -105,7 +106,7 @@ class MotionStore(context: Context) {
     }
 
     @Synchronized
-    fun saveDraft(value: CreationDraft, key: String = "video") {
+    fun saveDraft(value: CreationDraft, key: String = "video", accountId: String) {
         val json = JSONObject()
             .put("prompt", value.prompt)
             .put("selectedStyle", value.selectedStyle)
@@ -118,12 +119,12 @@ class MotionStore(context: Context) {
             .put("audioPrompt", value.audioPrompt)
             .put("imageModelId", value.imageModelId)
             .put("outputCount", value.outputCount)
-        commit(preferences.edit().putString(draftKey(key), json.toString()))
+        commit(preferences.edit().putString(draftKey(key, accountId), json.toString()))
     }
 
     @Synchronized
-    fun clearDraft(key: String = "video") {
-        commit(preferences.edit().remove(draftKey(key)))
+    fun clearDraft(key: String = "video", accountId: String) {
+        commit(preferences.edit().remove(draftKey(key, accountId)))
     }
 
     fun isTestMode(): Boolean = try {
@@ -137,9 +138,11 @@ class MotionStore(context: Context) {
         commit(preferences.edit().putBoolean(TEST_MODE, enabled))
     }
 
-    private fun draftKey(key: String): String {
+    private fun draftKey(key: String, accountId: String): String {
         require(key.matches(Regex("[A-Za-z0-9_-]{1,40}"))) { "Invalid draft key." }
-        return "draft_$key"
+        require(accountId.isNotBlank()) { "Sign in before saving your draft." }
+        val hash = MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) }
+        return "draft_${hash}_$key"
     }
 
     private fun readObject(key: String): JSONObject? = try {

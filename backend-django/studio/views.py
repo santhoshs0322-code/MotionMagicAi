@@ -15,7 +15,7 @@ from rest_framework.pagination import CursorPagination
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from . import authentication, services, storage, billing
-from .models import Account, Wallet, Ledger, Revocation, Job, Asset, Product, Purchase, Subscription
+from .models import Account, Wallet, Ledger, Revocation, RefreshSession, Job, Asset, Product, Purchase, Subscription
 from .errors import Problem
 
 logger = logging.getLogger(__name__)
@@ -99,8 +99,8 @@ class SignIn(Public):
                 account.picture = picture[:2048] if isinstance(picture, str) and picture.startswith("https://") else ""
                 account.save(update_fields=["email", "name", "picture"])
                 Wallet.objects.get_or_create(account=account)
-                if created:
-                    services.grant_welcome_credits(account)
+                services.grant_welcome_credits(account)
+                refresh_token = authentication.issue_refresh(account)
         except Problem:
             raise
         except Exception:
@@ -108,7 +108,25 @@ class SignIn(Public):
             # Render receives the database traceback needed to identify missing migrations.
             logger.exception("google_sign_in_account_provisioning_failed")
             raise
-        return ok(token=authentication.issue_token(account), user=authentication.account_public(account))
+        return ok(token=authentication.issue_token(account), refreshToken=refresh_token, user=authentication.account_public(account))
+
+class Refresh(Public):
+    def post(self, request):
+        data = body(request, ("refreshToken",))
+        presented = data.get("refreshToken")
+        if not isinstance(presented, str) or not 40 <= len(presented) <= 256:
+            raise Problem("Invalid saved session.", 401)
+        authentication.rate_limit("refresh:" + authentication.digest(presented), 5)
+        account, refresh_token = authentication.rotate_refresh(presented)
+        return ok(token=authentication.issue_token(account), refreshToken=refresh_token, user=authentication.account_public(account))
+
+class RevokeRefresh(Public):
+    def post(self, request):
+        data = body(request, ("refreshToken",))
+        token = data.get("refreshToken")
+        if isinstance(token, str) and 40 <= len(token) <= 256:
+            RefreshSession.objects.filter(token_hash=authentication.digest(token)).update(revoked_at=timezone.now())
+        return ok()
 
 class Me(Private):
     def get(self, request):
@@ -119,6 +137,10 @@ class Logout(Private):
         claims = request.auth
         Revocation.objects.get_or_create(jti_hash=authentication.digest(claims["jti"]), defaults={"expires_at": datetime.fromtimestamp(claims["exp"], dt_timezone.utc)})
         cache.set("motion:revoked:" + authentication.digest(claims["jti"]), True, max(1, claims["exp"] - int(timezone.now().timestamp())))
+        data = body(request, ("refreshToken",))
+        refresh_token = data.get("refreshToken")
+        if isinstance(refresh_token, str) and 40 <= len(refresh_token) <= 256:
+            RefreshSession.objects.filter(token_hash=authentication.digest(refresh_token), account=request.user).update(revoked_at=timezone.now())
         return ok()
 
 class Capabilities(Public):
@@ -132,7 +154,9 @@ class Capabilities(Public):
 
 class WalletView(Private):
     def get(self, request):
-        wallet, _ = Wallet.objects.get_or_create(account=request.user)
+        with transaction.atomic():
+            services.grant_welcome_credits(request.user)
+            wallet, _ = Wallet.objects.get_or_create(account=request.user)
         return ok(currency="CREDITS", balance_paise=wallet.balance_paise, held_paise=wallet.held_paise, available_paise=wallet.available_paise,
                   balance_credits=wallet.balance_paise, held_credits=wallet.held_paise, available_credits=wallet.available_paise,
                   billing_account_id=authentication.digest(str(request.user.pk)))

@@ -122,6 +122,7 @@ fun DeleteDialog(title: String, onDismiss: () -> Unit, onDelete: () -> Unit) {
 
 @Composable
 fun ProfileScreen(vm: MotionViewModel) {
+    LaunchedEffect(vm.activeAccountId) { vm.refreshBilling() }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(19.dp)) {
         Row(Modifier.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(70.dp).clip(CircleShape).background(MagicGradient), contentAlignment = Alignment.Center) {
@@ -138,6 +139,7 @@ fun ProfileScreen(vm: MotionViewModel) {
                 Column { Text("Local Studio", fontWeight = FontWeight.Bold, fontSize = 22.sp); Text("Only available tools are listed", fontSize = 11.sp, color = Color(0xFFDBCEEF)) }
                 TextButton(onClick = { vm.go(Screen.PLANS) }) { Text("Services", color = Color.White) }
             }
+            Text("${vm.walletCredits?.toString() ?: "…"} credits available", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         com.gamixtv.MotionMagicAI.auth.AuthAccountCard()
         Surface(color = Panel, shape = PanelShape) {

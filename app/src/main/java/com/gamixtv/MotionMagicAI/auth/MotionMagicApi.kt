@@ -36,7 +36,24 @@ class MotionMagicApi(
         val user = parseUser(result.optJSONObject("user"))
         val expiry = SessionClaims.expiry(token, config.appId, user.id)
         if (expiry <= clock() + 30) throw AuthException(AuthFailure.UNAUTHORIZED, "The login session has expired. Please sign in again.")
-        return AuthSession(token, user, expiry)
+        val refreshToken = result.optString("refreshToken")
+        if (refreshToken.length !in 40..256) throw AuthException(AuthFailure.INVALID_RESPONSE, "The login server did not provide a renewable session. Please update the server.")
+        return AuthSession(token, user, expiry, refreshToken)
+    }
+
+    suspend fun refresh(refreshToken: String): AuthSession {
+        if (refreshToken.length !in 40..256) throw AuthException(AuthFailure.UNAUTHORIZED, "Your saved session has ended. Sign in again.")
+        val result = request("POST", "/auth/motion-ai/refresh", JSONObject().put("refreshToken", refreshToken))
+        val user = parseUser(result.optJSONObject("user"))
+        val token = result.optString("token")
+        val next = result.optString("refreshToken")
+        val expiry = SessionClaims.expiry(token, config.appId, user.id)
+        if (next.length !in 40..256 || expiry <= clock() + 30) throw AuthException(AuthFailure.INVALID_RESPONSE, "The server returned an invalid renewed session.")
+        return AuthSession(token, user, expiry, next)
+    }
+
+    suspend fun revoke(refreshToken: String) {
+        if (refreshToken.length in 40..256) request("POST", "/auth/motion-ai/revoke", JSONObject().put("refreshToken", refreshToken))
     }
 
     override suspend fun me(token: String): AuthUser {

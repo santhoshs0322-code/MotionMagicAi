@@ -40,7 +40,7 @@ class EncryptedAuthSessionStore(context: Context, config: AuthConfig) : AuthSess
             val json = JSONObject(String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), Charsets.UTF_8))
             val user = AuthUser(json.getString("id"), json.getString("name"), json.getString("email"))
             val token = json.getString("token")
-            AuthSession(token, user, SessionClaims.expiry(token, "motionmagic", user.id))
+            AuthSession(token, user, SessionClaims.expiry(token, "motionmagic", user.id), json.optString("refreshToken"))
         } catch (_: Exception) {
             prefs.edit().remove("session").commit()
             throw AuthException(AuthFailure.STORAGE, "Your saved sign-in could not be restored. Please sign in again.")
@@ -48,7 +48,7 @@ class EncryptedAuthSessionStore(context: Context, config: AuthConfig) : AuthSess
     } }
     override suspend fun write(session: AuthSession) = withContext(Dispatchers.IO) { mutex.withLock {
         try {
-            val json = JSONObject().put("token", session.token).put("id", session.user.id)
+            val json = JSONObject().put("token", session.token).put("refreshToken", session.refreshToken).put("id", session.user.id)
                 .put("name", session.user.name).put("email", session.user.email)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()); updateAAD(binding) }
             val encrypted = cipher.doFinal(json.toString().toByteArray())

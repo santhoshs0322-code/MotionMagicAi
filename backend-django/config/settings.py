@@ -89,6 +89,7 @@ if render_hostname and "https://" + render_hostname not in CSRF_TRUSTED_ORIGINS:
 GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID")
 AUTH_ENABLED = flag("AUTH_ENABLED")
 SESSION_SECONDS = int(env("SESSION_SECONDS", "86400"))
+REFRESH_DAYS = int(env("REFRESH_DAYS", "90"))
 AWS_REGION = env("AWS_REGION", "ap-south-1")
 S3_BUCKET = env("S3_BUCKET")
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")
@@ -158,6 +159,8 @@ if not 1 <= BUDGET_SHARDS <= 64:
     raise ImproperlyConfigured("Budget shards must be between 1 and 64")
 if not (300 <= SESSION_SECONDS <= 2592000):
     raise ImproperlyConfigured("Session duration must be 5 minutes to 30 days")
+if not 1 <= REFRESH_DAYS <= 90:
+    raise ImproperlyConfigured("MOTION_AI_REFRESH_DAYS must be between 1 and 90")
 if not 120 <= GENERATION_LEASE_SECONDS <= 3600:
     raise ImproperlyConfigured("Generation lease must be 120 to 3600 seconds")
 if AUTH_ENABLED and not GOOGLE_CLIENT_ID.endswith(".apps.googleusercontent.com"):

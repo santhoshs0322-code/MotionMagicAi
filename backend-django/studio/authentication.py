@@ -2,16 +2,20 @@ import hashlib
 import time
 import uuid
 import threading
+import secrets
+from datetime import timedelta
 import jwt
 import requests
 from cachecontrol import CacheControl
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
+from django.utils import timezone
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
-from .models import Account, Revocation
+from .models import Account, Revocation, RefreshSession
 from .errors import Problem
 
 class CertificateRequest(Request):
@@ -37,6 +41,24 @@ def account_public(account):
 def issue_token(account):
     now = int(time.time())
     return jwt.encode({"iss": "motionmagic-ai", "aud": "motionmagic", "appId": "motionmagic", "sub": str(account.pk), "iat": now, "exp": now + settings.SESSION_SECONDS, "jti": str(uuid.uuid4()), "ver": account.token_version}, settings.JWT_SECRET, algorithm="HS256")
+
+def issue_refresh(account, expires_at=None):
+    token = secrets.token_urlsafe(48)
+    RefreshSession.objects.create(token_hash=digest(token), account=account, token_version=account.token_version,
+        expires_at=expires_at or timezone.now() + timedelta(days=settings.REFRESH_DAYS))
+    return token
+
+def rotate_refresh(token):
+    if not isinstance(token, str) or not 40 <= len(token) <= 256:
+        raise Problem("Invalid saved session.", 401)
+    with transaction.atomic():
+        saved = RefreshSession.objects.select_for_update().select_related("account").filter(token_hash=digest(token)).first()
+        if saved is None or saved.revoked_at is not None or saved.expires_at <= timezone.now() or not saved.account.is_active or saved.token_version != saved.account.token_version:
+            raise Problem("Saved session expired. Sign in again.", 401)
+        saved.revoked_at = timezone.now()
+        saved.save(update_fields=["revoked_at"])
+        new_token = issue_refresh(saved.account, saved.expires_at)
+        return saved.account, new_token
 
 def verify_google(token):
     # Cache Google's certificate responses with their HTTP cache policy; still verify each JWT.

@@ -33,6 +33,7 @@ import com.gamixtv.MotionMagicAI.ui.Artwork
 import java.io.File
 import java.io.IOException
 import java.util.UUID
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -56,16 +57,17 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var screen by mutableStateOf(Screen.HOME); private set
     var projects by mutableStateOf(store.projects()); private set
     var settings by mutableStateOf(store.settings()); private set
-    var draft by mutableStateOf(store.draft()); private set
-    var imageDraft by mutableStateOf(store.draft("image-generation")); private set
+    var draft by mutableStateOf(CreationDraft()); private set
+    var imageDraft by mutableStateOf(CreationDraft()); private set
     private var imageDraftSave: Job? = null
     var currentPlan by mutableStateOf(PlanTier.FREE); private set
     val selectedVideoModel: VideoModelOption get() = VideoModelCatalog.find(draft.modelId)
-    var voiceText by mutableStateOf(store.draft("voice").prompt); private set
+    var voiceText by mutableStateOf(""); private set
+    var activeAccountId by mutableStateOf<String?>(null); private set
     var selectedProject by mutableStateOf<Project?>(null); private set
     var selectedArt by mutableStateOf(Artwork.Garden); private set
     var photo by mutableStateOf<Bitmap?>(null); private set
-    var photoName by mutableStateOf("Sample photo"); private set
+    var photoName by mutableStateOf(""); private set
     var failure by mutableStateOf<String?>(null); private set
     var info by mutableStateOf<Pair<String, String>?>(null); private set
     val work = MutableStateFlow<WorkState?>(null)
@@ -75,7 +77,11 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private var draftSave: Job? = null
     private val projectDir = File(app.filesDir, "projects").also { it.mkdirs() }
     private val pendingOutputs = ConcurrentHashMap.newKeySet<File>()
-    private val selectedPhotoFile = File(app.filesDir, "sources/selected.png")
+    private fun photoFile(accountId: String): File {
+        val hash = MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) }
+        return File(app.filesDir, "sources/$hash.png")
+    }
+    private val selectedPhotoFile: File get() = photoFile(checkNotNull(activeAccountId) { "Sign in before selecting a photo." })
     private var photoRevision = 0
     private val cloud = CloudApi(app)
     private val playBilling = PlayBilling(app, ::verifyPlayPurchase, ::message)
@@ -85,6 +91,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var cloudQuote by mutableStateOf<CloudQuote?>(null); private set
     var billingReady by mutableStateOf(false); private set
     var creditProducts by mutableStateOf<List<Pair<String, Long>>>(emptyList()); private set
+    var walletCredits by mutableStateOf<Long?>(null); private set
     private var cloudWork = false
 
     fun refreshCloudCatalog() {
@@ -99,19 +106,26 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshBilling() {
         viewModelScope.launch {
+            val account = activeAccountId ?: return@launch
             try {
                 val session = cloud.session()
+                if (session.user.id != account || activeAccountId != account) return@launch
+                val wallet = cloud.request("GET", "/wallet", session)
+                if (activeAccountId != account) return@launch
+                walletCredits = wallet.getLong("balance_credits")
                 val entitlement = cloud.request("GET", "/billing/entitlement", session)
+                if (activeAccountId != account) return@launch
                 val plan = entitlement.optString("plan", "free")
                 currentPlan = when (plan) { "legend" -> PlanTier.PREMIUM; "creator" -> PlanTier.PRO; else -> PlanTier.FREE }
                 billingReady = entitlement.optBoolean("enabled")
                 val products = cloud.request("GET", "/billing/products", session).getJSONArray("products")
+                if (activeAccountId != account) return@launch
                 creditProducts = (0 until products.length()).map { index ->
                     products.getJSONObject(index).getString("sku") to products.getJSONObject(index).getLong("credits")
                 }
                 if (billingReady) playBilling.recover()
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { billingReady = false }
+            catch (_: Exception) { if (activeAccountId == account) billingReady = false }
         }
     }
 
@@ -155,7 +169,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         val request = if(image) imageDraft else draft
         val withPhoto = screen != Screen.TEXT && screen != Screen.REELS && photo != null
         startWork("Checking your creation", "Preparing a price. Generation starts only after you confirm.") {
+            val account = checkNotNull(activeAccountId) { "Sign in before creating with AI." }
             val session = cloud.session()
+            require(session.user.id == account && activeAccountId == account) { "Your account changed. Start this creation again." }
             if(cloudPending.contains(cloudKey(session))) {
                 error("You have a saved generation request. Use Check cloud generation before starting another.")
             }
@@ -265,18 +281,40 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     init {
-        val restoredRevision = photoRevision
         val referenced = projects.map { it.path }.toSet()
         val abandoned = if(store.lastReadWarning == null) projectDir.listFiles()?.filter { it.path !in referenced } else null
         viewModelScope.launch {
-            val restoredPhoto = withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 abandoned?.forEach { it.delete() }
-                if(selectedPhotoFile.isFile) BitmapFactory.decodeFile(selectedPhotoFile.path) else null
             }
-            if(restoredPhoto != null && photo == null && restoredRevision == photoRevision) { photo = restoredPhoto; photoName = "Your photo" }
         }
         store.lastReadWarning?.let { failure = it }
-        refreshBilling()
+    }
+
+    fun activateAccount(accountId: String?) {
+        if (activeAccountId == accountId) return
+        activeJob?.cancel()
+        draftSave?.cancel(); imageDraftSave?.cancel()
+        photoRevision++
+        activeAccountId = accountId
+        photo = null; photoName = ""; cloudQuote = null
+        selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
+        currentPlan = PlanTier.FREE; billingReady = false; creditProducts = emptyList(); walletCredits = null
+        history.clear(); screen = Screen.HOME
+        draft = accountId?.let { store.draft("video", it) } ?: CreationDraft()
+        imageDraft = accountId?.let { store.draft("image-generation", it) } ?: CreationDraft()
+        voiceText = accountId?.let { store.draft("voice", it).prompt }.orEmpty()
+        if (accountId != null) {
+            val revision = photoRevision
+            val file = photoFile(accountId)
+            viewModelScope.launch {
+                val restored = withContext(Dispatchers.IO) { if (file.isFile) BitmapFactory.decodeFile(file.path) else null }
+                if (activeAccountId == accountId && photoRevision == revision && photo == null && restored != null) {
+                    photo = restored; photoName = "Your photo"
+                }
+            }
+            refreshBilling()
+        }
     }
 
     fun go(destination: Screen) {
@@ -301,11 +339,12 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun message(text: String) { _messages.tryEmit(text) }
 
     fun updateDraft(value: CreationDraft) {
+        val account = activeAccountId ?: return
         draft = value
         draftSave?.cancel()
         draftSave = viewModelScope.launch {
             delay(250)
-            try { withContext(Dispatchers.IO) { store.saveDraft(value) } }
+            try { withContext(Dispatchers.IO) { store.saveDraft(value, accountId = account) } }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { failure = e.message ?: "Could not save your draft." }
         }
@@ -329,11 +368,12 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateImageDraft(value: CreationDraft) {
+        val account = activeAccountId ?: return
         imageDraft = value
         imageDraftSave?.cancel()
         imageDraftSave = viewModelScope.launch {
             delay(250)
-            try { withContext(Dispatchers.IO) { store.saveDraft(value, "image-generation") } }
+            try { withContext(Dispatchers.IO) { store.saveDraft(value, "image-generation", account) } }
             catch(e: CancellationException) { throw e }
             catch(e: Exception) { failure = e.message ?: "Could not save your image draft." }
         }
@@ -370,9 +410,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         return validation.isValid
     }
     fun updateVoiceText(text: String) {
+        val account = activeAccountId ?: return
         voiceText = text
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { store.saveDraft(CreationDraft(prompt = text), "voice") }
+            runCatching { store.saveDraft(CreationDraft(prompt = text), "voice", account) }
                 .onFailure { _messages.tryEmit("Voice draft could not be saved.") }
         }
     }
@@ -397,6 +438,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun importPhoto(uri: Uri) = startWork("Opening photo") {
+        val account = checkNotNull(activeAccountId)
+        val target = photoFile(account)
         val bitmap = withContext(Dispatchers.IO) {
             val temporary = copyUri(uri, 20L * 1024 * 1024, ".image")
             try {
@@ -420,15 +463,17 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
                 val oriented = if(orientation == 1) decoded else Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true).also { if(it !== decoded) decoded.recycle() }
-                selectedPhotoFile.parentFile?.mkdirs()
-                val staged = File(selectedPhotoFile.parentFile, "selected.tmp")
+                target.parentFile?.mkdirs()
+                val staged = File(target.parentFile, "${UUID.randomUUID()}.tmp")
                 try {
                     staged.outputStream().use { require(oriented.compress(Bitmap.CompressFormat.PNG, 100, it)) { "Could not save this photo." } }
-                    require(staged.renameTo(selectedPhotoFile)) { "Could not save this photo. Free some storage and try again." }
+                    require(staged.renameTo(target)) { "Could not save this photo. Free some storage and try again." }
                 } finally { staged.delete() }
                 oriented
             } finally { temporary.delete() }
         }
+        if (activeAccountId != account) return@startWork
+        photoRevision++
         photo = bitmap
         photoName = "Your photo"
         message("Photo added")

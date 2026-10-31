@@ -20,6 +20,14 @@ class Revocation(models.Model):
     jti_hash = models.CharField(primary_key=True, max_length=64)
     expires_at = models.DateTimeField(db_index=True)
 
+class RefreshSession(models.Model):
+    token_hash = models.CharField(primary_key=True, max_length=64)
+    account = models.ForeignKey(Account, on_delete=models.PROTECT)
+    token_version = models.PositiveIntegerField()
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
 class Wallet(models.Model):
     account = models.OneToOneField(Account, on_delete=models.PROTECT, primary_key=True)
     # Legacy database names. Values are integer customer credits, never INR paise.

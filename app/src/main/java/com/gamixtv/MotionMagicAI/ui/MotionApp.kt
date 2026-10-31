@@ -43,7 +43,11 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MotionApp(vm: MotionViewModel) {
-    LoginGate { AuthenticatedMotionApp(vm) }
+    LoginGate(onExit = { vm.activateAccount(null) }) { accountId ->
+        LaunchedEffect(accountId) { vm.activateAccount(accountId) }
+        if (vm.activeAccountId == accountId) AuthenticatedMotionApp(vm)
+        else Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Violet) }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

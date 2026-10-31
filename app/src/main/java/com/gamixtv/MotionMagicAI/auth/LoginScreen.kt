@@ -40,9 +40,14 @@ import com.gamixtv.MotionMagicAI.ui.Violet
 
 /** Full-screen gate: no studio content is composed until server sign-in succeeds. */
 @Composable
-fun LoginGate(auth: AuthViewModel = viewModel(), content: @Composable () -> Unit) {
+fun LoginGate(auth: AuthViewModel = viewModel(), onExit: () -> Unit = {}, content: @Composable (String) -> Unit) {
     val state by auth.state.collectAsState()
-    if (state.status == AuthStatus.SIGNED_IN) content() else LoginScreen(state, auth::signIn, auth::retryRestore, auth::dismissMessage)
+    androidx.compose.runtime.LaunchedEffect(state.status) {
+        if (state.status != AuthStatus.SIGNED_IN) onExit()
+    }
+    val accountId = state.user?.id
+    if (state.status == AuthStatus.SIGNED_IN && accountId != null) content(accountId)
+    else LoginScreen(state, auth::signIn, auth::retryRestore, auth::dismissMessage)
 }
 
 @Composable

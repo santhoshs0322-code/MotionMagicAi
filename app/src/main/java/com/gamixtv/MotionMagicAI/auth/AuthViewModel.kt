@@ -38,15 +38,16 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val saved = session ?: store.read()
                 if (saved == null) { mutable.value = AuthUiState(configured = config.isConfigured); return@launch }
                 session = saved
-                if (saved.expiresAtEpochSeconds <= System.currentTimeMillis() / 1000) {
-                    store.clear(); session = null
-                    mutable.value = AuthUiState(configured = config.isConfigured, message = "Your session expired. Sign in again.")
-                    return@launch
-                }
-                val user = backend.me(saved.token)
+                val current = if (saved.expiresAtEpochSeconds <= System.currentTimeMillis() / 1000 + 3600) {
+                    backend.refresh(saved.refreshToken).also { renewed ->
+                        if (renewed.user.id != saved.user.id) throw AuthException(AuthFailure.UNAUTHORIZED, "Account changed. Sign in again.")
+                        store.write(renewed)
+                    }
+                } else saved
+                val user = backend.me(current.token)
                 ensureActive()
-                if (user.id != saved.user.id) throw AuthException(AuthFailure.UNAUTHORIZED, "Account changed. Sign in again.")
-                session = saved.copy(user = user)
+                if (user.id != current.user.id) throw AuthException(AuthFailure.UNAUTHORIZED, "Account changed. Sign in again.")
+                session = current.copy(user = user)
                 mutable.value = AuthUiState(AuthStatus.SIGNED_IN, user, configured = true)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
@@ -80,7 +81,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.value = AuthUiState(AuthStatus.SIGNED_IN, created.user, configured = true)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                created?.let { runCatching { backend.logout(it.token) } }
+                created?.let {
+                    runCatching { backend.revoke(it.refreshToken) }
+                    runCatching { backend.logout(it.token) }
+                }
                 mutable.value = AuthUiState(message = safeMessage(e), configured = config.isConfigured)
             }
         }
@@ -96,7 +100,10 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 store.clear()
                 runCatching { credentials.clearCredentialState(ClearCredentialStateRequest()) }
-                if (previous != null) try { backend.logout(previous.token) }
+                if (previous != null) try {
+                    backend.revoke(previous.refreshToken)
+                    if (previous.expiresAtEpochSeconds > System.currentTimeMillis() / 1000) backend.logout(previous.token)
+                }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { message = "Signed out on this device. The server could not be reached to revoke the previous session." }
             } catch (e: CancellationException) { throw e }

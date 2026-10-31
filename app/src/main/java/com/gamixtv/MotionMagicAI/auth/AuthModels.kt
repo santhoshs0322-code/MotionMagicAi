@@ -36,9 +36,9 @@ data class AuthConfig(
 
 data class AuthUser(val id: String, val name: String, val email: String, val picture: String = "")
 
-data class AuthSession(val token: String, val user: AuthUser, val expiresAtEpochSeconds: Long) {
+data class AuthSession(val token: String, val user: AuthUser, val expiresAtEpochSeconds: Long, val refreshToken: String = "") {
     // Prevent accidental session-token disclosure when a state object is inspected or logged.
-    override fun toString(): String = "AuthSession(userId=${user.id}, expiresAt=$expiresAtEpochSeconds, token=<redacted>)"
+    override fun toString(): String = "AuthSession(userId=${user.id}, expiresAt=$expiresAtEpochSeconds, token=<redacted>, refreshToken=<redacted>)"
 }
 
 enum class AuthStatus { GUEST, RESTORING, SIGNING_IN, VERIFYING, SIGNED_IN, OFFLINE }

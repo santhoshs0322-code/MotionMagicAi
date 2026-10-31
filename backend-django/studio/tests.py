@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 from .authentication import issue_token
-from .models import Account, Wallet, Ledger, Rate, Job, Product
+from .models import Account, Wallet, Ledger, Rate, Job, Product, RefreshSession
 from .services import price, create_quote, submit_job, finish_job
 from .services import grant_welcome_credits
 from .billing import verify_purchase
@@ -78,6 +78,52 @@ class WelcomeCreditTests(TestCase):
         wallet = Wallet.objects.get(account=account)
         self.assertEqual(wallet.balance_paise, 100)
         self.assertEqual(Ledger.objects.filter(account=account, kind="welcome").count(), 1)
+
+    @override_settings(AUTH_ENABLED=True, WELCOME_CREDITS=200)
+    @patch("studio.authentication.verify_google")
+    def test_existing_google_account_receives_missing_welcome_once(self, verify_google):
+        account = Account.objects.create(google_sub="existing-google", email="existing@example.test", name="Existing")
+        Wallet.objects.create(account=account)
+        verify_google.return_value = {"sub": account.google_sub, "email": account.email, "name": account.name}
+        client = APIClient()
+        for _ in range(2):
+            response = client.post("/auth/motion-ai/google/native", {"app": "motionmagic", "idToken": "google-id-token-for-testing"}, format="json")
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["refreshToken"])
+        self.assertEqual(Wallet.objects.get(account=account).balance_paise, 200)
+        self.assertEqual(Ledger.objects.filter(account=account, kind="welcome").count(), 1)
+
+    @override_settings(WELCOME_CREDITS=200)
+    def test_existing_wallet_receives_missing_credits_without_new_login(self):
+        account = Account.objects.create(google_sub="older-google", email="older@example.test", name="Older")
+        Wallet.objects.create(account=account)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION="Bearer " + issue_token(account))
+        self.assertEqual(client.get("/api/v1/wallet").json()["balance_credits"], 200)
+        self.assertEqual(client.get("/api/v1/wallet").json()["balance_credits"], 200)
+
+
+class RefreshSessionTests(TestCase):
+    def test_refresh_rotates_and_can_be_revoked_with_expired_access(self):
+        from .authentication import issue_refresh
+        account = Account.objects.create(google_sub="refresh-google", email="refresh@example.test", name="Refresh")
+        first = issue_refresh(account)
+        client = APIClient()
+        response = client.post("/auth/motion-ai/refresh", {"refreshToken": first}, format="json")
+        self.assertEqual(response.status_code, 200)
+        second = response.json()["refreshToken"]
+        self.assertNotEqual(first, second)
+        self.assertEqual(client.post("/auth/motion-ai/refresh", {"refreshToken": first}, format="json").status_code, 401)
+        self.assertEqual(client.post("/auth/motion-ai/revoke", {"refreshToken": second}, format="json").status_code, 200)
+        self.assertEqual(client.post("/auth/motion-ai/refresh", {"refreshToken": second}, format="json").status_code, 401)
+
+    def test_expired_refresh_cannot_renew(self):
+        from .authentication import issue_refresh
+        from datetime import timedelta
+        account = Account.objects.create(google_sub="expired-google", email="expired@example.test", name="Expired")
+        token = issue_refresh(account)
+        RefreshSession.objects.filter(token_hash=digest(token)).update(expires_at=timezone.now() - timedelta(seconds=1))
+        self.assertEqual(APIClient().post("/auth/motion-ai/refresh", {"refreshToken": token}, format="json").status_code, 401)
 
 
 class GeminiProviderTests(TestCase):

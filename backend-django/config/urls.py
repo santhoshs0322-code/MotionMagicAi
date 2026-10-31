@@ -14,6 +14,8 @@ urlpatterns = [
     path("health", v.Health.as_view()), path("ready", v.Ready.as_view()),
     path("auth/motion-ai/config", v.AuthConfig.as_view()),
     path("auth/motion-ai/google/native", v.SignIn.as_view()),
+    path("auth/motion-ai/refresh", v.Refresh.as_view()),
+    path("auth/motion-ai/revoke", v.RevokeRefresh.as_view()),
     path("auth/motion-ai/me", v.Me.as_view()), path("auth/motion-ai/logout", v.Logout.as_view()),
     path("api/v1/capabilities", v.Capabilities.as_view()),
     path("api/v1/wallet", v.WalletView.as_view()), path("api/v1/transactions", v.Transactions.as_view()),

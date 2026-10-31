@@ -4,6 +4,9 @@ import android.content.Context
 import com.gamixtv.MotionMagicAI.auth.AuthConfig
 import com.gamixtv.MotionMagicAI.auth.AuthSession
 import com.gamixtv.MotionMagicAI.auth.EncryptedAuthSessionStore
+import com.gamixtv.MotionMagicAI.auth.MotionMagicApi
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -18,9 +21,16 @@ import org.json.JSONObject
 
 /** Authenticated Django API only. Provider credentials never enter the Android application. */
 class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fromBuildConfig()) {
+    companion object { private val renewalLock = Mutex() }
     private val sessions = EncryptedAuthSessionStore(context, config)
-    suspend fun session(): AuthSession = sessions.read()?.takeIf { it.expiresAtEpochSeconds > System.currentTimeMillis() / 1000 + 30 }
-        ?: throw CloudException(401, "Sign in from My Account to create with AI.")
+    suspend fun session(): AuthSession = renewalLock.withLock {
+        val saved = sessions.read() ?: throw CloudException(401, "Sign in to create with AI.")
+        if (saved.expiresAtEpochSeconds > System.currentTimeMillis() / 1000 + 3600) return@withLock saved
+        val renewed = MotionMagicApi(config).refresh(saved.refreshToken)
+        if (renewed.user.id != saved.user.id) throw CloudException(401, "Account changed. Sign in again.")
+        sessions.write(renewed)
+        renewed
+    }
 
     suspend fun catalog(): List<CloudRate> {
         val rows = request("GET", "/capabilities").getJSONArray("cloud")
