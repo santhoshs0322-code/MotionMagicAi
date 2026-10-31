@@ -17,9 +17,9 @@ android {
         applicationId = "com.gamixtv.MotionMagicAI"
         minSdk = 26
         targetSdk = 36
-        // Increase by one before each Google Play upload: 14, then 15, then 16.
-        versionCode = 14
-        versionName = "0.8.4"
+        // Play Console already received 3,592,741. Every later upload must stay above it.
+        versionCode = 3_592_742
+        versionName = "0.8.5"
         buildConfigField("String", "AUTH_BASE_URL", "\"$motionMagicApiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

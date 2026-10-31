@@ -1,6 +1,6 @@
 > Launch update: fal-only image/video generation; Nano Banana is excluded. Private financial reporting is available at `/owner/` after owner setup. See [Owner setup](backend-django/OWNER_SETUP.md) for permissions, billing reconciliation, cash records and Render environment values.
 
-Before each Google Play upload, increase `versionCode` in `app/build.gradle.kts` by one: 14, then 15, then 16. The version code must be higher than the last uploaded bundle. Released builds always call `https://motionmagicai.onrender.com`; release builds use R8 code shrinking and obfuscation.
+Play Console has already received version code `3592741`, so every future upload must stay higher: `3592742`, then `3592743`, then `3592744`. The user-visible version name may remain simple, such as `0.8.5`. Released builds always call `https://motionmagicai.onrender.com`; release builds use R8 code shrinking and obfuscation.
 
 # MotionMagicAi
 
