@@ -13,7 +13,7 @@ All JSON responses include `ok`. Protected routes require `Authorization: Bearer
 | `GET /auth/motion-ai/me` | Verify session and return account |
 | `POST /auth/motion-ai/logout` | Revoke current JWT |
 | `GET /api/v1/capabilities` | Actual local/cloud services; cloud entries are configuration gated |
-| `GET /api/v1/wallet` | Balance, held and available credits; backfill missing welcome grant; includes Play account-binding hash |
+| `GET /api/v1/wallet` | Balance, held and available credits; separate `monthly_credits`, `monthly_expires_at`, `topup_credits` and `free_credits`; backfill missing welcome grant; includes Play account-binding hash |
 | `GET /api/v1/transactions` | Cursor-paginated immutable ledger |
 | `POST /api/v1/quotes` | Server-priced generation quote |
 | `GET, POST /api/v1/jobs` | Cursor-paginated jobs; reserve a quoted job |
@@ -28,6 +28,8 @@ All JSON responses include `ok`. Protected routes require `Authorization: Bearer
 | `POST /api/v1/billing/play-notifications` | Google Cloud Pub/Sub RTDN receiver; service-to-service only |
 
 Google Nano Banana image models and Gemini Omni video use server-only `MOTION_AI_GEMINI_API_KEY`. Qwen, GPT Image, Seedream, original Nano Banana, Kling O3 and PixVerse V6 use `MOTION_AI_FAL_KEY`. The fal adapter submits once to its queue, saves the request ID, polls status and streams results into private S3. The optional private gateway remains available for other services. See [PROVIDERS.md](PROVIDERS.md).
+
+Monthly subscription credits are spent before welcome credits and permanent top-ups. Unused monthly credits expire at the end of the paid period; each verified renewal replaces them with a fresh monthly grant. Cancelling renewal preserves the current paid period, then only welcome/top-up credits remain. In-progress jobs keep their reserved credits until settlement; any unused monthly reservation is discarded after its period ends. Top-ups are tied to the Google account and do not expire unless the purchase is refunded.
 
 Capabilities include `config.app_model_id`, supported ratios/durations, resolution/image size, audio-priced variant and `minimum_charge_paise` / `minimum_units`. Those legacy `*_paise` field names are integer **credits**, not INR paise; the responses also include `maximum_credits` and wallet credit aliases. Two hundred credits have a US$1 face value. They do not include secrets or provider URLs. Quote POST accepts `service`, `prompt`, optional owned ready `asset_id`, `aspect_ratio`, video `duration` and `generated_audio`. It returns a five-minute quote ID, title and maximum charge; the server decides price. A fal silent rate rejects a sound-on request. One request generates one output. Job GET includes kind/title/aspect/duration for download recovery. Asset GET returns a short-lived S3 URL plus MIME/size metadata; stream the file and verify its size.
 

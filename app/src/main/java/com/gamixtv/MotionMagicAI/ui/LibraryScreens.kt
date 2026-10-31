@@ -140,6 +140,7 @@ fun ProfileScreen(vm: MotionViewModel) {
                 TextButton(onClick = { vm.go(Screen.PLANS) }) { Text("Services", color = Color.White) }
             }
             Text("${vm.walletCredits?.toString() ?: "…"} credits available", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Monthly: ${vm.monthlyCredits ?: "…"}  ·  Free: ${vm.freeCredits ?: "…"}  ·  Top-up: ${vm.topupCredits ?: "…"}", color = Color(0xFFE5D4F5), fontSize = 12.sp)
         }
         com.gamixtv.MotionMagicAI.auth.AuthAccountCard()
         Surface(color = Panel, shape = PanelShape) {
@@ -239,7 +240,7 @@ fun PlansScreen(vm: MotionViewModel) {
             }
         }
         Text("Membership", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        Text(if(vm.billingReady) "Creator and Legend renew monthly in Google Play. Credits from the 500-credit top-up never expire." else "Membership is being activated on the server. You can still use local editing tools.", color = Muted, fontSize = 12.sp)
+        Text(if(vm.billingReady) "Monthly credits reset at renewal and unused credits do not carry over. Monthly credits are used first. Top-up credits never expire and stay after cancellation." else "Membership is being activated on the server. You can still use local editing tools.", color = Muted, fontSize = 12.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             PlanPurchaseCard("Creator", "₹499 / month", "1,200 credits every month", Color(0xFFFFC13C), vm.currentPlan == com.gamixtv.MotionMagicAI.data.PlanTier.PRO, Modifier.weight(1f)) {
                 if(activity == null) vm.message("Open this screen in the MotionMagic app to purchase.") else vm.buy(activity, "motion_creator_monthly")

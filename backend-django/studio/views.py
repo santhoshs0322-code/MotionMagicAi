@@ -156,9 +156,11 @@ class WalletView(Private):
     def get(self, request):
         with transaction.atomic():
             services.grant_welcome_credits(request.user)
-            wallet, _ = Wallet.objects.get_or_create(account=request.user)
+            wallet = services.wallet_for_update(request.user)
         return ok(currency="CREDITS", balance_paise=wallet.balance_paise, held_paise=wallet.held_paise, available_paise=wallet.available_paise,
                   balance_credits=wallet.balance_paise, held_credits=wallet.held_paise, available_credits=wallet.available_paise,
+                  monthly_credits=max(0, wallet.monthly_available_paise), monthly_expires_at=wallet.monthly_expires_at,
+                  topup_credits=max(0, wallet.topup_available_paise), free_credits=max(0, wallet.free_available_paise),
                   billing_account_id=authentication.digest(str(request.user.pk)))
 
 class Transactions(Private):

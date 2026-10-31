@@ -8,7 +8,7 @@ from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 from .models import Product, Purchase, Subscription
 from .authentication import digest
-from .services import wallet_for_update, entry
+from .services import wallet_for_update, entry, expire_monthly
 from .errors import Problem
 
 def cipher():
@@ -82,7 +82,7 @@ def _subscription_details(receipt, product_id):
     if state is None:
         raise Problem("Google Play returned an unsupported subscription state.", 503)
     renew = line.get("autoRenewingPlan")
-    return state, _time(line.get("expiryTime")), bool(isinstance(renew, dict)), identifiers.get("obfuscatedExternalAccountId"), receipt.get("latestOrderId", "")
+    return state, _time(line.get("expiryTime")), bool(isinstance(renew, dict)), identifiers.get("obfuscatedExternalAccountId"), line.get("latestSuccessfulOrderId") or receipt.get("latestOrderId", "")
 
 def verify_subscription(account, product_id, token):
     if not settings.SUBSCRIPTIONS_ENABLED:
@@ -92,6 +92,8 @@ def verify_subscription(account, product_id, token):
     plan, credits = SUBSCRIPTIONS[product_id]
     receipt = play_subscription_request(token)
     state, expires_at, auto_renewing, external_id, order_id = _subscription_details(receipt, product_id)
+    if state in ("active", "grace", "cancelled") and expires_at is None:
+        raise Problem("Google Play did not provide the subscription period end.", 503)
     if external_id != digest(str(account.pk)):
         raise Problem("Subscription account binding is invalid.", 403)
     if not isinstance(order_id, str) or not order_id or len(order_id) > 200:
@@ -104,7 +106,7 @@ def verify_subscription(account, product_id, token):
             raise Problem("Subscription belongs to another account.", 409)
         if subscription is None:
             subscription = Subscription(account=account, product_id=product_id, token_hash=token_hash,
-                token_encrypted=cipher().encrypt(token.encode()).decode(), plan=plan)
+                token_encrypted=cipher().encrypt(token.encode()).decode(), plan=plan, last_grant_key=None)
         elif subscription.product_id != product_id:
             raise Problem("Subscription product does not match this purchase.", 409)
         subscription.state = state
@@ -114,11 +116,21 @@ def verify_subscription(account, product_id, token):
         subscription.checked_at = timezone.now()
         # An order ID is immutable for the payment period.  This makes retries,
         # app reinstalls and delivery duplicates unable to double grant credits.
-        grant_key = f"subscription:{token_hash}:{order_id}"
-        grantable = state in ("active", "grace", "cancelled") and (expires_at is None or expires_at > timezone.now())
+        legacy_key = f"subscription:{token_hash}:{order_id}"
+        grant_key = legacy_key if subscription.last_grant_key == legacy_key else f"subscription:{digest(token_hash + ':' + order_id)}"
+        grantable = state in ("active", "grace", "cancelled") and expires_at > timezone.now()
         if grantable and subscription.last_grant_key != grant_key:
-            entry(wallet, "subscription", grant_key, balance_delta=credits)
+            expire_monthly(wallet, force=True)
+            wallet.monthly_period_key = grant_key
+            wallet.monthly_expires_at = expires_at
+            wallet.save(update_fields=["monthly_period_key", "monthly_expires_at"])
+            entry(wallet, "subscription", grant_key, balance_delta=credits, monthly_balance_delta=credits)
             subscription.last_grant_key = grant_key
+        elif grantable and subscription.last_grant_key == grant_key and wallet.monthly_period_key == grant_key and expires_at != wallet.monthly_expires_at:
+            wallet.monthly_expires_at = expires_at
+            wallet.save(update_fields=["monthly_expires_at"])
+        elif state in ("on_hold", "expired", "revoked") and wallet.monthly_period_key == subscription.last_grant_key:
+            expire_monthly(wallet, force=True)
         subscription.save()
     try:
         acknowledge_subscription(product_id, token)
@@ -168,7 +180,8 @@ def verify_purchase(account, sku, token):
                 raise Problem("Purchase is already assigned.", 409)
             return duplicate
         purchase = Purchase.objects.create(account=account, product=product, token_hash=digest(token), token_encrypted=cipher().encrypt(token.encode()).decode(), order_id=order, credit_paise=product.credit_paise, checked_at=timezone.now())
-        entry(wallet, "purchase", f"purchase:{purchase.pk}:grant", balance_delta=product.credit_paise)
+        entry(wallet, "purchase", f"purchase:{purchase.pk}:grant", balance_delta=product.credit_paise,
+              topup_balance_delta=product.credit_paise)
     # Credits commit before consume. Failed consumption retries never grant again.
     try:
         play_request(sku, token, consume=True)
@@ -187,7 +200,8 @@ def reconcile_purchase(purchase):
             wallet = wallet_for_update(purchase.account)
             current = Purchase.objects.select_for_update().get(pk=purchase.pk)
             if current.state != "refunded":
-                entry(wallet, "refund", f"purchase:{current.pk}:refund", balance_delta=-current.credit_paise)
+                entry(wallet, "refund", f"purchase:{current.pk}:refund", balance_delta=-current.credit_paise,
+                      topup_balance_delta=-current.credit_paise)
                 current.state = "refunded"
                 current.checked_at = timezone.now()
                 current.save(update_fields=["state", "checked_at"])

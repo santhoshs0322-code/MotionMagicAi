@@ -92,6 +92,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var billingReady by mutableStateOf(false); private set
     var creditProducts by mutableStateOf<List<Pair<String, Long>>>(emptyList()); private set
     var walletCredits by mutableStateOf<Long?>(null); private set
+    var monthlyCredits by mutableStateOf<Long?>(null); private set
+    var topupCredits by mutableStateOf<Long?>(null); private set
+    var freeCredits by mutableStateOf<Long?>(null); private set
     private var cloudWork = false
 
     fun refreshCloudCatalog() {
@@ -104,7 +107,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun refreshBilling() {
+    fun refreshBilling(recoverPurchases: Boolean = true) {
         viewModelScope.launch {
             val account = activeAccountId ?: return@launch
             try {
@@ -112,7 +115,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 if (session.user.id != account || activeAccountId != account) return@launch
                 val wallet = cloud.request("GET", "/wallet", session)
                 if (activeAccountId != account) return@launch
-                walletCredits = wallet.getLong("balance_credits")
+                walletCredits = wallet.getLong("available_credits")
+                monthlyCredits = wallet.optLong("monthly_credits", 0)
+                topupCredits = wallet.optLong("topup_credits", 0)
+                freeCredits = wallet.optLong("free_credits", 0)
                 val entitlement = cloud.request("GET", "/billing/entitlement", session)
                 if (activeAccountId != account) return@launch
                 val plan = entitlement.optString("plan", "free")
@@ -123,7 +129,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 creditProducts = (0 until products.length()).map { index ->
                     products.getJSONObject(index).getString("sku") to products.getJSONObject(index).getLong("credits")
                 }
-                if (billingReady) playBilling.recover()
+                if (billingReady && recoverPurchases) playBilling.recover()
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (activeAccountId == account) billingReady = false }
         }
@@ -150,7 +156,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                     cloud.request("POST", "/billing/subscriptions/verify", session, JSONObject().put("product_id", productId).put("purchase_token", token))
                     message("Your subscription is active. New credits are ready to use.")
                 }
-                refreshBilling()
+                refreshBilling(recoverPurchases = false)
             } catch (e: Exception) { message(e.message ?: "Google Play payment completed. Tap Restore purchases after reconnecting.") }
         }
     }
@@ -299,7 +305,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         activeAccountId = accountId
         photo = null; photoName = ""; cloudQuote = null
         selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
-        currentPlan = PlanTier.FREE; billingReady = false; creditProducts = emptyList(); walletCredits = null
+        currentPlan = PlanTier.FREE; billingReady = false; creditProducts = emptyList()
+        walletCredits = null; monthlyCredits = null; topupCredits = null; freeCredits = null
         history.clear(); screen = Screen.HOME
         draft = accountId?.let { store.draft("video", it) } ?: CreationDraft()
         imageDraft = accountId?.let { store.draft("image-generation", it) } ?: CreationDraft()

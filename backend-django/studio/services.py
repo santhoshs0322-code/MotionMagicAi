@@ -1,13 +1,15 @@
 import json
 import uuid
+from collections import defaultdict, deque
 from datetime import timedelta
+from itertools import groupby
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from .authentication import digest
 from .errors import Problem
-from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset
+from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset, Subscription
 from . import gemini, gemini_video, fal, fal_catalog
 
 TERMINAL = ("succeeded", "failed", "cancelled")
@@ -36,7 +38,113 @@ def enabled_rates():
 
 def wallet_for_update(account):
     Wallet.objects.get_or_create(account=account)
-    return Wallet.objects.select_for_update().get(account=account)
+    wallet = Wallet.objects.select_for_update().get(account=account)
+    if wallet.credit_buckets_version == 0:
+        initialize_credit_buckets(wallet)
+    expire_monthly(wallet)
+    return wallet
+
+def initialize_credit_buckets(wallet):
+    """Classify legacy mixed balances once, under the wallet row lock.
+
+    A deployment migration over every account would block Render startup. The
+    historical ledger is replayed on each account's first wallet use instead.
+    """
+    rows = list(Ledger.objects.filter(account_id=wallet.account_id).order_by("created_at", "id"))
+    free = wallet.balance_paise - sum(row.balance_delta for row in rows)
+    # Some databases record several transactions in the same millisecond. The
+    # ledger's before/after balances recover their order without guessing from
+    # random UUIDs. Each historical row is visited a constant number of times.
+    balance_cursor = free
+    held_cursor = wallet.held_paise - sum(row.held_delta for row in rows)
+    ordered_rows = []
+    for _, same_time in groupby(rows, key=lambda row: row.created_at):
+        candidates = defaultdict(deque)
+        group = list(same_time)
+        for row in group:
+            candidates[(row.balance_after - row.balance_delta, row.held_after - row.held_delta)].append(row)
+        for _ in group:
+            choices = candidates.get((balance_cursor, held_cursor))
+            if not choices:
+                # Preserve timestamp order if a historical import did not
+                # record a continuous balance chain.
+                remaining = [row for queue in candidates.values() for row in queue]
+                ordered_rows.extend(remaining)
+                if remaining:
+                    balance_cursor, held_cursor = remaining[-1].balance_after, remaining[-1].held_after
+                break
+            row = choices.popleft()
+            ordered_rows.append(row)
+            balance_cursor, held_cursor = row.balance_after, row.held_after
+    monthly = topup = 0
+    last_period = ""
+    for row in ordered_rows:
+        change = row.balance_delta
+        if row.kind == "subscription" and change > 0:
+            monthly = change  # Older unused period credits do not roll over.
+            last_period = row.reference
+        elif row.kind in ("purchase", "refund"):
+            topup += change
+        elif row.kind == "charge" and change < 0:
+            spent = -change
+            from_monthly = min(max(0, monthly), spent)
+            monthly -= from_monthly
+            spent -= from_monthly
+            from_free = min(max(0, free), spent)
+            free -= from_free
+            topup -= spent - from_free
+        elif row.kind == "monthly_expire":
+            monthly = max(0, monthly + change)
+        else:
+            free += change
+    current = Subscription.objects.filter(account_id=wallet.account_id, last_grant_key=last_period).order_by("-updated_at").first() if last_period else None
+    expires_at = current.expires_at if current else None
+    current_valid = current and current.state in ("active", "grace", "cancelled") and expires_at and expires_at > timezone.now()
+    if not current_valid:
+        # Keep only enough expired monthly credits to cover jobs already held.
+        monthly = min(monthly, wallet.held_paise)
+    reconstructed = free + monthly + topup
+    if reconstructed > wallet.balance_paise:
+        free -= reconstructed - wallet.balance_paise
+        reconstructed = wallet.balance_paise
+    wallet.monthly_balance_paise = max(0, monthly)
+    wallet.monthly_period_key = last_period
+    wallet.monthly_expires_at = expires_at
+    wallet.topup_balance_paise = topup
+    wallet.monthly_held_paise = wallet.topup_held_paise = 0
+    held_left = wallet.held_paise
+    free_held = 0
+    for job in Job.objects.filter(account_id=wallet.account_id).exclude(state__in=TERMINAL).select_related("quote").order_by("created_at", "id"):
+        held = min(job.quote.charge_paise, held_left)
+        held_left -= held
+        monthly_part = min(held, max(0, wallet.monthly_balance_paise - wallet.monthly_held_paise))
+        free_part = min(held - monthly_part, max(0, free - free_held))
+        topup_part = min(held - monthly_part - free_part, max(0, wallet.topup_balance_paise - wallet.topup_held_paise))
+        free_held += held - monthly_part - topup_part
+        wallet.monthly_held_paise += monthly_part
+        wallet.topup_held_paise += topup_part
+        job.monthly_reserved_paise = monthly_part
+        job.topup_reserved_paise = topup_part
+        job.monthly_period_key = last_period if monthly_part else ""
+        job.save(update_fields=["monthly_reserved_paise", "topup_reserved_paise", "monthly_period_key"])
+    previous_balance = wallet.balance_paise
+    wallet.balance_paise = reconstructed
+    wallet.credit_buckets_version = 1
+    wallet.save(update_fields=["balance_paise", "monthly_balance_paise", "monthly_held_paise", "monthly_period_key", "monthly_expires_at",
+                               "topup_balance_paise", "topup_held_paise", "credit_buckets_version"])
+    if reconstructed != previous_balance:
+        Ledger.objects.create(account_id=wallet.account_id, kind="monthly_expire", reference=f"bucket-migration:{wallet.account_id}",
+                              balance_delta=reconstructed - previous_balance, held_delta=0,
+                              balance_after=reconstructed, held_after=wallet.held_paise)
+
+def expire_monthly(wallet, force=False):
+    """Expire unspent period credits. Existing job holds settle separately."""
+    if not wallet.monthly_period_key or not (force or (wallet.monthly_expires_at and wallet.monthly_expires_at <= timezone.now())):
+        return
+    unused = wallet.monthly_available_paise
+    if unused > 0:
+        entry(wallet, "monthly_expire", f"monthly-expire:{digest(wallet.monthly_period_key)}",
+              balance_delta=-unused, monthly_balance_delta=-unused)
 
 def grant_welcome_credits(account):
     """Grant the one-time verified-Google-account welcome balance.
@@ -49,15 +157,24 @@ def grant_welcome_credits(account):
     wallet = wallet_for_update(account)
     entry(wallet, "welcome", f"welcome:{account.pk}", balance_delta=settings.WELCOME_CREDITS)
 
-def entry(wallet, kind, reference, balance_delta=0, held_delta=0):
+def entry(wallet, kind, reference, balance_delta=0, held_delta=0,
+          monthly_balance_delta=0, monthly_held_delta=0, topup_balance_delta=0, topup_held_delta=0):
     # Caller holds the account's wallet lock within the same transaction.
     if Ledger.objects.filter(reference=reference).exists():
         return
     if wallet.held_paise + held_delta < 0:
         raise Problem("Invalid reservation state.", 503)
+    if (wallet.monthly_balance_paise + monthly_balance_delta < 0 or wallet.monthly_held_paise + monthly_held_delta < 0 or
+            wallet.monthly_balance_paise + monthly_balance_delta < wallet.monthly_held_paise + monthly_held_delta or
+            wallet.topup_held_paise + topup_held_delta < 0):
+        raise Problem("Invalid credit bucket state.", 503)
     wallet.balance_paise += balance_delta
     wallet.held_paise += held_delta
-    wallet.save(update_fields=["balance_paise", "held_paise"])
+    wallet.monthly_balance_paise += monthly_balance_delta
+    wallet.monthly_held_paise += monthly_held_delta
+    wallet.topup_balance_paise += topup_balance_delta
+    wallet.topup_held_paise += topup_held_delta
+    wallet.save(update_fields=["balance_paise", "held_paise", "monthly_balance_paise", "monthly_held_paise", "topup_balance_paise", "topup_held_paise"])
     Ledger.objects.create(account_id=wallet.account_id, kind=kind, reference=reference, balance_delta=balance_delta, held_delta=held_delta, balance_after=wallet.balance_paise, held_after=wallet.held_paise)
 
 def create_quote(account, data):
@@ -144,8 +261,17 @@ def submit_job(account, quote_id, key):
         raise Problem("Generation capacity is temporarily full. Try later.", 429)
     bucket.reserved_paise += quote.provider_cost_paise
     bucket.save(update_fields=["reserved_paise"])
-    job = Job.objects.create(account=account, quote=quote, idempotency_key=key, budget=bucket, next_attempt_at=timezone.now())
-    entry(wallet, "reserve", f"job:{job.pk}:reserve", held_delta=quote.charge_paise)
+    monthly_reserved = min(max(0, wallet.monthly_available_paise), quote.charge_paise)
+    remaining = quote.charge_paise - monthly_reserved
+    free_reserved = min(max(0, wallet.free_available_paise), remaining)
+    topup_reserved = remaining - free_reserved
+    if topup_reserved > max(0, wallet.topup_available_paise):
+        raise Problem("Insufficient credits.", 402)
+    job = Job.objects.create(account=account, quote=quote, idempotency_key=key, budget=bucket, next_attempt_at=timezone.now(),
+                             monthly_reserved_paise=monthly_reserved, topup_reserved_paise=topup_reserved,
+                             monthly_period_key=wallet.monthly_period_key if monthly_reserved else "")
+    entry(wallet, "reserve", f"job:{job.pk}:reserve", held_delta=quote.charge_paise,
+          monthly_held_delta=monthly_reserved, topup_held_delta=topup_reserved)
     # The committed row IS the durable queue; no DB/message-broker dual-write gap.
     return job, True
 
@@ -166,7 +292,18 @@ def finish_job(job_id, state, actual_cost=0, asset=None, error="", lease_id=None
     bucket.spent_paise += actual_cost
     bucket.save(update_fields=["reserved_paise", "spent_paise"])
     charged = min(job.quote.charge_paise, price(actual_cost + job.quote.overhead_paise, job.quote.markup_bps, job.quote.fee_bps)) if state == "succeeded" else 0
-    entry(wallet, "charge" if charged else "release", f"job:{job.pk}:settle", balance_delta=-charged, held_delta=-job.quote.charge_paise)
+    monthly_charge = min(charged, job.monthly_reserved_paise)
+    free_reserved = job.quote.charge_paise - job.monthly_reserved_paise - job.topup_reserved_paise
+    free_charge = min(charged - monthly_charge, free_reserved)
+    topup_charge = charged - monthly_charge - free_charge
+    entry(wallet, "charge" if charged else "release", f"job:{job.pk}:settle", balance_delta=-charged, held_delta=-job.quote.charge_paise,
+          monthly_balance_delta=-monthly_charge, monthly_held_delta=-job.monthly_reserved_paise,
+          topup_balance_delta=-topup_charge, topup_held_delta=-job.topup_reserved_paise)
+    expired_release = job.monthly_reserved_paise - monthly_charge
+    if expired_release and (job.monthly_period_key != wallet.monthly_period_key or
+                            (wallet.monthly_expires_at and wallet.monthly_expires_at <= timezone.now())):
+        entry(wallet, "monthly_expire", f"job:{job.pk}:expired-release", balance_delta=-expired_release,
+              monthly_balance_delta=-expired_release)
     job.state, job.actual_cost_paise, job.charged_paise = state, actual_cost, charged
     job.output, job.error_code = asset, error
     job.lease_id, job.lease_until = None, None

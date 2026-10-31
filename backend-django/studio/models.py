@@ -34,9 +34,25 @@ class Wallet(models.Model):
     # A store refund after spending may create debt; it never erases the audit trail.
     balance_paise = models.BigIntegerField(default=0)
     held_paise = models.PositiveBigIntegerField(default=0)
+    monthly_balance_paise = models.PositiveBigIntegerField(default=0)
+    monthly_held_paise = models.PositiveBigIntegerField(default=0)
+    monthly_period_key = models.CharField(max_length=160, blank=True)
+    monthly_expires_at = models.DateTimeField(null=True)
+    topup_balance_paise = models.BigIntegerField(default=0)
+    topup_held_paise = models.PositiveBigIntegerField(default=0)
+    credit_buckets_version = models.PositiveSmallIntegerField(default=0)
     @property
     def available_paise(self):
         return self.balance_paise - self.held_paise
+    @property
+    def monthly_available_paise(self):
+        return self.monthly_balance_paise - self.monthly_held_paise
+    @property
+    def topup_available_paise(self):
+        return self.topup_balance_paise - self.topup_held_paise
+    @property
+    def free_available_paise(self):
+        return self.available_paise - self.monthly_available_paise - self.topup_available_paise
 
 class Ledger(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -113,6 +129,9 @@ class Job(models.Model):
     budget = models.ForeignKey(Budget, on_delete=models.PROTECT)
     actual_cost_paise = models.PositiveIntegerField(null=True)
     charged_paise = models.PositiveIntegerField(null=True)
+    monthly_reserved_paise = models.PositiveIntegerField(default=0)
+    topup_reserved_paise = models.PositiveIntegerField(default=0)
+    monthly_period_key = models.CharField(max_length=160, blank=True)
     error_code = models.CharField(max_length=40, blank=True)
     next_attempt_at = models.DateTimeField(db_index=True)
     lease_until = models.DateTimeField(null=True)
@@ -168,7 +187,7 @@ class Subscription(models.Model):
     auto_renewing = models.BooleanField(default=False)
     expires_at = models.DateTimeField(null=True, db_index=True)
     latest_order_id = models.CharField(max_length=200, blank=True)
-    last_grant_key = models.CharField(max_length=260, blank=True, null=True, unique=True)
+    last_grant_key = models.CharField(max_length=260, blank=True, null=True, unique=True, default=None)
     checked_at = models.DateTimeField(null=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
