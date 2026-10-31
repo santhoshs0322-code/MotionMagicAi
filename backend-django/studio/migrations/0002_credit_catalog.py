@@ -17,5 +17,8 @@ def add_catalog(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("studio", "0001_initial")]
+    # This project already has data/schema migrations through 0007. Keeping the
+    # original filename is harmless, but it must extend that active chain rather
+    # than create a second migration leaf on deployment.
+    dependencies = [("studio", "0007_alter_ledger_created_at")]
     operations = [migrations.RunPython(add_catalog, migrations.RunPython.noop)]
