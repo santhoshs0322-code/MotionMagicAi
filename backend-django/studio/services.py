@@ -38,6 +38,17 @@ def wallet_for_update(account):
     Wallet.objects.get_or_create(account=account)
     return Wallet.objects.select_for_update().get(account=account)
 
+def grant_welcome_credits(account):
+    """Grant the one-time verified-Google-account welcome balance.
+
+    The account's unique Google subject and immutable ledger reference make this
+    safe across login retries and concurrent web workers.
+    """
+    if not settings.WELCOME_CREDITS:
+        return
+    wallet = wallet_for_update(account)
+    entry(wallet, "welcome", f"welcome:{account.pk}", balance_delta=settings.WELCOME_CREDITS)
+
 def entry(wallet, kind, reference, balance_delta=0, held_delta=0):
     # Caller holds the account's wallet lock within the same transaction.
     if Ledger.objects.filter(reference=reference).exists():

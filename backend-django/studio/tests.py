@@ -3,11 +3,13 @@ import uuid
 import base64
 from unittest.mock import patch
 from django.test import TestCase, override_settings
+from django.db import transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 from .authentication import issue_token
 from .models import Account, Wallet, Ledger, Rate, Job, Product
 from .services import price, create_quote, submit_job, finish_job
+from .services import grant_welcome_credits
 from .billing import verify_purchase
 from .authentication import digest
 from . import gemini, gemini_video
@@ -64,6 +66,18 @@ class PricingTests(TestCase):
         self.assertEqual(quote.charge_paise, 750)
         with self.assertRaisesMessage(Exception, "supported aspect ratio"):
             create_quote(account, {"service": rate.pk, "prompt": "A neon city", "aspect_ratio": "16:9"})
+
+
+class WelcomeCreditTests(TestCase):
+    @override_settings(WELCOME_CREDITS=100)
+    def test_verified_account_welcome_credit_is_idempotent(self):
+        account = Account.objects.create(google_sub="welcome-google", email="welcome@example.test", name="Welcome")
+        with transaction.atomic():
+            grant_welcome_credits(account)
+            grant_welcome_credits(account)
+        wallet = Wallet.objects.get(account=account)
+        self.assertEqual(wallet.balance_paise, 100)
+        self.assertEqual(Ledger.objects.filter(account=account, kind="welcome").count(), 1)
 
 
 class GeminiProviderTests(TestCase):

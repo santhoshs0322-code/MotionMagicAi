@@ -86,7 +86,7 @@ class SignIn(Public):
             raise Problem("Google identity could not be verified.", 401) from None
         try:
             with transaction.atomic():
-                account, _ = Account.objects.get_or_create(google_sub=profile["sub"], defaults={"email": profile["email"], "name": str(profile.get("name", profile["email"]))[:200]})
+                account, created = Account.objects.get_or_create(google_sub=profile["sub"], defaults={"email": profile["email"], "name": str(profile.get("name", profile["email"]))[:200]})
                 if not account.is_active:
                     raise Problem("Account is disabled.", 403)
                 account.email = profile["email"]
@@ -95,6 +95,8 @@ class SignIn(Public):
                 account.picture = picture[:2048] if isinstance(picture, str) and picture.startswith("https://") else ""
                 account.save(update_fields=["email", "name", "picture"])
                 Wallet.objects.get_or_create(account=account)
+                if created:
+                    services.grant_welcome_credits(account)
         except Problem:
             raise
         except Exception:
@@ -122,12 +124,14 @@ class Capabilities(Public):
             "id": r.pk, "title": r.title, "kind": r.kind, "model": r.provider_model, "max_units": r.max_units, "config": r.config,
             "minimum_units": min(r.config.get("durations", [5])) if r.kind == "video" else 1,
             "minimum_charge_paise": services.price(r.unit_cost_paise * (min(r.config.get("durations", [5])) if r.kind == "video" else 1) + r.overhead_paise),
-        } for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=False, currency="INR", markup_bps=settings.MARKUP_BPS)
+        } for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=False, currency="CREDITS", credit_value_usd_cents=1, markup_bps=settings.MARKUP_BPS)
 
 class WalletView(Private):
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(account=request.user)
-        return ok(currency="INR", balance_paise=wallet.balance_paise, held_paise=wallet.held_paise, available_paise=wallet.available_paise, billing_account_id=authentication.digest(str(request.user.pk)))
+        return ok(currency="CREDITS", balance_paise=wallet.balance_paise, held_paise=wallet.held_paise, available_paise=wallet.available_paise,
+                  balance_credits=wallet.balance_paise, held_credits=wallet.held_paise, available_credits=wallet.available_paise,
+                  billing_account_id=authentication.digest(str(request.user.pk)))
 
 class Transactions(Private):
     def get(self, request):
@@ -137,7 +141,8 @@ class Quotes(Private):
     def post(self, request):
         authentication.rate_limit("quotes:" + str(request.user.pk), 20)
         quote = services.create_quote(request.user, request.data)
-        return ok(id=str(quote.pk), currency="INR", maximum_charge_paise=quote.charge_paise, expires_at=quote.expires_at, markup_bps=quote.markup_bps, title=quote.rate.title)
+        return ok(id=str(quote.pk), currency="CREDITS", maximum_charge_paise=quote.charge_paise, maximum_credits=quote.charge_paise,
+                  expires_at=quote.expires_at, markup_bps=quote.markup_bps, title=quote.rate.title)
 
 def job_public(job):
     payload = job.quote.payload
@@ -200,7 +205,7 @@ class AssetDetail(Private):
 class Products(Private):
     def get(self, request):
         products = Product.objects.filter(enabled=True, credit_paise__gt=0).order_by("credit_paise")[:30] if settings.PLAY_ENABLED and services.enabled_rates().exists() else []
-        return ok(products=[{"sku": p.pk, "title": p.title, "credit_paise": p.credit_paise} for p in products])
+        return ok(currency="CREDITS", products=[{"sku": p.pk, "title": p.title, "credit_paise": p.credit_paise, "credits": p.credit_paise} for p in products])
 
 def purchase_public(purchase):
     return {"id": str(purchase.pk), "sku": purchase.product_id, "credit_paise": purchase.credit_paise, "state": purchase.state, "consumed": purchase.consumed, "created_at": purchase.created_at}

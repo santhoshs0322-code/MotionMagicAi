@@ -96,13 +96,14 @@ def dashboard(request):
         wallet = wallet.filter(account_id=filters["user"])
         pending = pending.filter(account_id=filters["user"])
     balances = wallet.aggregate(balance=Sum("balance_paise"), held=Sum("held_paise"))
-    cards = [("Wallet credits charged", totals["charged"]), ("Estimated provider cost", totals["estimated_provider"]),
-             ("Reconciled provider cost", totals["billed_provider"]), ("Estimated job margin", totals["estimated_margin"]),
-             ("Recorded customer payments", totals["receipt"]), ("Recorded refunds", totals["refund"]),
-             ("Recorded store/payment fees", totals["store_fee"]), ("Other recorded expenses", totals["expense"]),
-             ("Provider credit top-ups", totals["provider_topup"]), ("Recorded net cash movement", totals["cash_net"])]
+    credit_cards = [("Wallet credits charged", totals["charged"]), ("Provider allowance reserved", totals["estimated_provider"]),
+                    ("Estimated provider-cost margin", totals["estimated_margin"])]
+    cash_cards = [("Reconciled provider cost", totals["billed_provider"]), ("Recorded customer payments", totals["receipt"]),
+                  ("Recorded refunds", totals["refund"]), ("Recorded store/payment fees", totals["store_fee"]),
+                  ("Other recorded expenses", totals["expense"]), ("Provider credit top-ups", totals["provider_topup"]),
+                  ("Recorded net cash movement", totals["cash_net"])]
     return render(request, "owner/dashboard.html", {"filters": filters, "totals": totals, "rows": rows, "truncated": truncated,
-        "cards": cards, "balances": balances, "pending": pending.count(), "query": request.GET.urlencode(),
+        "credit_cards": credit_cards, "cash_cards": cash_cards, "balances": balances, "pending": pending.count(), "query": request.GET.urlencode(),
         "markup": Decimal(settings.MARKUP_BPS) / 100, "billing_configured": fal_billing.configured()})
 
 
@@ -220,14 +221,14 @@ def export(request, kind):
     if error is not None: return error
     if kind == "jobs":
         query = finance.job_query(filters).select_related("account", "quote__rate", "cost_record").order_by("settled_at", "pk")
-        headers = ["job", "user_id", "email", "settled_UTC", "model", "status", "provider_request", "charged_paise", "provider_allowance_paise", "reconciled_cost_paise", "cost_source", "billed_USD", "USD_INR"]
+        headers = ["job", "user_id", "email", "settled_UTC", "model", "status", "provider_request", "charged_credits", "provider_allowance_raw_cents", "reconciled_cost_inr_paise", "cost_source", "billed_USD", "USD_INR"]
         def values(j):
             c = j.cost_record
             return [j.pk, j.account_id, j.account.email, j.settled_at, j.quote.rate_id, j.state, j.provider_id, j.charged_paise, j.actual_cost_paise, c.amount_paise if c else None, c.source if c else "unreconciled", c.original_usd if c else None, c.usd_inr if c else None]
     elif kind == "ledger":
         query = Ledger.objects.filter(created_at__gte=filters["from"], created_at__lt=filters["until"]).order_by("created_at", "pk")
         if filters["user"]: query = query.filter(account_id=filters["user"])
-        headers = ["id", "user_id", "time_UTC", "kind", "balance_delta_paise", "held_delta_paise", "balance_after_paise", "held_after_paise", "reference"]
+        headers = ["id", "user_id", "time_UTC", "kind", "balance_delta_credits", "held_delta_credits", "balance_after_credits", "held_after_credits", "reference"]
         def values(e): return [e.pk, e.account_id, e.created_at, e.kind, e.balance_delta, e.held_delta, e.balance_after, e.held_after, e.reference]
     elif kind == "cash":
         query = finance.cash_query(filters).order_by("occurred_at", "pk")

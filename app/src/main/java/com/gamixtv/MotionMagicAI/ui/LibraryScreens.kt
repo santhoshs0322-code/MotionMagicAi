@@ -243,7 +243,7 @@ fun PlansScreen(vm: MotionViewModel) {
                         Text(if(cheapest.kind == "image") ImageModelCatalog.find(cheapest.modelId).title else VideoModelCatalog.find(cheapest.modelId).title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(variants.map { it.size.uppercase() }.distinct().joinToString(" · "), color = Muted, fontSize = 11.sp)
                     }
-                    Text("From ${com.gamixtv.MotionMagicAI.cloud.rupees(cheapest.minimumPricePaise)}\n${if(cheapest.kind == "image") "per image" else "per ${cheapest.minimumUnits}s video"}", color = accents[1], fontSize = 12.sp, textAlign = TextAlign.End)
+                    Text("From ${com.gamixtv.MotionMagicAI.cloud.credits(cheapest.minimumPricePaise)}\n${if(cheapest.kind == "image") "per image" else "per ${cheapest.minimumUnits}s video"}", color = accents[1], fontSize = 12.sp, textAlign = TextAlign.End)
                 }
             }
         }

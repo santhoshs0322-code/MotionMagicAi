@@ -22,6 +22,7 @@ class Revocation(models.Model):
 
 class Wallet(models.Model):
     account = models.OneToOneField(Account, on_delete=models.PROTECT, primary_key=True)
+    # Legacy database names. Values are integer customer credits, never INR paise.
     # A store refund after spending may create debt; it never erases the audit trail.
     balance_paise = models.BigIntegerField(default=0)
     held_paise = models.PositiveBigIntegerField(default=0)
@@ -50,6 +51,8 @@ class Rate(models.Model):
     provider_model = models.CharField(max_length=120)
     config = models.JSONField(default=dict)
     # Unit = one image, one video second, or 1,000 voice characters (rounded up).
+    # Legacy database names. These are raw provider USD-cent allowances; customer
+    # charges are calculated in credits by services.price().
     unit_cost_paise = models.PositiveIntegerField()
     overhead_paise = models.PositiveIntegerField(default=0)
     max_units = models.PositiveIntegerField(default=1)
@@ -119,6 +122,7 @@ class Job(models.Model):
 class Product(models.Model):
     sku = models.CharField(primary_key=True, max_length=150)
     title = models.CharField(max_length=100)
+    # Legacy database name. This is the integer customer-credit grant.
     credit_paise = models.PositiveIntegerField()
     enabled = models.BooleanField(default=False)
     # Credit packs only. Subscriptions must not appear until their lifecycle is implemented.

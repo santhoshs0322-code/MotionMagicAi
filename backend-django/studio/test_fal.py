@@ -104,7 +104,7 @@ class FalFlowTests(TestCase):
 
     def test_settings_are_frozen_and_silent_price_cannot_buy_native_audio(self):
         job = self.job("kling-3-omni-720p-silent", duration=5, generated_audio=False)
-        self.assertEqual(job.quote.charge_paise, 125)
+        self.assertEqual(job.quote.charge_paise, 250)
         Rate.objects.filter(pk=job.quote.rate_id).update(config={"resolution": "1080p"})
         endpoint, body = fal_catalog.request(job.quote.payload)
         self.assertIn("/standard/", endpoint)
@@ -133,15 +133,15 @@ class FalFlowTests(TestCase):
         worker.run_one()
         job.refresh_from_db()
         self.assertEqual((job.state, job.provider_id, job.provider_context), ("running", "fal-request-123", {"root": "fal-ai/qwen-image", "endpoint": "fal-ai/qwen-image"}))
-        self.wallet.refresh_from_db(); self.assertEqual(self.wallet.held_paise, 25)
+        self.wallet.refresh_from_db(); self.assertEqual(self.wallet.held_paise, 50)
         asset = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/outputs/{job.pk}/generated.png", mime="image/png", size=5, ready=True)
         output_asset.return_value = asset
         put.return_value = {"key": asset.key, "mime": asset.mime, "size": asset.size}
         get.side_effect = [Response({"status": "COMPLETED"}), Response({"images": [{"url": "https://v3.fal.media/result.png"}]}), Response()]
         Job.objects.filter(pk=job.pk).update(next_attempt_at=timezone.now())
         worker.run_one(); job.refresh_from_db(); self.wallet.refresh_from_db()
-        self.assertEqual((job.state, job.output_id, job.charged_paise), ("succeeded", asset.pk, 25))
-        self.assertEqual((self.wallet.balance_paise, self.wallet.held_paise), (99_975, 0))
+        self.assertEqual((job.state, job.output_id, job.charged_paise), ("succeeded", asset.pk, 50))
+        self.assertEqual((self.wallet.balance_paise, self.wallet.held_paise), (99_950, 0))
         post.assert_called_once()
         self.assertFalse(worker.run_one())
         self.assertNotIn("headers", get.call_args.kwargs)  # No credentials on media GET.

@@ -124,10 +124,16 @@ GEMINI_VIDEO_RATE_COSTS = {
     resolution: int(env(f"GEMINI_OMNI_{resolution.upper()}_COST_PAISE_PER_SECOND", "0"))
     for resolution in ("720p", "1080p", "4k")
 }
-MARKUP_BPS = int(env("MARKUP_BPS", "15000"))
+# Credits are USD-cent equivalents: 100 customer credits have a $1 face value.
+# A 40,000 bps markup makes the customer charge 5x the provider allowance,
+# leaving an 80% provider-cost gross margin before store/payment fees.
+MARKUP_BPS = int(env("MARKUP_BPS", "40000"))
 STORE_FEE_BPS = int(env("STORE_FEE_BPS", "0"))
 DAILY_PROVIDER_BUDGET_PAISE = int(env("DAILY_PROVIDER_BUDGET_PAISE", "0"))
-BUDGET_SHARDS = 64
+WELCOME_CREDITS = int(env("WELCOME_CREDITS", "100"))
+# Use one shard for a small launch budget. At AWS scale use up to 64, together
+# with a budget large enough for the most expensive single generation per shard.
+BUDGET_SHARDS = int(env("BUDGET_SHARDS", "64"))
 MAX_ACTIVE_JOBS = int(env("MAX_ACTIVE_JOBS", "2"))
 GENERATION_LEASE_SECONDS = int(env("GENERATION_LEASE_SECONDS", "1200"))
 PLAY_ENABLED = flag("PLAY_ENABLED")
@@ -136,6 +142,10 @@ PLAY_CREDENTIALS_FILE = env("PLAY_CREDENTIALS_FILE")
 BILLING_ENCRYPTION_KEY = env("BILLING_ENCRYPTION_KEY")
 if not (0 <= STORE_FEE_BPS < 10000 and 0 <= MARKUP_BPS <= 100000):
     raise ImproperlyConfigured("Invalid markup or fee basis points")
+if not 0 <= WELCOME_CREDITS <= 10000:
+    raise ImproperlyConfigured("Welcome credits must be between 0 and 10,000")
+if not 1 <= BUDGET_SHARDS <= 64:
+    raise ImproperlyConfigured("Budget shards must be between 1 and 64")
 if not (300 <= SESSION_SECONDS <= 2592000):
     raise ImproperlyConfigured("Session duration must be 5 minutes to 30 days")
 if not 120 <= GENERATION_LEASE_SECONDS <= 3600:

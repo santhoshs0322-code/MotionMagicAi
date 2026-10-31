@@ -18,5 +18,4 @@ data class CloudQuote(val id: String, val chargePaise: Long, val availablePaise:
 
 class CloudException(val status: Int, message: String) : Exception(message)
 
-fun rupees(paise: Long): String = java.text.NumberFormat.getCurrencyInstance(java.util.Locale.forLanguageTag("en-IN"))
-    .format(java.math.BigDecimal.valueOf(paise, 2))
+fun credits(value: Long): String = "$value credits"

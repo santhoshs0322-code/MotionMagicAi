@@ -186,8 +186,8 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
         AlertDialog(onDismissRequest = vm::dismissCloudQuote, containerColor = Panel,
             title = { Text("Create with ${quote.title}") },
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Maximum charge: ${com.gamixtv.MotionMagicAI.cloud.rupees(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
-                Text("Available balance: ${com.gamixtv.MotionMagicAI.cloud.rupees(quote.availablePaise)}")
+                Text("Maximum charge: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
+                Text("Available balance: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.availablePaise)}")
                 Text("One creation. Credits are reserved when you confirm and released if generation fails. Closing progress does not cancel a submitted generation.", fontSize = 13.sp)
                 if(!enough) Text("Add generation credits before continuing. Your account balance is managed by the server.", color = MaterialTheme.colorScheme.error)
             } },

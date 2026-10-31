@@ -198,7 +198,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                     persistProject(project)
                     withContext(Dispatchers.IO) { saveCloudPending(session, null) }
                     selectedProject = project; go(Screen.RESULT); autoSave(project)
-                    message("Saved · ${rupees(job.getLong("charged_paise"))} charged")
+                    message("Saved · ${credits(job.getLong("charged_paise"))} charged")
                     return
                 }
                 "failed", "cancelled" -> {
