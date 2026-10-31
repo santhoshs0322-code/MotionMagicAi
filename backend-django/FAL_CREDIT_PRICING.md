@@ -43,9 +43,10 @@ prevents selling an unpriced service at a false margin.
 
 Creator and Legend are intentionally one-time credit packs, not recurring
 subscriptions. Create the corresponding Play products as `motion_creator_credits`
-and `motion_legend_credits`, then enable them only after Play server verification
-is configured. The database seeds them disabled so no unsupported checkout is
-offered.
+and `motion_legend_credits`, then set `MOTION_AI_ENABLE_CREDIT_PACKS=true` only
+after Play server verification is configured. The deployment synchronisation
+enables those seeded products without shell access; until then no unsupported
+checkout is offered.
 
 For a safe first launch use `MOTION_AI_DAILY_PROVIDER_BUDGET_PAISE=1000` and
 `MOTION_AI_BUDGET_SHARDS=1`: that limits raw fal spend to **$10/day**. A 64-shard

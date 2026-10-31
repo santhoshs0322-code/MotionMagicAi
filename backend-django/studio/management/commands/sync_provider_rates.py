@@ -3,7 +3,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
 from studio import fal, fal_catalog
-from studio.models import Rate
+from studio.models import Product, Rate
 
 
 class Command(BaseCommand):
@@ -29,3 +29,6 @@ class Command(BaseCommand):
                 rate.revision += 1
                 rate.save()
             self.stdout.write(f"{slug}: {'enabled' if values['enabled'] else 'disabled'}")
+        enabled_packs = settings.PLAY_ENABLED and settings.ENABLE_CREDIT_PACKS
+        Product.objects.filter(pk__in=("motion_creator_credits", "motion_legend_credits")).update(enabled=enabled_packs)
+        self.stdout.write(f"credit packs: {'enabled' if enabled_packs else 'disabled'}")
