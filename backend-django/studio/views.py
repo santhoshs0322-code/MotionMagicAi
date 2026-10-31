@@ -1,5 +1,6 @@
 import uuid
 import ipaddress
+import logging
 from datetime import datetime, timezone as dt_timezone
 from django.conf import settings
 from django.core.cache import cache
@@ -12,6 +13,8 @@ from rest_framework.pagination import CursorPagination
 from . import authentication, services, storage, billing
 from .models import Account, Wallet, Ledger, Revocation, Job, Asset, Product, Purchase
 from .errors import Problem
+
+logger = logging.getLogger(__name__)
 
 def ok(**data):
     return Response({"ok": True, **data})
@@ -76,18 +79,29 @@ class SignIn(Public):
             raise Problem("A MotionMagic Google identity token is required.")
         try:
             profile = authentication.verify_google(token)
-        except Exception:
+        except Exception as exc:
+            # Never log an ID token or its claims. The exception type is enough to diagnose
+            # certificate, network and audience failures from Render's server logs.
+            logger.warning("google_identity_verification_failed error_type=%s", type(exc).__name__)
             raise Problem("Google identity could not be verified.", 401) from None
-        with transaction.atomic():
-            account, _ = Account.objects.get_or_create(google_sub=profile["sub"], defaults={"email": profile["email"], "name": str(profile.get("name", profile["email"]))[:200]})
-            if not account.is_active:
-                raise Problem("Account is disabled.", 403)
-            account.email = profile["email"]
-            account.name = str(profile.get("name", profile["email"]))[:200]
-            picture = profile.get("picture", "")
-            account.picture = picture[:2048] if isinstance(picture, str) and picture.startswith("https://") else ""
-            account.save(update_fields=["email", "name", "picture"])
-            Wallet.objects.get_or_create(account=account)
+        try:
+            with transaction.atomic():
+                account, _ = Account.objects.get_or_create(google_sub=profile["sub"], defaults={"email": profile["email"], "name": str(profile.get("name", profile["email"]))[:200]})
+                if not account.is_active:
+                    raise Problem("Account is disabled.", 403)
+                account.email = profile["email"]
+                account.name = str(profile.get("name", profile["email"]))[:200]
+                picture = profile.get("picture", "")
+                account.picture = picture[:2048] if isinstance(picture, str) and picture.startswith("https://") else ""
+                account.save(update_fields=["email", "name", "picture"])
+                Wallet.objects.get_or_create(account=account)
+        except Problem:
+            raise
+        except Exception:
+            # This is intentionally after token verification and excludes the token/profile.
+            # Render receives the database traceback needed to identify missing migrations.
+            logger.exception("google_sign_in_account_provisioning_failed")
+            raise
         return ok(token=authentication.issue_token(account), user=authentication.account_public(account))
 
 class Me(Private):
