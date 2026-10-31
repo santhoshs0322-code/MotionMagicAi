@@ -68,6 +68,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
     var modes by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
     var gallery by remember { mutableStateOf(false) }
+    var upgradePrompt by remember { mutableStateOf(false) }
     var selectedTemplate by remember { mutableStateOf<Template?>(null) }
     val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if(result.resultCode == Activity.RESULT_OK) {
@@ -79,10 +80,12 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
         if(modes || settings || gallery || selectedTemplate != null) focus.clearFocus()
     }
     val ready = if(mode == CreationMode.IMAGE_TO_VIDEO) vm.photo != null else draft.prompt.isNotBlank()
-    LaunchedEffect(Unit) { vm.refreshCloudCatalog() }
+    LaunchedEffect(Unit) { vm.refreshCloudCatalog(); vm.refreshBilling() }
     val create: () -> Unit = {
         focus.clearFocus()
-        vm.prepareCloudGeneration()
+        val rate = vm.cloudRates.firstOrNull { it.matches(draft, still) }
+        if(vm.currentPlan == PlanTier.FREE && rate?.requiredPlan == PlanTier.PRO) upgradePrompt = true
+        else vm.prepareCloudGeneration()
     }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
         Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(Color(0xFF160926), Color(0xFF30084A)))).padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -158,6 +161,11 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
     selectedTemplate?.let { item -> TemplatePreviewSheet(item, mode, { selectedTemplate = null }) {
         vm.useTemplate(item.art, item.name, item.promptFor(mode), mode, item.aspect, item.duration); selectedTemplate = null
     } }
+    if(upgradePrompt) AlertDialog(onDismissRequest = { upgradePrompt = false },
+        title = { Text("Unlock this creation") },
+        text = { Text("This model or setting needs Creator or Legend. Free accounts can use Qwen Image 720p and PixVerse V6 720p without generated audio when they have enough credits.") },
+        confirmButton = { TextButton(onClick = { upgradePrompt = false; vm.go(Screen.PLANS) }) { Text("See plans") } },
+        dismissButton = { TextButton(onClick = { upgradePrompt = false }) { Text("Choose free model") } })
 }
 
 @Composable
@@ -272,14 +280,18 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
             Text("Model", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = close, modifier = Modifier.size(25.dp)) { Icon(Icons.Rounded.KeyboardArrowDown, "Close settings", tint = RefMuted) }
         }
-        Text(if(activeRate != null) "Available · price shown before generation" else "This selection is not enabled on the server yet", color = RefMuted, fontSize = 11.sp)
+        Text(when {
+            activeRate == null -> "This selection is not enabled on the server yet"
+            currentPlan == PlanTier.FREE && activeRate.requiredPlan == PlanTier.PRO -> "Creator or Legend required for this setting"
+            else -> "Available · price shown before generation"
+        }, color = if(activeRate != null && currentPlan == PlanTier.FREE && activeRate.requiredPlan == PlanTier.PRO) Color(0xFFFFCB66) else RefMuted, fontSize = 11.sp)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             if(still) items(ImageModelCatalog.models, key = { it.id }) { option ->
-                ModelSquare(option.title, option.id == image.id, !currentPlan.includes(option.requiredPlan), "model-option-${option.title}") {
+                ModelSquare(option.title, option.id == image.id, currentPlan == PlanTier.FREE && rates.none { it.modelId == option.id && it.requiredPlan == PlanTier.FREE }, "model-option-${option.title}") {
                     update(draft.copy(imageModelId = option.id, imageQuality = draft.imageQuality.takeIf { it in option.resolutions } ?: option.resolutions.first()))
                 }
             } else items(VideoModelCatalog.models, key = { it.id }) { option ->
-                ModelSquare(option.title, option.id == video.id, !currentPlan.includes(option.requiredPlan), "model-option-${option.title}") { selectVideo(option) }
+                ModelSquare(option.title, option.id == video.id, currentPlan == PlanTier.FREE && rates.none { it.modelId == option.id && it.requiredPlan == PlanTier.FREE }, "model-option-${option.title}") { selectVideo(option) }
             }
         }
         Text("Resolution", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -288,7 +300,14 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
                 val selected = resolution == if(still) draft.imageQuality else draft.resolution
                 Surface(onClick = { update(if(still) draft.copy(imageQuality = resolution) else draft.copy(resolution = resolution)) },
                     color = if(selected) RefSelected else RefTile, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).testTag("resolution-$resolution")) {
-                    Box(Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) { Text(resolution.uppercase(), fontSize = 12.sp, color = if(selected) Color.White else RefMuted) }
+                    Box(Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
+                        val paid = currentPlan == PlanTier.FREE && modelRates.any { it.size == resolution } &&
+                            modelRates.none { it.size == resolution && it.requiredPlan == PlanTier.FREE && (still || it.audio == draft.generatedAudio) }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(resolution.uppercase(), fontSize = 12.sp, color = if(selected) Color.White else RefMuted)
+                            if(paid) Icon(Icons.Rounded.Star, "Creator or Legend", Modifier.size(11.dp), tint = Color(0xFFFFCB66))
+                        }
+                    }
                 }
             }
         }
@@ -312,6 +331,7 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Generate Audio", fontSize = 14.sp, modifier = Modifier.weight(1f))
+                if(currentPlan == PlanTier.FREE) Text("Creator+", color = Color(0xFFFFCB66), fontSize = 11.sp)
                 Switch(draft.generatedAudio, { update(draft.copy(generatedAudio = it)) }, enabled = video.supportsGeneratedAudio)
             }
         }

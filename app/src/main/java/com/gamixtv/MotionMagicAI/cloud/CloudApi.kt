@@ -5,6 +5,7 @@ import com.gamixtv.MotionMagicAI.auth.AuthConfig
 import com.gamixtv.MotionMagicAI.auth.AuthSession
 import com.gamixtv.MotionMagicAI.auth.EncryptedAuthSessionStore
 import com.gamixtv.MotionMagicAI.auth.MotionMagicApi
+import com.gamixtv.MotionMagicAI.data.PlanTier
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayOutputStream
@@ -43,7 +44,8 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
                 (0 until (ratios?.length() ?: 0)).map { ratios!!.getString(it) },
                 (0 until (durations?.length() ?: 0)).map { durations!!.getInt(it) },
                 if(settings.optString("provider") == "fal" && settings.has("generated_audio")) settings.getBoolean("generated_audio") else null,
-                settings.optString("image_aspect_ratio") == "source", row.optLong("minimum_charge_paise"), row.optInt("minimum_units", 1))
+                settings.optString("image_aspect_ratio") == "source", row.optLong("minimum_charge_paise"), row.optInt("minimum_units", 1),
+                if (row.optString("required_plan") == "free") PlanTier.FREE else PlanTier.PRO)
         }
     }
 

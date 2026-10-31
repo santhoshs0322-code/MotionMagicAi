@@ -2,11 +2,13 @@ package com.gamixtv.MotionMagicAI.cloud
 
 import com.gamixtv.MotionMagicAI.auth.AuthSession
 import com.gamixtv.MotionMagicAI.data.CreationDraft
+import com.gamixtv.MotionMagicAI.data.PlanTier
 
 data class CloudRate(
     val id: String, val title: String, val modelId: String, val kind: String, val size: String,
     val ratios: List<String>, val durations: List<Int>, val audio: Boolean?, val sourceRatio: Boolean,
     val minimumPricePaise: Long = 0, val minimumUnits: Int = 1,
+    val requiredPlan: PlanTier = PlanTier.PRO,
 ) {
     fun matches(draft: CreationDraft, image: Boolean): Boolean =
         kind == (if(image) "image" else "video") && modelId == (if(image) draft.imageModelId else draft.modelId) &&

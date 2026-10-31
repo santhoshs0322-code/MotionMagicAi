@@ -1,13 +1,14 @@
 import json
 import uuid
 import base64
+from datetime import timedelta
 from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 from .authentication import issue_token
-from .models import Account, Wallet, Ledger, Rate, Job, Product, RefreshSession
+from .models import Account, Wallet, Ledger, Rate, Job, Product, RefreshSession, Subscription
 from .services import price, create_quote, submit_job, finish_job
 from .services import grant_welcome_credits
 from .billing import verify_purchase
@@ -15,6 +16,11 @@ from .authentication import digest
 from . import gemini, gemini_video
 
 RUNTIME = dict(FAL_ONLY=False, GATEWAY_URL="https://gateway.example.test", GATEWAY_TOKEN="server-token", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000, MARKUP_BPS=15_000, STORE_FEE_BPS=0)
+
+def paid_account(account):
+    Subscription.objects.create(account=account, product_id="motion_creator_monthly", token_hash=digest(str(account.pk)),
+                                token_encrypted="test", plan="creator", state="active",
+                                expires_at=timezone.now() + timedelta(days=1))
 
 class PricingTests(TestCase):
     def test_150_percent_markup_and_store_fee_are_integer_safe(self):
@@ -24,6 +30,7 @@ class PricingTests(TestCase):
     @override_settings(**RUNTIME)
     def test_quote_reserve_idempotency_and_actual_cost_settlement(self):
         account = Account.objects.create(google_sub="google-1", email="one@example.test", name="One")
+        paid_account(account)
         wallet = Wallet.objects.create(account=account, balance_paise=1000)
         rate = Rate.objects.create(slug="video-basic", title="Basic video", kind="video", enabled=True, provider_model="gateway/video-v1", unit_cost_paise=20, max_units=15)
         quote = create_quote(account, {"service": rate.pk, "prompt": "A calm beach", "duration": 5})
@@ -45,6 +52,7 @@ class PricingTests(TestCase):
     @override_settings(**RUNTIME)
     def test_insufficient_credit_and_per_account_active_job_limit(self):
         account = Account.objects.create(google_sub="google-2", email="two@example.test", name="Two")
+        paid_account(account)
         Wallet.objects.create(account=account, balance_paise=249)
         rate = Rate.objects.create(slug="video", title="Video", kind="video", enabled=True, provider_model="gateway/video", unit_cost_paise=20, max_units=15)
         quote = create_quote(account, {"service": rate.pk, "prompt": "A beach", "duration": 5})
@@ -55,6 +63,7 @@ class PricingTests(TestCase):
     @override_settings(FAL_ONLY=False, GATEWAY_URL="", GATEWAY_TOKEN="", GEMINI_API_KEY="server-key", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000)
     def test_gemini_rate_quote_freezes_aspect_ratio_and_price(self):
         account = Account.objects.create(google_sub="google-image", email="image@example.test", name="Image")
+        paid_account(account)
         Wallet.objects.create(account=account, balance_paise=5000)
         rate = Rate.objects.create(
             slug="nano-banana-2-lite-1k", title="Nano Banana 2 Lite 1K", kind="image",
@@ -203,6 +212,7 @@ class ApiTests(TestCase):
 
     @override_settings(**RUNTIME)
     def test_job_endpoint_requires_and_reuses_idempotency_key(self):
+        paid_account(self.account)
         rate = Rate.objects.create(slug="image", title="Image", kind="image", enabled=True, provider_model="gateway/image", unit_cost_paise=40, max_units=1)
         self.auth()
         quote = self.client.post("/api/v1/quotes", {"service": rate.pk, "prompt": "A mountain"}, format="json").json()

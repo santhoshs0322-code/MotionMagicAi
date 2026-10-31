@@ -218,7 +218,7 @@ fun PlansScreen(vm: MotionViewModel) {
             "Native voice" to listOf("✓", "✓"),
             "Simple editors" to listOf("✓", "✓"),
             "Local projects" to listOf("✓", "✓"),
-            "AI creation" to listOf("—", "Per creation"),
+            "AI creation" to listOf("2 options", "All models"),
         )
         Surface(color = Color(0xFF160E23), shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, Color(0xFF634078))) {
             Column {
@@ -226,7 +226,7 @@ fun PlansScreen(vm: MotionViewModel) {
                     Box(Modifier.weight(1.4f).fillMaxHeight().padding(12.dp), contentAlignment = Alignment.BottomStart) {
                         Text("What’s\nincluded", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFE4D4F3), lineHeight = 19.sp)
                     }
-                    listOf("Free", "AI credits").forEachIndexed { index, name ->
+                    listOf("Free", "Creator / Legend").forEachIndexed { index, name ->
                         PlanHeader(name, accents[index], index == 0, Modifier.weight(1f))
                     }
                 }
@@ -239,6 +239,7 @@ fun PlansScreen(vm: MotionViewModel) {
                 }
             }
         }
+        Text("Free: Qwen Image 720p and PixVerse V6 720p without generated audio. Creator and Legend: every enabled model and resolution. Every creation still uses credits.", color = Color(0xFFCCBCD9), fontSize = 12.sp)
         Text("Membership", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text(if(vm.billingReady) "Monthly credits reset at renewal and unused credits do not carry over. Monthly credits are used first. Top-up credits never expire and stay after cancellation." else "Membership is being activated on the server. You can still use local editing tools.", color = Muted, fontSize = 12.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -267,6 +268,7 @@ fun PlansScreen(vm: MotionViewModel) {
                     Column(Modifier.weight(1f)) {
                         Text(if(cheapest.kind == "image") ImageModelCatalog.find(cheapest.modelId).title else VideoModelCatalog.find(cheapest.modelId).title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(variants.map { it.size.uppercase() }.distinct().joinToString(" · "), color = Muted, fontSize = 11.sp)
+                        Text(if(variants.any { it.requiredPlan == com.gamixtv.MotionMagicAI.data.PlanTier.FREE }) "Free option available" else "Creator / Legend", color = Color(0xFFFFCA67), fontSize = 10.sp)
                     }
                     Text("From ${com.gamixtv.MotionMagicAI.cloud.credits(cheapest.minimumPricePaise)}\n${if(cheapest.kind == "image") "per image" else "per ${cheapest.minimumUnits}s video"}", color = accents[1], fontSize = 12.sp, textAlign = TextAlign.End)
                 }

@@ -37,13 +37,13 @@ data class PremiumWorkflowOption(
     val description: String,
     val workflow: String,
     val capabilityLabels: List<String>,
-    val requiredPlan: PlanTier = PlanTier.PREMIUM,
+    val requiredPlan: PlanTier = PlanTier.PRO,
     val resolutions: List<String> = listOf("1K", "2K"),
 )
 
 object ImageModelCatalog {
     val models = listOf(
-        PremiumWorkflowOption("qwen-image", "Qwen-image", "Image generation", "Text + photo → image", listOf("Text", "Photo"), resolutions = listOf("720p", "1080p")),
+        PremiumWorkflowOption("qwen-image", "Qwen-image", "Image generation", "Text + photo → image", listOf("Text", "Photo"), requiredPlan = PlanTier.FREE, resolutions = listOf("720p", "1080p")),
         PremiumWorkflowOption("gpt-image-2-5-s", "GPT Image 2.5 Sunburst", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
         PremiumWorkflowOption("gpt-image-2-5-f", "GPT Image 2.5 Flare", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
         PremiumWorkflowOption("gpt-image-2", "GPT Image 2", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
@@ -59,9 +59,8 @@ data class VideoResolutionOption(val label: String, val requiredPlan: PlanTier)
 
 object VideoResolutionCatalog {
     val options = listOf(
-        VideoResolutionOption("540p", PlanTier.FREE),
-        VideoResolutionOption("720p", PlanTier.PRO),
-        VideoResolutionOption("1080p", PlanTier.PREMIUM),
+        VideoResolutionOption("720p", PlanTier.FREE),
+        VideoResolutionOption("1080p", PlanTier.PRO),
     )
 }
 
@@ -76,7 +75,7 @@ object VideoModelCatalog {
             id = "kling-3-omni",
             title = "Kling O3",
             description = "Cinematic motion with native audio workflows",
-            requiredPlan = PlanTier.PREMIUM,
+            requiredPlan = PlanTier.PRO,
             durations = setOf(5, 10),
             resolutions = setOf("720p", "1080p"),
             supportsGeneratedAudio = true,
@@ -89,7 +88,7 @@ object VideoModelCatalog {
             id = "pixverse-v6",
             title = "PixVerse V6",
             description = "Prompt and image-led premium video",
-            requiredPlan = PlanTier.PREMIUM,
+            requiredPlan = PlanTier.FREE,
             durations = setOf(5, 10, 15),
             resolutions = setOf("720p", "1080p"),
             supportsGeneratedAudio = true,
@@ -141,7 +140,7 @@ data class CreationDraft(
     val selectedStyle: String = "Realistic",
     val duration: Int = 10,
     val aspect: String = "9:16",
-    val modelId: String = "kling-3-omni",
+    val modelId: String = "pixverse-v6",
     val resolution: String = "720p",
     val generatedAudio: Boolean = false,
     val imageQuality: String = "720p",

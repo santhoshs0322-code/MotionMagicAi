@@ -13,6 +13,18 @@ from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset, Subscriptio
 from . import gemini, gemini_video, fal, fal_catalog
 
 TERMINAL = ("succeeded", "failed", "cancelled")
+FREE_RATE_SLUGS = frozenset(("qwen-image-720p", "pixverse-v6-720p-silent"))
+
+def minimum_plan(rate):
+    return "free" if rate.pk in FREE_RATE_SLUGS else "creator"
+
+def require_rate_access(account, rate):
+    if minimum_plan(rate) == "free":
+        return
+    if not Subscription.objects.filter(account=account, plan__in=("creator", "legend"),
+                                       state__in=("active", "grace", "cancelled"),
+                                       expires_at__gt=timezone.now()).exists():
+        raise Problem("Upgrade to Creator or Legend to use this model and setting.", 403)
 
 def price(cost_paise, markup_bps=None, fee_bps=None):
     markup = settings.MARKUP_BPS if markup_bps is None else markup_bps
@@ -184,6 +196,7 @@ def create_quote(account, data):
         rate = enabled_rates().get(pk=data.get("service"))
     except Rate.DoesNotExist:
         raise Problem("This service is not available.", 409) from None
+    require_rate_access(account, rate)
     prompt = data.get("prompt", "")
     if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= (5000 if rate.kind == "voice" else 500):
         raise Problem("Enter a prompt within the service limit.")
@@ -246,6 +259,7 @@ def submit_job(account, quote_id, key):
         raise Problem("Quote not found.", 404) from None
     if quote.expires_at <= timezone.now() or not enabled_rates().filter(pk=quote.rate_id).exists() or quote.rate.revision != quote.payload["revision"]:
         raise Problem("Quote expired or service changed. Request another quote.", 409)
+    require_rate_access(account, quote.rate)
     if Job.objects.filter(quote=quote).exists():
         raise Problem("This quote already has a job.", 409)
     if wallet.available_paise < quote.charge_paise:

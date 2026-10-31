@@ -9,7 +9,7 @@ from django.test import TestCase, SimpleTestCase, override_settings
 from django.utils import timezone
 
 from . import fal, fal_catalog, services, worker, storage
-from .models import Account, Asset, Wallet, Job, Rate, Ledger
+from .models import Account, Asset, Wallet, Job, Rate, Ledger, Subscription
 
 RUNTIME = dict(FAL_KEY="test-server-key", GEMINI_API_KEY="", GATEWAY_URL="", GATEWAY_TOKEN="", S3_BUCKET="test-bucket",
                DAILY_PROVIDER_BUDGET_PAISE=6_400_000, FAL_RATE_COSTS={slug: 10 for slug, *_ in fal_catalog.variants()})
@@ -85,6 +85,9 @@ class FalFlowTests(TestCase):
     def setUp(self):
         call_command("sync_provider_rates", stdout=io.StringIO())
         self.account = Account.objects.create(google_sub="fal-test", email="fal@example.test", name="Fal")
+        Subscription.objects.create(account=self.account, product_id="motion_creator_monthly",
+                                    token_hash="fal-flow-test-token", token_encrypted="test", plan="creator",
+                                    state="active", expires_at=timezone.now() + timedelta(days=1))
         self.wallet = Wallet.objects.create(account=self.account, balance_paise=100_000)
 
     def job(self, service="qwen-image-720p", **kwargs):
