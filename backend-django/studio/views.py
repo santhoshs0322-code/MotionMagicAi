@@ -146,7 +146,7 @@ class Logout(Private):
 class Capabilities(Public):
     def get(self, request):
         rates = list(services.enabled_rates().order_by("slug")[:200])
-        return ok(local=["photo_animation", "device_voice", "video_editor", "audio_editor", "local_projects"], cloud=[{
+        return ok(local=["photo_animation", "device_voice", "local_projects"], cloud=[{
             "id": r.pk, "title": r.title, "kind": r.kind, "model": r.provider_model, "max_units": r.max_units, "config": r.config,
             "required_plan": services.minimum_plan(r),
             "minimum_units": min(r.config.get("durations", [5])) if r.kind == "video" else 1,

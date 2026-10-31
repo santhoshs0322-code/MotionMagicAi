@@ -4,7 +4,7 @@ This is the dedicated MotionMagic backend. It replaces the shared CandyCraze/Nod
 
 Google sign-in now issues a one-day access JWT plus an opaque, hashed-at-rest refresh session valid for at most 90 days. Android renews the access JWT silently and stores both tokens encrypted with Android Keystore. Refresh tokens rotate on use, preserve the original expiry date, and are revoked on sign-out. Previously issued app sessions without a refresh token require one fresh Google sign-in after updating.
 
-Cloud services require the appropriate Google or fal.ai key, private S3 storage, positive configured costs and a positive provider budget. Missing configuration keeps the affected services out of `/api/v1/capabilities`. Play credit products additionally require billing configuration. Android now uploads references, obtains a quote, confirms a credit hold, polls jobs and downloads image/video results; native voice and editing remain local. See [PROVIDERS.md](PROVIDERS.md) for the complete model and environment mapping.
+Cloud services require the appropriate fal.ai key, private S3 storage, positive configured costs and a positive provider budget. Missing configuration keeps the affected services out of `/api/v1/capabilities`. Play credit products additionally require billing configuration. Android uploads references, obtains a quote, confirms a credit hold, polls jobs and downloads image/video results; Device Voice runs locally. See [PROVIDERS.md](PROVIDERS.md) for the complete model and environment mapping.
 
 ## Deploy on Render first
 

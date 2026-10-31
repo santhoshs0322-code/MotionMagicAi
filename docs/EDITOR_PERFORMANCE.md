@@ -1,6 +1,6 @@
 # Video and audio editors — 29 October 2026
 
-The native editors follow the supplied Video and Audio Editors reference: dark panels, gradient export controls, a preview/waveform, layered timeline rows, a playhead, tool cards, filter thumbnails, voice cards and background-music shelves. Small phone screens scroll horizontally through tool rows and vertically through the workspace; the mockup's phone frame is not drawn inside the app.
+Historical record for earlier builds; the current app no longer includes these editors. The native editors followed the supplied Video and Audio Editors reference: dark panels, gradient export controls, a preview/waveform, layered timeline rows, a playhead, tool cards, filter thumbnails, voice cards and background-music shelves. Small phone screens scrolled horizontally through tool rows and vertically through the workspace; the mockup's phone frame was not drawn inside the app.
 
 ## Implemented editing
 

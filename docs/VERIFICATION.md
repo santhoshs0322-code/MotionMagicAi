@@ -1,5 +1,7 @@
 # Verification record
 
+Historical results include earlier editor builds. The current app no longer includes video or audio editor screens.
+
 Verified on 28 October 2026 with the Android 36 x86_64 Google Play emulator (Pixel 6 profile), Java 21, Gradle 8.13 and Android Build Tools 36.0.0.
 
 ## Passed

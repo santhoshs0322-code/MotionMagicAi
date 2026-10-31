@@ -74,19 +74,17 @@ fun HomeScreen(vm: MotionViewModel) = ReferenceCatalogScreen(vm, templatePage = 
 fun TemplatesScreen(vm: MotionViewModel) = ReferenceCatalogScreen(vm, templatePage = true)
 
 @Composable
-fun ProjectsScreen(vm: MotionViewModel, onImport: () -> Unit) {
+fun ProjectsScreen(vm: MotionViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     var deletion by remember { mutableStateOf<Project?>(null) }
     val items = vm.projects.sortedByDescending { it.createdAt }.filter { it.title.contains(query, ignoreCase = true) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column { Text("Made by you", fontSize = 23.sp, fontWeight = FontWeight.Bold); Text("${vm.projects.size} saved creations", color = Muted, fontSize = 13.sp) }
-            FilledTonalIconButton(onClick = onImport) { Icon(Icons.Rounded.FileUpload, "Import video") }
         }
         OutlinedButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("Check cloud generation") }
         if(vm.projects.isEmpty()) {
-            EmptyState(Icons.Rounded.VideoLibrary, "Your ideas live here", "Create your first video or import one to start editing.", "Create a video") { vm.go(Screen.IMAGE) }
-            OutlinedButton(onClick = onImport, Modifier.fillMaxWidth()) { Text("Import a video") }
+            EmptyState(Icons.Rounded.VideoLibrary, "Your ideas live here", "Create your first image, video or voice clip.", "Create a video") { vm.go(Screen.IMAGE) }
         } else {
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search projects") },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = PanelShape)
@@ -156,7 +154,7 @@ fun ProfileScreen(vm: MotionViewModel) {
                 SettingRow(Icons.Rounded.FolderOpen, "Local workspace", onClick = { vm.notice("Local workspace", "Projects stay on this device, regardless of the signed-in account. Google sign-in does not upload or sync projects.") })
             }
         }
-        TestNotice("Sign in for AI creation. Local editing and Device Voice work without an account.")
+        TestNotice("Sign in for AI creation. Device Voice uses your installed speech engine.")
     }
 }
 
@@ -167,7 +165,7 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
         Surface(color = Panel, shape = PanelShape) {
             Column {
                 SettingRow(Icons.Rounded.Language, "Language", "English", { vm.notice("Language", "The interface is available in English in this build. Device voice availability depends on installed speech data.") })
-                SettingRow(Icons.Rounded.HighQuality, "Video Quality", vm.settings.quality, { vm.notice("Test video quality", "On-device previews use a 540-pixel short edge: 540×960, 960×540 or 540×540. Imported videos retain their source dimensions during editing. HD AI generation will require a live provider.") })
+                SettingRow(Icons.Rounded.HighQuality, "Video Quality", vm.settings.quality, { vm.notice("Video quality", "On-device photo animations use a 540-pixel short edge. AI video resolution is selected on the creation screen from the available provider options.") })
                 SettingRow(Icons.Rounded.AspectRatio, "Default Aspect Ratio", vm.settings.defaultAspect, { ratioDialog = true })
                 SettingRow(Icons.Rounded.NotificationsNone, "Notifications", onClick = { onNotifications(!vm.settings.notifications) }, trailing = {
                     Switch(vm.settings.notifications, onNotifications)
@@ -182,11 +180,11 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
         Surface(color = Panel, shape = PanelShape) {
             Column {
                 SettingRow(Icons.Rounded.SupportAgent, "Help & Support", onClick = { showHelp(vm) })
-                SettingRow(Icons.Rounded.PrivacyTip, "Privacy", onClick = { vm.notice("Your media and cloud generation", "Editing projects are saved on your device. For AI creation, your chosen photo is uploaded to private cloud storage while preparing a quote. After you confirm generation, your prompt and reference photo are sent through the server to fal.ai and the selected model provider. Generated media is saved in cloud storage and downloaded to your device.\n\nGoogle sign-in shares your account ID, name, email and picture with the login server. Session tokens are encrypted with Android Keystore. Signing out clears the saved session but does not delete server records.\n\nDeleting a local project removes its local copy; cloud outputs, uploaded references and gallery copies remain. Sharing sends media to the app you choose. Device Voice uses the selected Android speech engine, whose processing depends on its installed voices and settings.") })
-                SettingRow(Icons.Rounded.Description, "About this build", onClick = { vm.notice("MotionMagic AI", "Version ${BuildConfig.VERSION_NAME}\n\nChoose an enabled AI model to create images or videos. Review the server price before confirming. Local editing and Device Voice do not use AI generation credits. Use media you have permission to upload and publish.") })
+                SettingRow(Icons.Rounded.PrivacyTip, "Privacy", onClick = { vm.notice("Your media and cloud generation", "Local projects are saved on your device. For AI creation, your chosen photo is uploaded to private cloud storage while preparing a quote. After you confirm generation, your prompt and reference photo are sent through the server to fal.ai and the selected model provider. Generated media is saved in cloud storage and downloaded to your device.\n\nGoogle sign-in shares your account ID, name, email and picture with the login server. Session tokens are encrypted with Android Keystore. Signing out clears the saved session but does not delete server records.\n\nDeleting a local project removes its local copy; cloud outputs, uploaded references and gallery copies remain. Sharing sends media to the app you choose. Device Voice uses the selected Android speech engine, whose processing depends on its installed voices and settings.") })
+                SettingRow(Icons.Rounded.Description, "About this build", onClick = { vm.notice("MotionMagic AI", "Version ${BuildConfig.VERSION_NAME}\n\nChoose an enabled AI model to create images or videos. Review the server price before confirming. Device Voice does not use AI generation credits. Use media you have permission to upload and publish.") })
             }
         }
-        TestNotice("AI creation uses generation credits after you confirm the price. Local editing and Device Voice remain free.")
+        TestNotice("AI creation uses generation credits after you confirm the price. Device Voice remains available without credits.")
     }
     if(ratioDialog) AlertDialog(onDismissRequest = { ratioDialog = false }, title = { Text("Default aspect ratio") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -216,7 +214,7 @@ fun PlansScreen(vm: MotionViewModel) {
         }
         val rows = listOf(
             "Native voice" to listOf("✓", "✓"),
-            "Simple editors" to listOf("✓", "✓"),
+            "Result playback" to listOf("✓", "✓"),
             "Local projects" to listOf("✓", "✓"),
             "AI creation" to listOf("2 options", "All models"),
         )
@@ -241,7 +239,7 @@ fun PlansScreen(vm: MotionViewModel) {
         }
         Text("Free: Qwen Image 720p and PixVerse V6 720p without generated audio. Creator and Legend: every enabled model and resolution. Every creation still uses credits.", color = Color(0xFFCCBCD9), fontSize = 12.sp)
         Text("Membership", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        Text(if(vm.billingReady) "Monthly credits reset at renewal and unused credits do not carry over. Monthly credits are used first. Top-up credits never expire and stay after cancellation." else "Membership is being activated on the server. You can still use local editing tools.", color = Muted, fontSize = 12.sp)
+        Text(if(vm.billingReady) "Monthly credits reset at renewal and unused credits do not carry over. Monthly credits are used first. Top-up credits never expire and stay after cancellation." else "Membership is being activated on the server. Device Voice and saved creations remain available.", color = Muted, fontSize = 12.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             PlanPurchaseCard("Creator", "₹499 / month", "1,200 credits every month", Color(0xFFFFC13C), vm.currentPlan == com.gamixtv.MotionMagicAI.data.PlanTier.PRO, Modifier.weight(1f)) {
                 if(activity == null) vm.message("Open this screen in the MotionMagic app to purchase.") else vm.buy(activity, "motion_creator_monthly")

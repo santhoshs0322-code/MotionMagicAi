@@ -43,7 +43,6 @@ import com.gamixtv.MotionMagicAI.MotionViewModel
 import com.gamixtv.MotionMagicAI.Screen
 import com.gamixtv.MotionMagicAI.data.MediaKind
 import com.gamixtv.MotionMagicAI.data.Project
-import com.gamixtv.MotionMagicAI.media.EditOptions
 import java.io.File
 
 @OptIn(UnstableApi::class)
@@ -125,8 +124,6 @@ fun ResultScreen(vm: MotionViewModel, onDownload: (Project) -> Unit, onShare: (P
                 }
             }
         }
-        if(project.kind == MediaKind.VIDEO) GradientButton("Edit Further", { vm.edit(project) }, icon = Icons.Rounded.ContentCut)
-        else if(project.kind == MediaKind.AUDIO) GradientButton("Edit Audio", { vm.edit(project) }, icon = Icons.Rounded.GraphicEq)
         OutlinedButton(onClick = { vm.tab(Screen.PROJECTS) }, Modifier.fillMaxWidth()) { Text("My Projects") }
     }
     if(deleting) DeleteDialog(project.title, { deleting = false }) { deleting = false; vm.delete(project) }

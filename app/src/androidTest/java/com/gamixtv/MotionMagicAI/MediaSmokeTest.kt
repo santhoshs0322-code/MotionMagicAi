@@ -7,19 +7,13 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
-import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.gamixtv.MotionMagicAI.data.*
 import com.gamixtv.MotionMagicAI.media.*
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.UUID
-import kotlin.math.sin
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -73,33 +67,6 @@ class MediaSmokeTest {
         } finally { bitmap.recycle(); file.delete() }
     }
 
-    @Test fun trimCaptionFilterAndMusicProduceVideoAndAudio() = runBlocking {
-        val bitmap = image()
-        val source = output()
-        val edited = output()
-        val music = output("wav")
-        try {
-            LocalMediaEngine.createVideo(context, bitmap, 5, "9:16", source)
-            writeTone(music)
-            Media3Editor.export(context, source, edited, EditOptions(startMs = 1000, endMs = 4000,
-                text = "MotionMagic test", filter = "Warm", musicUri = Uri.fromFile(music)))
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(edited.path)
-                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
-                assertTrue("Edited duration $duration", duration in 2900L..3200L)
-                assertNotNull(retriever.getFrameAtTime(1_000_000))
-            } finally { retriever.release() }
-            val extractor = MediaExtractor()
-            try {
-                extractor.setDataSource(edited.path)
-                val types = (0 until extractor.trackCount).map { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)!! }
-                assertTrue(types.any { it.startsWith("video/") })
-                assertTrue(types.any { it.startsWith("audio/") })
-            } finally { extractor.release() }
-        } finally { bitmap.recycle(); source.delete(); edited.delete(); music.delete() }
-    }
-
     @Test fun storePersistsDraftSettingsAndMissingFileMetadata() {
         val name = "smoke_${UUID.randomUUID()}"
         val isolated = object : ContextWrapper(context) {
@@ -124,14 +91,4 @@ class MediaSmokeTest {
         } finally { context.deleteSharedPreferences(name) }
     }
 
-    private fun writeTone(file: File) {
-        val rate = 24000
-        val bytes = rate * 2
-        val buffer = ByteBuffer.allocate(44 + bytes).order(ByteOrder.LITTLE_ENDIAN)
-        buffer.put("RIFF".toByteArray()).putInt(36 + bytes).put("WAVEfmt ".toByteArray())
-            .putInt(16).putShort(1).putShort(1).putInt(rate).putInt(rate * 2).putShort(2).putShort(16)
-            .put("data".toByteArray()).putInt(bytes)
-        for(i in 0 until rate) buffer.putShort((sin(2 * Math.PI * 440 * i / rate) * 2000).toInt().toShort())
-        file.writeBytes(buffer.array())
-    }
 }

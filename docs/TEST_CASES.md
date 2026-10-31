@@ -54,8 +54,7 @@ These editor rules are supplemented by `CloudRateTest` and backend `studio.test_
 | AI Reels Maker | Template selection; missing source; supported portrait export; generation status; failed or cancelled job; preserve draft. |
 | Templates | All/Reels/Love/Travel/Birthday filters; no matching cards; select a template then return; image loading failure; clear selected state. |
 | AI Voice | Blank/long text; select each voice; speech engine unavailable; language pack missing; cancelled generation; interrupted playback; valid saved audio; disclose synthetic voice. |
-| Video result | Play/pause/seek/end/replay; missing/unreadable file; share target unavailable; export failure; delete confirmation/cancel; editor receives the correct project. |
-| Editor | Import/cancel; play/seek; trim boundaries; missing music; text overflow; effect/filter selection; no changes; unsaved changes; export cancellation/failure; inspect exported file for applied changes. |
+| Video result | Play/pause/seek/end/replay; missing/unreadable file; share target unavailable; export failure; delete confirmation/cancel. |
 | Projects | Empty library; multiple kinds; newest ordering; missing file; deletion and cancelled deletion; process restart; media created while the screen is inactive. |
 | Settings | Values survive restart; notification permission allowed/denied; notification toggle reflects actual permission; aspect applies to new drafts; quality matches encoder support; auto-save handles errors. |
 | Account | Accurate local/signed-in status; no fabricated identity or subscription; projects route; only verified one-time credit history when server billing is enabled; logout confirmation. |
@@ -79,7 +78,7 @@ These editor rules are supplemented by `CloudRateTest` and backend `studio.test_
 | Integration | Required evidence |
 |---|---|
 | AI credentials | Server-only secret storage and authenticated client requests; no provider secret embedded in APK, logs, crash reports, or SharedPreferences. |
-| Provider capabilities | Validate model access, input formats, duration, resolution, aspect, and supported voices. Explain any crop/upscale/extension needed by the editor options. |
+| Provider capabilities | Validate model access, input formats, duration, resolution, aspect, and supported voices. |
 | AI jobs | Handle queued/running/completed/failed/cancelled states; provider timeout, disconnect, malformed response, safety refusal, expired output, and unavailable model. |
 | Paid usage | Server-authoritative credit reservation and reconciliation with idempotent requests; retry cannot double-charge; failure never claims a refund unless reconciled. |
 | Rate limits | Handle rate limiting and exhausted budget with an actionable message; no unlimited automatic paid retries. |
@@ -94,16 +93,6 @@ Test mode is for evaluating the interface and supported local media operations. 
 
 Purchases, subscriptions, advertising rewards, credits, cloud accounts, and model-generated media must not be shown as successful without their real integrations. Keep unavailable actions explicit and recoverable. Paid-provider integration and Play Console setup require their own configured services and end-to-end tests.
 
-## Editor acceptance checks
-
-- Import local and cloud-provider audio/video; revoke source access and reopen; check the copy fallback, cancellation and insufficient storage.
-- Open long recordings and large compressed videos on physical low-memory devices. Check seek latency, memory peaks, thermal throttling and codec errors separately from the sparse 1 GiB WAV fixture.
-- Split near clip boundaries, append up to the 32-clip limit, remove clips, undo/redo, and rotate with edits in progress.
-- Export both single clips and mixed timelines with speed changes; verify actual duration, audio synchronization, filter, caption, fades and channel behavior in the saved file.
-- Exercise background music looping, import replacement, volume/mute, unsupported speech engines and missing voice data.
-- Cancel during both passes of a multi-clip speed export, fill storage during export, background the app and terminate the process. Unsaved sessions and background export recovery are not supported.
-- Test narrow screens, large fonts, TalkBack labels, landscape, older supported Android versions and physical GPU/codec combinations. The reference is adapted to scrolling phone layouts.
-
 ## Verification record
 
-Actual results are recorded in [VERIFICATION.md](VERIFICATION.md). Local validation, native media creation/editing, selected UI flows, persistence and device speech have passed the specified tests. Items outside that record, including live AI, billing and ads, remain unverified or unavailable.
+Actual results are recorded in [VERIFICATION.md](VERIFICATION.md). Historical editor tests in that record apply to earlier builds. Current checks cover local validation, creation, selected UI flows, persistence and Device Voice.

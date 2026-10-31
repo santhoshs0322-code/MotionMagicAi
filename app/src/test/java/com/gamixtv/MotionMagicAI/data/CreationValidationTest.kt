@@ -30,7 +30,7 @@ class CreationValidationTest {
         assertTrue(result.message.contains("aspect ratio"))
     }
 
-    @Test fun supportedEditorExportChoicesValidate() {
+    @Test fun supportedGenerationChoicesValidate() {
         for (duration in listOf(5, 10, 15)) {
             for (aspect in listOf("9:16", "16:9", "1:1")) {
                 assertTrue(CreationValidation.validate("Sunlight over a quiet lake", duration, aspect).isValid)
@@ -56,7 +56,7 @@ class CreationValidationTest {
         val draft = CreationDraft(prompt = "Ocean at sunset", modelId = model.id, duration = 10, aspect = "9:16", resolution = "540p", generatedAudio = true)
         val result = CreationValidation.validateVideo(draft, model, PlanTier.FREE, requirePrompt = true)
         assertFalse(result.isValid)
-        assertTrue(result.message.contains("requires the Premium plan"))
+        assertTrue(result.message.contains("requires the Pro plan"))
         assertTrue(result.message.contains("unavailable"))
         assertTrue(result.message.contains("does not support 540p"))
     }

@@ -6,7 +6,7 @@ Play Console has already received version code `3592741`, so every future upload
 
 A native Kotlin / Jetpack Compose MotionMagic studio with a separate Django backend for accounts, server-priced generation jobs, transaction ledger and verified credit packs.
 
-Local editing and native voice work without provider keys. **AI image/video generation is now connected through Django**, using Google plus fal.ai. Configure the server keys, costs, private storage, worker and wallet before generating. Fake keys never count as working credentials. See [provider setup and environment variables](backend-django/PROVIDERS.md).
+Device Voice works without a provider key. **AI image/video generation is connected through Django** using fal.ai. Configure the server key, costs, private storage, worker and wallet before generating. Fake keys never count as working credentials. See [provider setup and environment variables](backend-django/PROVIDERS.md).
 
 ## Open and build
 
@@ -36,18 +36,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - Photo import through Android's photo picker, image validation, EXIF orientation handling, replace/remove controls and a restored selected photo.
 - Model tiles, resolution segments, aspect-ratio tiles, video duration and generated sound. One job creates one output. Image creation keeps a separate prompt, model, quality and ratio draft.
 - Model selection backed by live server availability, price confirmation, authenticated photo upload, credit reservation, job polling/recovery, bounded downloads and image/video result previews. All catalog models have adapters; unavailable or unpriced variants cannot run.
-- Home creation cards, expandable local tools, searchable template rows, portrait template previews and a central creation button.
+- Home creation cards, quick creation tools, searchable template rows, portrait template previews and a central creation button.
 - Violet, pink, blue and teal creation cards with distinct icons, matching model tiles and bundled typography. Pricing compares free tools with AI credits and lists only enabled models with server prices. Subscriptions are not advertised as available.
 - Bundled Plus Jakarta Sans in Regular, Medium, Semibold and Bold, applied to all Material typography roles without a runtime download. See [font provenance and license](docs/FONTS.md).
 - Template previews apply mode-specific prompts and settings while preserving the user's uploaded photo. Sample artwork illustrates the look; it is never substituted for a required user photo.
-- Separate video and audio editing workspaces: timelines, waveform preview, undo/redo, trim/split/append, speed, volume and background music. Video adds captions, color treatments and resolution selection; audio adds fades and AAC/M4A export. Unsupported advanced-AI and voice-cloning controls are not displayed.
-- Large media documents use retained URI access rather than a full copy where supported. Thumbnail/waveform analysis has fixed budgets and runs away from the UI thread. See [editor performance and complexity](docs/EDITOR_PERFORMANCE.md).
 - Device text-to-speech synthesis to WAV with five pitch/pace styles. An installed speech engine and English voice data are required. This is device synthesis, not the planned cloud voice model.
 - Playback, gallery download on Android 10+, document export on older Android versions, audio document export, and Android sharing.
 - Persistent projects, drafts and settings; project search, confirmation before deletion, missing-file recovery messages and cancellation cleanup.
 - Optional local completion notifications, subject to Android notification permission.
-
-Filters expose supported color treatments. Preview applies color/text, speed and background music; audio fades apply on export. Originals remain available. Editor sessions survive rotation but not process death.
 
 For a walkthrough: **Sign in → choose a creation mode → add a photo or prompt → choose an enabled model/settings → Create → review the price → Confirm.** A funded server wallet is required. Check cloud generation recovers submitted requests after reconnecting. Create Image accepts an optional reference. Kling/PixVerse image-to-video follows the photo's shape; text-to-video uses the chosen ratio.
 

@@ -9,11 +9,12 @@ import org.junit.Test
 class CloudRateTest {
     @Test fun silentAndAudioPricesCannotBeInterchanged() {
         val silent = CloudRate("kling-720p-silent", "Kling", "kling-3-omni", "video", "720p", listOf("9:16"), listOf(5, 10), false, true)
-        assertTrue(silent.matches(CreationDraft(), false))
-        assertFalse(silent.matches(CreationDraft(generatedAudio = true), false))
-        assertFalse(silent.matches(CreationDraft(resolution = "1080p"), false))
-        assertFalse(silent.matches(CreationDraft(modelId = "pixverse-v6"), false))
-        assertFalse(silent.matches(CreationDraft(), true))
+        val klingDraft = CreationDraft(modelId = "kling-3-omni")
+        assertTrue(silent.matches(klingDraft, false))
+        assertFalse(silent.matches(klingDraft.copy(generatedAudio = true), false))
+        assertFalse(silent.matches(klingDraft.copy(resolution = "1080p"), false))
+        assertFalse(silent.matches(CreationDraft(), false))
+        assertFalse(silent.matches(klingDraft, true))
     }
     @Test fun providerSpecificImageSizesAndSavedPixverseIdsRemainUsable() {
         assertEquals("qwen-image", ImageModelCatalog.find("nano-banana").id)

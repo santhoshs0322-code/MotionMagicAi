@@ -81,8 +81,6 @@ fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
                 item {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         RoundCatalogTool("Voice", Icons.Rounded.GraphicEq) { vm.go(Screen.VOICE) }
-                        RoundCatalogTool("Video Editor", Icons.Rounded.ContentCut) { vm.go(Screen.EDITOR) }
-                        RoundCatalogTool("Audio Editor", Icons.Rounded.Headphones) { vm.go(Screen.AUDIO_EDITOR) }
                         RoundCatalogTool("Templates", Icons.Rounded.AutoAwesome) { vm.tab(Screen.TEMPLATES) }
                         RoundCatalogTool(if(expanded) "Collapse" else "More", if(expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore) { expanded = !expanded }
                     }

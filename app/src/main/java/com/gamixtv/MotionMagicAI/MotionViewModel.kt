@@ -23,11 +23,7 @@ import com.gamixtv.MotionMagicAI.auth.AuthConfig
 import org.json.JSONObject
 import com.gamixtv.MotionMagicAI.media.DeviceVoiceEngine
 import com.gamixtv.MotionMagicAI.media.LocalMediaEngine
-import com.gamixtv.MotionMagicAI.media.Media3Editor
-import com.gamixtv.MotionMagicAI.media.EditOptions
 import com.gamixtv.MotionMagicAI.media.MediaAccess
-import com.gamixtv.MotionMagicAI.media.EditorDocument
-import com.gamixtv.MotionMagicAI.media.StudioExporter
 import com.gamixtv.MotionMagicAI.ui.ArtRepository
 import com.gamixtv.MotionMagicAI.ui.Artwork
 import java.io.File
@@ -44,7 +40,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 enum class Screen(val title: String) {
     HOME("MotionMagic AI"), IMAGE("Image to Video"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
     REELS("AI Reels Maker"), VOICE("AI Voice Generator"), TEMPLATES("Templates"),
-    PROJECTS("My Projects"), RESULT("Video Result"), EDITOR("Video Editor"), AUDIO_EDITOR("Audio Editor"),
+    PROJECTS("My Projects"), RESULT("Video Result"),
     PROFILE("My Account"), SETTINGS("Settings"), PLANS("Plans & pricing")
 }
 
@@ -339,7 +335,6 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         selectedProject = project
         go(Screen.RESULT)
     }
-    fun edit(project: Project) { selectedProject = project; go(if(project.kind == MediaKind.AUDIO) Screen.AUDIO_EDITOR else Screen.EDITOR) }
     fun notice(title: String, body: String) { info = title to body }
     fun dismissNotice() { info = null }
     fun dismissFailure() { failure = null }
@@ -486,41 +481,6 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         message("Photo added")
     }
 
-    fun importVideo(uri: Uri) = importMedia(uri, MediaKind.VIDEO)
-    fun importAudio(uri: Uri) = importMedia(uri, MediaKind.AUDIO)
-    private fun importMedia(uri: Uri, kind: MediaKind) = startWork("Opening media", "Reading the selected document without loading it into memory.") {
-        edit(retainEditorSource(uri, kind))
-    }
-
-    suspend fun retainEditorSource(uri: Uri, kind: MediaKind): Project {
-        val source = MediaAccess.import(app, uri, kind)
-        val path = if(source.uri.scheme == "file") source.uri.path!! else source.uri.toString()
-        val project = Project(title = source.name, path = path, kind = kind,
-            duration = (source.durationMs / 1000).toInt(), durationMs = source.durationMs, mimeType = source.mime,
-            aspect = if(source.width > source.height) "16:9" else if(source.width == source.height) "1:1" else "9:16")
-        try { persistProject(project) }
-        catch(e: Exception) { if(!MediaAccess.external(path)) File(path).delete(); throw e }
-        return project
-    }
-
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    fun exportStudio(document: EditorDocument, audioOnly: Boolean) {
-        val original = selectedProject ?: return
-        startWork("Exporting your edit", "Keep MotionMagic open. Your original file stays unchanged.") {
-            val output = File(projectDir, "edit_${UUID.randomUUID()}.${if(audioOnly) "m4a" else "mp4"}")
-            pendingOutputs.add(output)
-            StudioExporter.export(app, document, output, audioOnly) {
-                work.value = WorkState("Exporting your edit", it, "${(it * 100).toInt()}% · ${if(audioOnly) "AAC audio" else "H.264 video"}")
-            }
-            val project = original.copy(id = UUID.randomUUID().toString(), title = "${original.title.take(45)} · edited",
-                path = output.path, kind = if(audioOnly) MediaKind.AUDIO else MediaKind.VIDEO,
-                durationMs = document.exportDurationMs, duration = (document.exportDurationMs / 1000).toInt(),
-                mimeType = if(audioOnly) "audio/mp4" else "video/mp4", createdAt = System.currentTimeMillis())
-            try { persistProject(project) } catch(e: Exception) { output.delete(); throw e }
-            selectedProject = project; go(Screen.RESULT); autoSave(project)
-        }
-    }
-
     private suspend fun copyUri(uri: Uri, maxBytes: Long, extension: String): File {
         val destination = File(projectDir, "${UUID.randomUUID()}$extension")
         pendingOutputs.add(destination)
@@ -588,23 +548,6 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             try { persistProject(project) } catch(e: Exception) { output.delete(); throw e }
             selectedProject = project
             go(Screen.RESULT)
-        }
-    }
-
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    fun exportEdit(options: EditOptions) {
-        val original = selectedProject ?: return
-        startWork("Exporting your edit", "Keep the app open while your video is rendered.") {
-            val output = File(projectDir, "edit_${UUID.randomUUID()}.mp4")
-            pendingOutputs.add(output)
-            Media3Editor.export(app, File(original.path), output, options)
-            val project = original.copy(id = UUID.randomUUID().toString(), title = "${original.title.take(45)} · edited",
-                path = output.path, createdAt = System.currentTimeMillis(),
-                duration = (((options.endMs ?: original.duration * 1000L) - options.startMs) / 1000).toInt().coerceAtLeast(1))
-            try { persistProject(project) } catch(e: Exception) { output.delete(); throw e }
-            selectedProject = project
-            go(Screen.RESULT)
-            autoSave(project)
         }
     }
 
