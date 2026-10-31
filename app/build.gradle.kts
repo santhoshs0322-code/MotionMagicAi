@@ -4,11 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Render is the production login server. Developers may override it with
-// -PmotionAiApiBaseUrl=https://another-server.example for a separate environment.
-val motionAiApiBaseUrl = providers.gradleProperty("motionAiApiBaseUrl")
-    .orElse("https://motionmagicai.onrender.com").get()
-    .replace("\\", "\\\\").replace("\"", "\\\"")
+// One canonical HTTPS backend for the released MotionMagic app.
+// Keeping it fixed prevents an empty Gradle property from disabling login.
+val motionMagicApiBaseUrl = "https://motionmagicai.onrender.com"
 
 android {
     namespace = "com.gamixtv.MotionMagicAI"
@@ -19,10 +17,10 @@ android {
         applicationId = "com.gamixtv.MotionMagicAI"
         minSdk = 26
         targetSdk = 36
-        // Increase by one before each Google Play upload: 13, then 14, then 15.
-        versionCode = 13
-        versionName = "0.8.3"
-        buildConfigField("String", "AUTH_BASE_URL", "\"$motionAiApiBaseUrl\"")
+        // Increase by one before each Google Play upload: 14, then 15, then 16.
+        versionCode = 14
+        versionName = "0.8.4"
+        buildConfigField("String", "AUTH_BASE_URL", "\"$motionMagicApiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
