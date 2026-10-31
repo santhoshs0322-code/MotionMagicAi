@@ -35,6 +35,8 @@ For a manually configured service, set its Pre-Deploy Command to:
 python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py bootstrap_owner
 ```
 
+The Docker image also runs this setup automatically before starting the API. That fallback supports Render plans without Pre-Deploy Command access; successful logs show `Applying studio...` or `No migrations to apply.`
+
 The repository Blueprint already includes this command. If your Render plan does not provide Pre-Deploy Command, set the web service's Docker Command to:
 
 ```sh
