@@ -127,17 +127,26 @@ GEMINI_VIDEO_RATE_COSTS = {
 # Credits are USD-cent equivalents: 100 customer credits have a $1 face value.
 # A 40,000 bps markup makes the customer charge 5x the provider allowance,
 # leaving an 80% provider-cost gross margin before store/payment fees.
-MARKUP_BPS = int(env("MARKUP_BPS", "40000"))
+MARKUP_BPS = int(env("MARKUP_BPS", "90000"))
 STORE_FEE_BPS = int(env("STORE_FEE_BPS", "0"))
 DAILY_PROVIDER_BUDGET_PAISE = int(env("DAILY_PROVIDER_BUDGET_PAISE", "0"))
-WELCOME_CREDITS = int(env("WELCOME_CREDITS", "100"))
+WELCOME_CREDITS = int(env("WELCOME_CREDITS", "200"))
 # Use one shard for a small launch budget. At AWS scale use up to 64, together
 # with a budget large enough for the most expensive single generation per shard.
 BUDGET_SHARDS = int(env("BUDGET_SHARDS", "64"))
 MAX_ACTIVE_JOBS = int(env("MAX_ACTIVE_JOBS", "2"))
 GENERATION_LEASE_SECONDS = int(env("GENERATION_LEASE_SECONDS", "1200"))
 PLAY_ENABLED = flag("PLAY_ENABLED")
-ENABLE_CREDIT_PACKS = flag("ENABLE_CREDIT_PACKS")
+ENABLE_CREDIT_PACKS = flag("ENABLE_CREDIT_PACKS")  # Legacy name; use ENABLE_TOPUPS for new deployments.
+ENABLE_TOPUPS = flag("ENABLE_TOPUPS")
+SUBSCRIPTIONS_ENABLED = flag("SUBSCRIPTIONS_ENABLED")
+CURRENT_SITE_URL = env("CURRENT_SITE_URL").rstrip("/")
+if CURRENT_SITE_URL and not CURRENT_SITE_URL.startswith("https://"):
+    raise ImproperlyConfigured("MOTION_AI_CURRENT_SITE_URL must be HTTPS")
+# An explicit audience remains available for an advanced proxy configuration;
+# normally it is derived from the one canonical public site URL.
+PLAY_PUBSUB_AUDIENCE = env("PLAY_PUBSUB_AUDIENCE") or (CURRENT_SITE_URL + "/api/v1/billing/play-notifications" if CURRENT_SITE_URL else "")
+PLAY_PUBSUB_SERVICE_ACCOUNT = env("PLAY_PUBSUB_SERVICE_ACCOUNT")
 PLAY_PACKAGE = env("PLAY_PACKAGE", "com.gamixtv.MotionMagicAI")
 PLAY_CREDENTIALS_FILE = env("PLAY_CREDENTIALS_FILE")
 BILLING_ENCRYPTION_KEY = env("BILLING_ENCRYPTION_KEY")

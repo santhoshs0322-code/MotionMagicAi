@@ -63,7 +63,7 @@ class PricingTests(TestCase):
         )
         quote = create_quote(account, {"service": rate.pk, "prompt": "A neon city", "aspect_ratio": "9:16"})
         self.assertEqual(quote.payload["aspect_ratio"], "9:16")
-        self.assertEqual(quote.charge_paise, 750)
+        self.assertEqual(quote.charge_paise, 3000)
         with self.assertRaisesMessage(Exception, "supported aspect ratio"):
             create_quote(account, {"service": rate.pk, "prompt": "A neon city", "aspect_ratio": "16:9"})
 

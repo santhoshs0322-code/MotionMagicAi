@@ -1,6 +1,7 @@
 package com.gamixtv.MotionMagicAI
 
 import android.app.Application
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -16,6 +17,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gamixtv.MotionMagicAI.data.*
 import com.gamixtv.MotionMagicAI.cloud.*
+import com.gamixtv.MotionMagicAI.billing.PlayBilling
 import com.gamixtv.MotionMagicAI.auth.AuthSession
 import com.gamixtv.MotionMagicAI.auth.AuthConfig
 import org.json.JSONObject
@@ -76,10 +78,13 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private val selectedPhotoFile = File(app.filesDir, "sources/selected.png")
     private var photoRevision = 0
     private val cloud = CloudApi(app)
+    private val playBilling = PlayBilling(app, ::verifyPlayPurchase, ::message)
     private val cloudPending = app.getSharedPreferences("motion_cloud_jobs", Application.MODE_PRIVATE)
     var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
     var cloudCatalogStatus by mutableStateOf("Checking model availability…"); private set
     var cloudQuote by mutableStateOf<CloudQuote?>(null); private set
+    var billingReady by mutableStateOf(false); private set
+    var creditProducts by mutableStateOf<List<Pair<String, Long>>>(emptyList()); private set
     private var cloudWork = false
 
     fun refreshCloudCatalog() {
@@ -89,6 +94,50 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 cloudCatalogStatus = if(cloudRates.isEmpty()) "Cloud models are not enabled on the server yet." else "Generation credits · review the price before you create"
             } catch(e: CancellationException) { throw e }
             catch(e: Exception) { cloudCatalogStatus = "Cannot check model availability. Reconnect and try Create again." }
+        }
+    }
+
+    fun refreshBilling() {
+        viewModelScope.launch {
+            try {
+                val session = cloud.session()
+                val entitlement = cloud.request("GET", "/billing/entitlement", session)
+                val plan = entitlement.optString("plan", "free")
+                currentPlan = when (plan) { "legend" -> PlanTier.PREMIUM; "creator" -> PlanTier.PRO; else -> PlanTier.FREE }
+                billingReady = entitlement.optBoolean("enabled")
+                val products = cloud.request("GET", "/billing/products", session).getJSONArray("products")
+                creditProducts = (0 until products.length()).map { index ->
+                    products.getJSONObject(index).getString("sku") to products.getJSONObject(index).getLong("credits")
+                }
+                if (billingReady) playBilling.recover()
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { billingReady = false }
+        }
+    }
+
+    fun buy(activity: Activity, productId: String) {
+        viewModelScope.launch {
+            try {
+                val session = cloud.session()
+                val accountId = cloud.request("GET", "/wallet", session).getString("billing_account_id")
+                playBilling.buy(activity, productId, accountId)
+            } catch (e: Exception) { message(e.message ?: "Sign in and reconnect before purchasing.") }
+        }
+    }
+
+    private fun verifyPlayPurchase(productId: String, token: String) {
+        viewModelScope.launch {
+            try {
+                val session = cloud.session()
+                if (productId == PlayBilling.TOPUP_500) {
+                    cloud.request("POST", "/billing/verify", session, JSONObject().put("sku", productId).put("purchase_token", token))
+                    message("500 permanent credits added to your wallet.")
+                } else {
+                    cloud.request("POST", "/billing/subscriptions/verify", session, JSONObject().put("product_id", productId).put("purchase_token", token))
+                    message("Your subscription is active. New credits are ready to use.")
+                }
+                refreshBilling()
+            } catch (e: Exception) { message(e.message ?: "Google Play payment completed. Tap Restore purchases after reconnecting.") }
         }
     }
 
@@ -227,6 +276,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             if(restoredPhoto != null && photo == null && restoredRevision == photoRevision) { photo = restoredPhoto; photoName = "Your photo" }
         }
         store.lastReadWarning?.let { failure = it }
+        refreshBilling()
     }
 
     fun go(destination: Screen) {

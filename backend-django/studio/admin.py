@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Account, Rate, Product, Wallet, Ledger, Job, Purchase, Budget
+from .models import Account, Rate, Product, Wallet, Ledger, Job, Purchase, Budget, Subscription
 
 @admin.register(Rate)
 class RateAdmin(admin.ModelAdmin):
@@ -18,5 +18,5 @@ class AuditAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None): return False
     def has_delete_permission(self, request, obj=None): return False
 
-for model in (Account, Wallet, Ledger, Job, Purchase, Budget):
+for model in (Account, Wallet, Ledger, Job, Purchase, Subscription, Budget):
     admin.site.register(model, AuditAdmin)

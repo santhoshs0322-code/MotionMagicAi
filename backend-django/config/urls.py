@@ -20,4 +20,6 @@ urlpatterns = [
     path("api/v1/quotes", v.Quotes.as_view()), path("api/v1/jobs", v.Jobs.as_view()), path("api/v1/jobs/<uuid:identifier>", v.JobDetail.as_view()),
     path("api/v1/assets", v.Assets.as_view()), path("api/v1/assets/<uuid:identifier>", v.AssetDetail.as_view()),
     path("api/v1/billing/products", v.Products.as_view()), path("api/v1/billing/verify", v.VerifyPurchase.as_view()), path("api/v1/billing/purchases", v.Purchases.as_view()),
+    path("api/v1/billing/entitlement", v.Entitlement.as_view()), path("api/v1/billing/subscriptions/verify", v.VerifySubscription.as_view()),
+    path("api/v1/billing/play-notifications", v.PlayNotifications.as_view()),
 ]

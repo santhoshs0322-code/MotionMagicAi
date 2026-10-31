@@ -1,6 +1,7 @@
 package com.gamixtv.MotionMagicAI.ui
 
 import android.os.Build
+import android.app.Activity
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -194,8 +196,9 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
 
 @Composable
 fun PlansScreen(vm: MotionViewModel) {
+    val activity = LocalContext.current as? Activity
     val accents = listOf(Color(0xFF86EDC9), Color(0xFFD8ACFF))
-    LaunchedEffect(Unit) { vm.refreshCloudCatalog() }
+    LaunchedEffect(Unit) { vm.refreshCloudCatalog(); vm.refreshBilling() }
     Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B102B), Ink, Ink)))
         .verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -233,6 +236,25 @@ fun PlansScreen(vm: MotionViewModel) {
                 }
             }
         }
+        Text("Membership", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text(if(vm.billingReady) "Creator and Legend renew monthly in Google Play. Credits from the 500-credit top-up never expire." else "Membership is being activated on the server. You can still use local editing tools.", color = Muted, fontSize = 12.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PlanPurchaseCard("Creator", "₹499 / month", "1,200 credits every month", Color(0xFFFFC13C), vm.currentPlan == com.gamixtv.MotionMagicAI.data.PlanTier.PRO, Modifier.weight(1f)) {
+                if(activity == null) vm.message("Open this screen in the MotionMagic app to purchase.") else vm.buy(activity, "motion_creator_monthly")
+            }
+            PlanPurchaseCard("Legend", "₹999 / month", "2,400 credits every month", Violet, vm.currentPlan == com.gamixtv.MotionMagicAI.data.PlanTier.PREMIUM, Modifier.weight(1f)) {
+                if(activity == null) vm.message("Open this screen in the MotionMagic app to purchase.") else vm.buy(activity, "motion_legend_monthly")
+            }
+        }
+        if(vm.creditProducts.any { it.first == "motion_topup_500" }) {
+            Surface(color = Color(0xFF13263A), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF2478BA))) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.AddCircle, null, tint = Color(0xFF50BAFF)); Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) { Text("500 permanent credits", fontWeight = FontWeight.Bold); Text("₹249 · never expire", color = Color(0xFFB4D9F5), fontSize = 11.sp) }
+                    TextButton(onClick = { if(activity == null) vm.message("Open this screen in the MotionMagic app to purchase.") else vm.buy(activity, "motion_topup_500") }) { Text("Top up") }
+                }
+            }
+        }
         Text("Available AI models", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         if(vm.cloudRates.isEmpty()) Text(vm.cloudCatalogStatus, color = Muted, fontSize = 12.sp)
         vm.cloudRates.groupBy { it.modelId }.values.forEach { variants ->
@@ -247,8 +269,21 @@ fun PlansScreen(vm: MotionViewModel) {
                 }
             }
         }
-        Text("The final quote depends on the model, resolution, duration and generated sound. Review it before confirming. Subscriptions are not enabled.", color = Color(0xFFBAA6CC), fontSize = 12.sp, lineHeight = 19.sp)
+        Text("The final quote depends on the model, resolution, duration and generated sound. Review it before confirming. Play verifies every payment on the server.", color = Color(0xFFBAA6CC), fontSize = 12.sp, lineHeight = 19.sp)
         GradientButton("Back to studio", { vm.tab(Screen.HOME) }, icon = Icons.Rounded.Home)
+    }
+}
+
+@Composable
+private fun PlanPurchaseCard(title: String, price: String, credits: String, color: Color, current: Boolean, modifier: Modifier, buy: () -> Unit) {
+    Surface(modifier, color = Color(0xFF1B112B), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, color.copy(alpha = .5f))) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(Icons.Rounded.Star, null, tint = color, modifier = Modifier.size(20.dp))
+            Text(title, fontWeight = FontWeight.Bold)
+            Text(price, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(credits, color = Muted, fontSize = 10.sp, lineHeight = 13.sp)
+            TextButton(onClick = buy, enabled = !current, contentPadding = PaddingValues(0.dp)) { Text(if(current) "Current plan" else "Choose") }
+        }
     }
 }
 

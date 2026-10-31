@@ -21,6 +21,9 @@ All JSON responses include `ok`. Protected routes require `Authorization: Bearer
 | `GET /api/v1/billing/products` | Verified enabled one-time packs only |
 | `POST /api/v1/billing/verify` | Verify and grant one Google Play credit purchase |
 | `GET /api/v1/billing/purchases` | Cursor-paginated purchase history |
+| `GET /api/v1/billing/entitlement` | Current server-verified Creator, Legend, or Free status |
+| `POST /api/v1/billing/subscriptions/verify` | Verify a Play subscription, record status, and idempotently grant its period credits |
+| `POST /api/v1/billing/play-notifications` | Google Cloud Pub/Sub RTDN receiver; service-to-service only |
 
 Google Nano Banana image models and Gemini Omni video use server-only `MOTION_AI_GEMINI_API_KEY`. Qwen, GPT Image, Seedream, original Nano Banana, Kling O3 and PixVerse V6 use `MOTION_AI_FAL_KEY`. The fal adapter submits once to its queue, saves the request ID, polls status and streams results into private S3. The optional private gateway remains available for other services. See [PROVIDERS.md](PROVIDERS.md).
 

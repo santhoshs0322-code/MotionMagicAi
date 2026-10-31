@@ -29,6 +29,8 @@ class Command(BaseCommand):
                 rate.revision += 1
                 rate.save()
             self.stdout.write(f"{slug}: {'enabled' if values['enabled'] else 'disabled'}")
-        enabled_packs = settings.PLAY_ENABLED and settings.ENABLE_CREDIT_PACKS
-        Product.objects.filter(pk__in=("motion_creator_credits", "motion_legend_credits")).update(enabled=enabled_packs)
-        self.stdout.write(f"credit packs: {'enabled' if enabled_packs else 'disabled'}")
+        # Creator and Legend are recurring subscriptions, not consumable products.
+        Product.objects.filter(pk__in=("motion_creator_credits", "motion_legend_credits")).update(enabled=False)
+        enabled_topup = settings.PLAY_ENABLED and (settings.ENABLE_TOPUPS or settings.ENABLE_CREDIT_PACKS)
+        Product.objects.filter(pk="motion_topup_500").update(enabled=enabled_topup)
+        self.stdout.write(f"permanent 500-credit top-up: {'enabled' if enabled_topup else 'disabled'}")

@@ -1,3 +1,7 @@
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,6 +11,12 @@ plugins {
 // One canonical HTTPS backend for the released MotionMagic app.
 // Keeping it fixed prevents an empty Gradle property from disabling login.
 val motionMagicApiBaseUrl = "https://motionmagicai.onrender.com"
+val versionPropertiesFile = rootProject.file("version.properties")
+val versionProperties = Properties().apply {
+    FileInputStream(versionPropertiesFile).use(::load)
+}
+val playVersionCode = versionProperties.getProperty("VERSION_CODE")?.toIntOrNull()
+    ?: error("VERSION_CODE in version.properties must be a whole number")
 
 android {
     namespace = "com.gamixtv.MotionMagicAI"
@@ -17,9 +27,9 @@ android {
         applicationId = "com.gamixtv.MotionMagicAI"
         minSdk = 26
         targetSdk = 36
-        // Play Console already received 3,592,741. Every later upload must stay above it.
-        versionCode = 3_592_742
-        versionName = "0.8.5"
+        // Read the next Play upload number from the tracked version file.
+        versionCode = playVersionCode
+        versionName = "0.8.7"
         buildConfigField("String", "AUTH_BASE_URL", "\"$motionMagicApiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -53,6 +63,20 @@ android {
     }
 }
 
+// `bundleRelease` uses the current number, then advances it only after a
+// successful bundle. The next bundle is therefore always one higher.
+tasks.configureEach {
+    if (name != "bundleRelease") return@configureEach
+    // A Play upload must be a newly built bundle; never skip the increment
+    // because Gradle considers an older release bundle up to date.
+    outputs.upToDateWhen { false }
+    doLast {
+        versionProperties.setProperty("VERSION_CODE", (playVersionCode + 1).toString())
+        FileOutputStream(versionPropertiesFile).use { versionProperties.store(it, "Next Google Play version code") }
+        logger.lifecycle("Next Google Play version code: ${playVersionCode + 1}")
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
@@ -60,6 +84,9 @@ kotlin {
 }
 
 dependencies {
+    // Modern Google Play Billing; its manifest metadata replaces the legacy
+    // AIDL billing path detected by Play Console.
+    implementation("com.android.billingclient:billing-ktx:8.0.0")
     implementation("androidx.credentials:credentials:1.5.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")

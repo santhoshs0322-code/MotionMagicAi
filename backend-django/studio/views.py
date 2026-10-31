@@ -1,6 +1,8 @@
 import uuid
 import ipaddress
 import logging
+import base64
+import json
 from datetime import datetime, timezone as dt_timezone
 from django.conf import settings
 from django.core.cache import cache
@@ -10,8 +12,10 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.pagination import CursorPagination
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from . import authentication, services, storage, billing
-from .models import Account, Wallet, Ledger, Revocation, Job, Asset, Product, Purchase
+from .models import Account, Wallet, Ledger, Revocation, Job, Asset, Product, Purchase, Subscription
 from .errors import Problem
 
 logger = logging.getLogger(__name__)
@@ -124,7 +128,7 @@ class Capabilities(Public):
             "id": r.pk, "title": r.title, "kind": r.kind, "model": r.provider_model, "max_units": r.max_units, "config": r.config,
             "minimum_units": min(r.config.get("durations", [5])) if r.kind == "video" else 1,
             "minimum_charge_paise": services.price(r.unit_cost_paise * (min(r.config.get("durations", [5])) if r.kind == "video" else 1) + r.overhead_paise),
-        } for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=False, currency="CREDITS", credit_value_usd_cents=1, markup_bps=settings.MARKUP_BPS)
+        } for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=settings.PLAY_ENABLED and settings.SUBSCRIPTIONS_ENABLED, currency="CREDITS", credit_value_usd_cents=0.5, markup_bps=settings.MARKUP_BPS)
 
 class WalletView(Private):
     def get(self, request):
@@ -204,7 +208,7 @@ class AssetDetail(Private):
 
 class Products(Private):
     def get(self, request):
-        products = Product.objects.filter(enabled=True, credit_paise__gt=0).order_by("credit_paise")[:30] if settings.PLAY_ENABLED and services.enabled_rates().exists() else []
+        products = Product.objects.filter(enabled=True, credit_paise__gt=0).order_by("credit_paise")[:30] if settings.PLAY_ENABLED else []
         return ok(currency="CREDITS", products=[{"sku": p.pk, "title": p.title, "credit_paise": p.credit_paise, "credits": p.credit_paise} for p in products])
 
 def purchase_public(purchase):
@@ -219,3 +223,57 @@ class VerifyPurchase(Private):
 class Purchases(Private):
     def get(self, request):
         return page(request, Purchase.objects.filter(account=request.user), purchase_public)
+
+def subscription_public(subscription):
+    return {"product_id": subscription.product_id, "plan": subscription.plan, "state": subscription.state,
+            "auto_renewing": subscription.auto_renewing, "expires_at": subscription.expires_at,
+            "credits_per_period": billing.SUBSCRIPTIONS[subscription.product_id][1]}
+
+class Entitlement(Private):
+    def get(self, request):
+        now = timezone.now()
+        subscriptions = Subscription.objects.filter(account=request.user).order_by("-updated_at")
+        active = subscriptions.filter(state__in=("active", "grace", "cancelled"), expires_at__gt=now).first()
+        return ok(enabled=settings.PLAY_ENABLED and settings.SUBSCRIPTIONS_ENABLED,
+                  plan=active.plan if active else "free", subscription=subscription_public(active) if active else None,
+                  subscriptions=[subscription_public(row) for row in subscriptions[:10]])
+
+class VerifySubscription(Private):
+    def post(self, request):
+        authentication.rate_limit("subscription:" + str(request.user.pk), 10)
+        data = body(request, ("product_id", "purchase_token"))
+        return ok(subscription=subscription_public(billing.verify_subscription(request.user, data.get("product_id"), data.get("purchase_token"))))
+
+class PlayNotifications(Public):
+    """Google Cloud Pub/Sub push receiver for post-purchase subscription events."""
+    def post(self, request):
+        if not settings.PLAY_PUBSUB_AUDIENCE:
+            raise Problem("Play notifications are not configured.", 404)
+        bearer = request.headers.get("Authorization", "")
+        if not bearer.startswith("Bearer "):
+            raise Problem("Missing Google Pub/Sub identity.", 401)
+        try:
+            claims = google_id_token.verify_oauth2_token(bearer[7:], google_requests.Request(), settings.PLAY_PUBSUB_AUDIENCE)
+            if not settings.PLAY_PUBSUB_SERVICE_ACCOUNT or claims.get("email") != settings.PLAY_PUBSUB_SERVICE_ACCOUNT or not claims.get("email_verified"):
+                raise ValueError()
+            message = request.data.get("message")
+            if not isinstance(message, dict) or not isinstance(message.get("messageId"), str) or not isinstance(message.get("data"), str):
+                raise ValueError()
+            message_id = message["messageId"]
+            if not cache.add("motion:play-rtdn:" + message_id, True, 7 * 86400):
+                return Response(status=204)
+            decoded = base64.b64decode(message["data"], validate=True)
+            event = json.loads(decoded.decode("utf-8"))
+            notice = event.get("subscriptionNotification") or {}
+            token = notice.get("purchaseToken")
+            if not isinstance(token, str) or not 10 <= len(token) <= 4096:
+                return Response(status=204)  # Test and non-subscription messages.
+            subscription = Subscription.objects.filter(token_hash=authentication.digest(token)).first()
+            if subscription:
+                billing.reconcile_subscription(subscription)
+        except Problem:
+            raise
+        except Exception as exc:
+            logger.warning("play_rtdn_rejected error_type=%s", type(exc).__name__)
+            raise Problem("Invalid Google Play notification.", 401) from None
+        return Response(status=204)

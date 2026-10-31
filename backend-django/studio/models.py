@@ -144,6 +144,30 @@ class Purchase(models.Model):
         constraints = [models.CheckConstraint(condition=Q(state__in=("granted", "refunded")), name="purchase_valid_state")]
 
 
+class Subscription(models.Model):
+    """A server-verified Google Play subscription; never trust the device alone."""
+    PLAN_CHOICES = [("creator", "Creator"), ("legend", "Legend")]
+    STATE_CHOICES = [("active", "Active"), ("grace", "Grace period"), ("cancelled", "Cancelled"),
+                     ("on_hold", "On hold"), ("expired", "Expired"), ("revoked", "Revoked")]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    account = models.ForeignKey(Account, on_delete=models.PROTECT)
+    product_id = models.CharField(max_length=150)
+    # The product ID is not globally unique. The encrypted purchase token is.
+    token_hash = models.CharField(max_length=64, unique=True)
+    token_encrypted = models.TextField()
+    plan = models.CharField(max_length=16, choices=PLAN_CHOICES)
+    state = models.CharField(max_length=16, choices=STATE_CHOICES, default="active")
+    auto_renewing = models.BooleanField(default=False)
+    expires_at = models.DateTimeField(null=True, db_index=True)
+    latest_order_id = models.CharField(max_length=200, blank=True)
+    last_grant_key = models.CharField(max_length=260, blank=True, null=True, unique=True)
+    checked_at = models.DateTimeField(null=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    class Meta:
+        indexes = [models.Index(fields=["account", "state", "expires_at"])]
+
+
 class ProviderCost(models.Model):
     """Append-only revisions; never change customer charges when bills are reconciled."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
