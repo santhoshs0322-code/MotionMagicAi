@@ -186,6 +186,32 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             confirmButton = { TextButton(onClick = vm::confirmCloudGeneration, enabled = enough) { Text("Confirm & create") } },
             dismissButton = { TextButton(onClick = vm::dismissCloudQuote) { Text("Keep editing") } })
     }
+    if(work == null && vm.cloudQuote == null && vm.failure == null && vm.info == null) vm.completedJobNotice?.let { notice ->
+        AlertDialog(
+            onDismissRequest = vm::dismissCompletedJobNotice,
+            icon = {
+                Box(Modifier.size(58.dp).background(ReferenceGradient, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.CheckCircle, null, Modifier.size(32.dp), tint = Color.White)
+                }
+            },
+            title = { Text("Your ${if(notice.kind == MediaKind.IMAGE) "image" else "video"} is ready", fontSize = 21.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(notice.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                    Text("Saved to My Projects · ${notice.chargedCredits} credits used", color = Muted, fontSize = 13.sp)
+                }
+            },
+            confirmButton = {
+                Button(onClick = vm::viewCompletedJob,
+                    modifier = Modifier.background(ReferenceGradient, RoundedCornerShape(12.dp)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)) {
+                    Text("View creation", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = vm::dismissCompletedJobNotice) { Text("Later", color = Color(0xFFD8ACFF)) } },
+            shape = RoundedCornerShape(24.dp), containerColor = Color(0xFF171225)
+        )
+    }
     vm.failure?.let { error ->
         AlertDialog(onDismissRequest = vm::dismissFailure,
             icon = { Icon(Icons.Rounded.ErrorOutline, null, tint = Color(0xFFFF8190)) },

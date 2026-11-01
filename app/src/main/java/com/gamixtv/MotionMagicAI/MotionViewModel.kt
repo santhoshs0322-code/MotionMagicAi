@@ -29,6 +29,7 @@ import com.gamixtv.MotionMagicAI.ui.ArtRepository
 import com.gamixtv.MotionMagicAI.ui.Artwork
 import java.io.File
 import java.io.IOException
+import java.util.ArrayDeque
 import java.util.UUID
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
@@ -48,6 +49,7 @@ enum class Screen(val title: String) {
 }
 
 data class WorkState(val title: String, val progress: Float = 0f, val detail: String = "")
+data class CompletedJobNotice(val projectId: String, val title: String, val kind: MediaKind, val chargedCredits: Long)
 
 class MotionViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
@@ -69,6 +71,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var photoName by mutableStateOf(""); private set
     var failure by mutableStateOf<String?>(null); private set
     var info by mutableStateOf<Pair<String, String>?>(null); private set
+    var completedJobNotice by mutableStateOf<CompletedJobNotice?>(null); private set
+    private val completionQueue = ArrayDeque<CompletedJobNotice>()
     val work = MutableStateFlow<WorkState?>(null)
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages = _messages.asSharedFlow()
@@ -384,6 +388,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 kind = if(image) MediaKind.IMAGE else MediaKind.VIDEO, duration = (duration / 1000).toInt(), durationMs = duration,
                 aspect = job.aspect, mimeType = mime)
             persistProject(project)
+            val completion = CompletedJobNotice(project.id, project.title, project.kind, job.chargedPaise)
+            if(completedJobNotice == null) completedJobNotice = completion else completionQueue.addLast(completion)
             withContext(Dispatchers.IO) {
                 pendingCloudRequests(session).firstOrNull { it.optString("job_id") == job.id }?.let {
                     updateCloudPending(session, null, pendingId(it))
@@ -412,6 +418,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         activeJob?.cancel()
         cloudJobMonitor?.cancel(); cloudJobMonitor = null; cloudMonitorGeneration++
         cloudJobs = emptyList(); downloadFailures.clear(); observedActiveJobIds.clear()
+        completedJobNotice = null; completionQueue.clear()
         draftSave?.cancel(); imageDraftSave?.cancel()
         photoRevision++
         activeAccountId = accountId
@@ -454,6 +461,15 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
     fun notice(title: String, body: String) { info = title to body }
     fun dismissNotice() { info = null }
+    fun dismissCompletedJobNotice() {
+        completedJobNotice = if(completionQueue.isEmpty()) null else completionQueue.removeFirst()
+    }
+    fun viewCompletedJob() {
+        val id = completedJobNotice?.projectId ?: return
+        dismissCompletedJobNotice()
+        val project = projects.firstOrNull { it.id == id }
+        if(project != null) open(project) else tab(Screen.PROJECTS)
+    }
     fun dismissFailure() { failure = null }
     fun message(text: String) { _messages.tryEmit(text) }
 
