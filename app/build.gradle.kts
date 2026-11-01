@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -8,9 +9,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// One canonical HTTPS backend for the released MotionMagic app.
-// Keeping it fixed prevents an empty Gradle property from disabling login.
-val motionMagicApiBaseUrl = "https://motionmagicai.onrender.com"
+// Build against the deployed API host. The default keeps existing releases on
+// Render until the AWS host is ready and an updated bundle is published.
+val motionMagicApiBaseUrl = providers.gradleProperty("motionAiApiBaseUrl")
+    .orNull?.trim()?.trimEnd('/')?.takeIf(String::isNotEmpty)
+    ?: "https://motionmagicai.onrender.com"
+val motionMagicApiUri = URI(motionMagicApiBaseUrl)
+require(motionMagicApiUri.scheme == "https" && motionMagicApiUri.host != null &&
+    motionMagicApiUri.rawPath.isNullOrEmpty() && motionMagicApiUri.rawQuery == null &&
+    motionMagicApiUri.rawFragment == null && motionMagicApiUri.rawUserInfo == null) {
+    "motionAiApiBaseUrl must be an HTTPS origin, for example https://api.example.com"
+}
 val versionPropertiesFile = rootProject.file("version.properties")
 val versionProperties = Properties().apply {
     FileInputStream(versionPropertiesFile).use(::load)

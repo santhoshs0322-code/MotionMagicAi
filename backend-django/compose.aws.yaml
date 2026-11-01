@@ -1,0 +1,54 @@
+# Small-launch EC2 deployment. Keep PostgreSQL, Valkey and S3 outside this host.
+# Run from backend-django/ with a private .env and secrets/google-play.json.
+name: motionmagic-ai
+services:
+  setup:
+    build: .
+    env_file: .env
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py bootstrap_owner"]
+    volumes:
+      - ./secrets/google-play.json:/run/secrets/google-play.json:ro
+    restart: "no"
+
+  api:
+    build: .
+    env_file: .env
+    command: ["gunicorn", "--config", "config/gunicorn.conf.py", "config.wsgi:application"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - ./secrets/google-play.json:/run/secrets/google-play.json:ro
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  worker:
+    build: .
+    env_file: .env
+    command: ["python", "manage.py", "run_generation_worker"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - ./secrets/google-play.json:/run/secrets/google-play.json:ro
+    restart: unless-stopped
+
+  web:
+    image: caddy:2.11.7-alpine
+    environment:
+      MOTION_AI_API_HOST: ${MOTION_AI_API_HOST:?Set MOTION_AI_API_HOST to the public Elastic IP}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.aws:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:

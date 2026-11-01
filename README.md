@@ -1,10 +1,12 @@
 > Launch update: fal-only image/video generation; Nano Banana is excluded. Private financial reporting is available at `/owner/` after owner setup. See [Owner setup](backend-django/OWNER_SETUP.md) for permissions, billing reconciliation, cash records and Render environment values.
 
-Play Console has already received version code `3592741`, so every future upload must stay higher: `3592742`, then `3592743`, then `3592744`. The user-visible version name may remain simple, such as `0.8.5`. Released builds always call `https://motionmagicai.onrender.com`; release builds use R8 code shrinking and obfuscation.
+Play Console requires every new bundle to have a higher version code. The next code is read from `version.properties` and advances after a successful release bundle. Builds call `https://motionmagicai.onrender.com` by default; use `-PmotionAiApiBaseUrl=https://YOUR_ELASTIC_IP` when publishing the AWS cutover build. Release builds use R8 code shrinking and obfuscation.
 
 # MotionMagicAi
 
 A native Kotlin / Jetpack Compose MotionMagic studio with a separate Django backend for accounts, server-priced generation jobs, transaction ledger and verified credit packs.
+
+For the small-launch AWS move, follow [the EC2 cutover guide](backend-django/AWS_FREE_TIER_SETUP.md). It preserves the current PostgreSQL database and Valkey service during the first move.
 
 Device Voice works without a provider key. **AI image/video generation is connected through Django** using fal.ai. Configure the server key, costs, private storage, worker and wallet before generating. Fake keys never count as working credentials. See [provider setup and environment variables](backend-django/PROVIDERS.md).
 
