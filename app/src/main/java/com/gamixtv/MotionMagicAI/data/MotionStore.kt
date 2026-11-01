@@ -23,15 +23,15 @@ class MotionStore(context: Context) {
         private set
 
     @Synchronized
-    fun projects(): List<Project> {
+    fun projects(accountId: String): List<Project> {
         lastReadWarning = null
-        val raw = readString(PROJECTS, "[]")
+        val raw = readString(projectKey(accountId), "[]")
         return try {
             decodeProjects(raw)
         } catch (_: JSONException) {
             lastReadWarning = "Some project information could not be read. Your media files have not been deleted."
             try {
-                decodeProjects(readString(PROJECTS_BACKUP, "[]"))
+                decodeProjects(readString(projectKey(accountId, "backup"), "[]"))
             } catch (_: JSONException) {
                 emptyList()
             }
@@ -39,19 +39,19 @@ class MotionStore(context: Context) {
     }
 
     @Synchronized
-    fun upsertProject(project: Project) {
+    fun upsertProject(accountId: String, project: Project) {
         require(project.id.isNotBlank()) { "Project ID cannot be empty." }
         require(project.title.isNotBlank()) { "Project title cannot be empty." }
         require(project.path.isNotBlank()) { "A project must point to a media file." }
         require(project.createdAt >= 0 && project.duration >= 0) { "Invalid project metadata." }
-        val updated = projects().filterNot { it.id == project.id } + project
-        writeProjects(updated)
+        val updated = projects(accountId).filterNot { it.id == project.id } + project
+        writeProjects(accountId, updated)
     }
 
     /** Deletes the library record only; the caller handles file removal separately. */
     @Synchronized
-    fun deleteProject(id: String) {
-        writeProjects(projects().filterNot { it.id == id })
+    fun deleteProject(accountId: String, id: String) {
+        writeProjects(accountId, projects(accountId).filterNot { it.id == id })
     }
 
     @Synchronized
@@ -140,9 +140,15 @@ class MotionStore(context: Context) {
 
     private fun draftKey(key: String, accountId: String): String {
         require(key.matches(Regex("[A-Za-z0-9_-]{1,40}"))) { "Invalid draft key." }
-        require(accountId.isNotBlank()) { "Sign in before saving your draft." }
-        val hash = MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) }
-        return "draft_${hash}_$key"
+        return "draft_${accountHash(accountId)}_$key"
+    }
+
+    private fun projectKey(accountId: String, suffix: String = "") =
+        "projects_${accountHash(accountId)}" + if(suffix.isEmpty()) "" else "_$suffix"
+
+    private fun accountHash(accountId: String): String {
+        require(accountId.isNotBlank()) { "Sign in before accessing saved projects." }
+        return MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
     private fun readObject(key: String): JSONObject? = try {
@@ -186,7 +192,7 @@ class MotionStore(context: Context) {
             json.optLong("durationMs", duration * 1000L), json.optString("mimeType", if(kind == MediaKind.AUDIO) "audio/wav" else "video/mp4"))
     }
 
-    private fun writeProjects(projects: List<Project>) {
+    private fun writeProjects(accountId: String, projects: List<Project>) {
         val json = JSONArray()
         projects.sortedByDescending { it.createdAt }.forEach { project ->
             json.put(JSONObject()
@@ -200,11 +206,12 @@ class MotionStore(context: Context) {
                 .put("style", project.style).put("durationMs", project.durationMs).put("mimeType", project.mimeType))
         }
         val editor = preferences.edit()
-        val previous = readString(PROJECTS, "[]")
+        val key = projectKey(accountId)
+        val previous = readString(key, "[]")
         // Preserve damaged metadata for recovery instead of silently overwriting it.
-        if (lastReadWarning != null) editor.putString(PROJECTS_RECOVERY, previous)
-        else editor.putString(PROJECTS_BACKUP, previous)
-        commit(editor.putString(PROJECTS, json.toString()))
+        if (lastReadWarning != null) editor.putString(projectKey(accountId, "recovery"), previous)
+        else editor.putString(projectKey(accountId, "backup"), previous)
+        commit(editor.putString(key, json.toString()))
     }
 
     private fun commit(editor: SharedPreferences.Editor) {
@@ -212,9 +219,6 @@ class MotionStore(context: Context) {
     }
 
     private companion object {
-        const val PROJECTS = "projects"
-        const val PROJECTS_BACKUP = "projects_backup"
-        const val PROJECTS_RECOVERY = "projects_recovery"
         const val SETTINGS = "settings"
         const val TEST_MODE = "test_mode"
     }

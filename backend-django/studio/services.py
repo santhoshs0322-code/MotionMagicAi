@@ -235,6 +235,8 @@ def create_quote(account, data):
             raise Problem("Source media is unavailable.", 404) from None
         if rate.kind == "voice" or not asset.mime.startswith("image/"):
             raise Problem("This generation only accepts image input.")
+        if not asset.key.startswith(f"accounts/{account.pk}/") or ".." in asset.key:
+            raise Problem("Source media ownership is invalid.", 503)
         if asset.size > settings.GEMINI_MAX_INPUT_BYTES:
             raise Problem("Source image is too large for this model. Choose a smaller photo.")
         payload["input_key"] = asset.key
@@ -301,6 +303,8 @@ def finish_job(job_id, state, actual_cost=0, asset=None, error="", lease_id=None
         return job
     if state not in TERMINAL or type(actual_cost) is not int or actual_cost < 0:
         raise Problem("Invalid job settlement.", 503)
+    if asset is not None and (str(asset.account_id) != str(job.account_id) or not asset.ready or asset.deleted):
+        raise Problem("Generated media does not belong to this account.", 503)
     bucket = Budget.objects.select_for_update().get(pk=job.budget_id)
     bucket.reserved_paise -= job.quote.provider_cost_paise
     bucket.spent_paise += actual_cost

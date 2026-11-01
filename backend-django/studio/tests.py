@@ -8,7 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 from .authentication import issue_token
-from .models import Account, Wallet, Ledger, Rate, Job, Product, RefreshSession, Subscription
+from .models import Account, Wallet, Ledger, Rate, Job, Asset, Quote, Budget, Product, RefreshSession, Subscription
 from .services import price, create_quote, submit_job, finish_job
 from .services import grant_welcome_credits
 from .billing import verify_purchase
@@ -126,6 +126,49 @@ class WelcomeCreditTests(TestCase):
         client.credentials(HTTP_AUTHORIZATION="Bearer " + issue_token(account))
         self.assertEqual(client.get("/api/v1/wallet").json()["balance_credits"], 200)
         self.assertEqual(client.get("/api/v1/wallet").json()["balance_credits"], 200)
+
+
+class AccountIsolationTests(TestCase):
+    @override_settings(WELCOME_CREDITS=200)
+    def test_each_user_gets_own_credits_and_cannot_read_another_users_media_or_jobs(self):
+        first = Account.objects.create(google_sub="isolation-first", email="first@example.test", name="First")
+        second = Account.objects.create(google_sub="isolation-second", email="second@example.test", name="Second")
+        asset = Asset.objects.create(account=first, key=f"accounts/{first.pk}/outputs/private.png", mime="image/png", size=12, ready=True)
+        rate = Rate.objects.create(slug="isolation-image", title="Image", kind="image", provider_model="test/image", unit_cost_paise=1)
+        quote = Quote.objects.create(account=first, rate=rate, payload={"prompt": "Private image", "kind": "image"},
+            payload_hash="a" * 64, provider_cost_paise=1, overhead_paise=0, markup_bps=0, fee_bps=0,
+            charge_paise=1, expires_at=timezone.now() + timedelta(minutes=5))
+        budget = Budget.objects.create(day=timezone.now().date(), shard=0)
+        job = Job.objects.create(account=first, quote=quote, idempotency_key="isolation-job", budget=budget,
+            output=asset, state="succeeded", next_attempt_at=timezone.now())
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION="Bearer " + issue_token(first))
+        self.assertEqual(client.get("/api/v1/wallet").json()["balance_credits"], 200)
+        self.assertEqual(client.get("/api/v1/assets").json()["results"][0]["id"], str(asset.pk))
+        self.assertEqual(client.get("/api/v1/jobs").json()["results"][0]["id"], str(job.pk))
+        client.credentials(HTTP_AUTHORIZATION="Bearer " + issue_token(second))
+        self.assertEqual(client.get("/api/v1/wallet").json()["balance_credits"], 200)
+        self.assertEqual(client.get("/api/v1/assets").json()["results"], [])
+        self.assertEqual(client.get("/api/v1/jobs").json()["results"], [])
+        self.assertEqual(client.get(f"/api/v1/assets/{asset.pk}").status_code, 404)
+        self.assertEqual(client.get(f"/api/v1/jobs/{job.pk}").status_code, 404)
+        self.assertEqual(len(client.get("/api/v1/transactions").json()["results"]), 1)
+        self.assertEqual(Wallet.objects.get(account=first).balance_paise, 200)
+        self.assertEqual(Wallet.objects.get(account=second).balance_paise, 200)
+        Asset.objects.filter(pk=asset.pk).update(key=f"accounts/{second.pk}/outputs/private.png")
+        client.credentials(HTTP_AUTHORIZATION="Bearer " + issue_token(first))
+        self.assertEqual(client.get(f"/api/v1/assets/{asset.pk}").status_code, 503)
+        foreign = Asset.objects.create(account=second, key=f"accounts/{second.pk}/outputs/foreign.png", mime="image/png", size=12, ready=True)
+        unfinished_quote = Quote.objects.create(account=first, rate=rate, payload={"prompt": "Own image", "kind": "image"},
+            payload_hash="b" * 64, provider_cost_paise=1, overhead_paise=0, markup_bps=0, fee_bps=0,
+            charge_paise=1, expires_at=timezone.now() + timedelta(minutes=5))
+        unfinished = Job.objects.create(account=first, quote=unfinished_quote, idempotency_key="unfinished-job",
+            budget=budget, next_attempt_at=timezone.now())
+        with self.assertRaisesMessage(Exception, "does not belong to this account"):
+            finish_job(unfinished.pk, "succeeded", 1, asset=foreign)
+        unfinished.refresh_from_db()
+        self.assertEqual(unfinished.state, "queued")
+        self.assertEqual(Wallet.objects.get(account=first).balance_paise, 200)
 
 
 class RefreshSessionTests(TestCase):

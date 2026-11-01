@@ -56,7 +56,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private val store = MotionStore(app)
     private val history = mutableListOf<Screen>()
     var screen by mutableStateOf(Screen.HOME); private set
-    var projects by mutableStateOf(store.projects()); private set
+    var projects by mutableStateOf<List<Project>>(emptyList()); private set
     var settings by mutableStateOf(store.settings()); private set
     var draft by mutableStateOf(CreationDraft()); private set
     var imageDraft by mutableStateOf(CreationDraft()); private set
@@ -78,11 +78,14 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     val messages = _messages.asSharedFlow()
     private var activeJob: Job? = null
     private var draftSave: Job? = null
-    private val projectDir = File(app.filesDir, "projects").also { it.mkdirs() }
     private val pendingOutputs = ConcurrentHashMap.newKeySet<File>()
+    private fun accountHash(accountId: String): String {
+        require(accountId.isNotBlank()) { "Sign in before accessing saved media." }
+        return MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+    private fun projectDir(accountId: String) = File(app.filesDir, "projects/${accountHash(accountId)}").also { it.mkdirs() }
     private fun photoFile(accountId: String): File {
-        val hash = MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) }
-        return File(app.filesDir, "sources/$hash.png")
+        return File(app.filesDir, "sources/${accountHash(accountId)}.png")
     }
     private val selectedPhotoFile: File get() = photoFile(checkNotNull(activeAccountId) { "Sign in before selecting a photo." })
     private var photoRevision = 0
@@ -148,8 +151,11 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun buy(activity: Activity, productId: String) {
         viewModelScope.launch {
             try {
+                val account = checkNotNull(activeAccountId) { "Sign in before purchasing." }
                 val session = cloud.session()
+                require(session.user.id == account) { "Your account changed. Sign in again." }
                 val accountId = cloud.request("GET", "/wallet", session).getString("billing_account_id")
+                if(activeAccountId != account) return@launch
                 playBilling.buy(activity, productId, accountId)
             } catch (e: Exception) { message(e.message ?: "Sign in and reconnect before purchasing.") }
         }
@@ -158,15 +164,17 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private fun verifyPlayPurchase(productId: String, token: String) {
         viewModelScope.launch {
             try {
+                val account = checkNotNull(activeAccountId) { "Sign in to verify this purchase." }
                 val session = cloud.session()
+                require(session.user.id == account && activeAccountId == account) { "Your account changed. Sign in again." }
                 if (productId == PlayBilling.TOPUP_500) {
                     cloud.request("POST", "/billing/verify", session, JSONObject().put("sku", productId).put("purchase_token", token))
-                    message("500 permanent credits added to your wallet.")
+                    if(activeAccountId == account) message("500 permanent credits added to your wallet.")
                 } else {
                     cloud.request("POST", "/billing/subscriptions/verify", session, JSONObject().put("product_id", productId).put("purchase_token", token))
-                    message("Your subscription is active. New credits are ready to use.")
+                    if(activeAccountId == account) message("Your subscription is active. New credits are ready to use.")
                 }
-                refreshBilling(recoverPurchases = false)
+                if(activeAccountId == account) refreshBilling(recoverPurchases = false)
             } catch (e: Exception) { message(e.message ?: "Google Play payment completed. Tap Restore purchases after reconnecting.") }
         }
     }
@@ -360,8 +368,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     private suspend fun downloadCloudJob(account: String, session: AuthSession, job: CloudJob) {
         val id = "cloud_${job.id}"
-        val output = File(projectDir, "$id.media")
-        val temporary = File(projectDir, "$id.part")
+        val output = File(projectDir(account), "$id.media")
+        val temporary = File(projectDir(account), "$id.part")
         cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "downloading", progressPercent = 90) else it }
         try {
             withContext(Dispatchers.IO) { temporary.delete() }
@@ -387,7 +395,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             val project = Project(id = id, title = job.title, path = output.path,
                 kind = if(image) MediaKind.IMAGE else MediaKind.VIDEO, duration = (duration / 1000).toInt(), durationMs = duration,
                 aspect = job.aspect, mimeType = mime)
-            persistProject(project)
+            persistProject(account, project)
             val completion = CompletedJobNotice(project.id, project.title, project.kind, job.chargedPaise)
             if(completedJobNotice == null) completedJobNotice = completion else completionQueue.addLast(completion)
             withContext(Dispatchers.IO) {
@@ -402,28 +410,18 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         } finally { withContext(NonCancellable + Dispatchers.IO) { temporary.delete() } }
     }
 
-    init {
-        val referenced = projects.map { it.path }.toSet()
-        val abandoned = if(store.lastReadWarning == null) projectDir.listFiles()?.filter { it.path !in referenced } else null
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                abandoned?.forEach { it.delete() }
-            }
-        }
-        store.lastReadWarning?.let { failure = it }
-    }
-
     fun activateAccount(accountId: String?) {
         if (activeAccountId == accountId) return
         activeJob?.cancel()
         cloudJobMonitor?.cancel(); cloudJobMonitor = null; cloudMonitorGeneration++
         cloudJobs = emptyList(); downloadFailures.clear(); observedActiveJobIds.clear()
+        projects = accountId?.let { store.projects(it) } ?: emptyList()
         completedJobNotice = null; completionQueue.clear()
         draftSave?.cancel(); imageDraftSave?.cancel()
         photoRevision++
         activeAccountId = accountId
         photo = null; photoName = ""; cloudQuote = null
-        selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
+        selectedProject = null; selectedArt = Artwork.Garden; failure = if(accountId == null) null else store.lastReadWarning; info = null
         currentPlan = PlanTier.FREE; billingReady = false; creditProducts = emptyList()
         walletCredits = null; monthlyCredits = null; topupCredits = null; freeCredits = null
         history.clear(); screen = Screen.HOME
@@ -452,12 +450,18 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun tab(destination: Screen) { history.clear(); screen = destination }
     fun back() { screen = if (history.isEmpty()) Screen.HOME else history.removeAt(history.lastIndex) }
     fun open(project: Project) {
+        if(!ownsProject(project)) { failure = "This project does not belong to the signed-in account."; return }
         if (!MediaAccess.external(project.path) && !File(project.path).isFile) {
             failure = "This project’s file is missing. Import the original again, or remove the project from your library."
             return
         }
         selectedProject = project
         go(Screen.RESULT)
+    }
+    private fun ownsProject(project: Project): Boolean {
+        val account = activeAccountId ?: return false
+        if(projects.none { it.id == project.id && it.path == project.path }) return false
+        return runCatching { File(project.path).canonicalPath.startsWith(projectDir(account).canonicalPath + File.separator) }.getOrDefault(false)
     }
     fun notice(title: String, body: String) { info = title to body }
     fun dismissNotice() { info = null }
@@ -576,7 +580,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         val account = checkNotNull(activeAccountId)
         val target = photoFile(account)
         val bitmap = withContext(Dispatchers.IO) {
-            val temporary = copyUri(uri, 20L * 1024 * 1024, ".image")
+            val temporary = copyUri(account, uri, 20L * 1024 * 1024, ".image")
             try {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(temporary.path, bounds)
@@ -614,8 +618,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         message("Photo added")
     }
 
-    private suspend fun copyUri(uri: Uri, maxBytes: Long, extension: String): File {
-        val destination = File(projectDir, "${UUID.randomUUID()}$extension")
+    private suspend fun copyUri(account: String, uri: Uri, maxBytes: Long, extension: String): File {
+        val destination = File(projectDir(account), "${UUID.randomUUID()}$extension")
         pendingOutputs.add(destination)
         try {
             app.contentResolver.openInputStream(uri)?.use { input ->
@@ -638,12 +642,13 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun generate() {
+        val account = activeAccountId ?: return
         val request = draft
         val validation = generationValidation()
         if (!validation.isValid) { failure = validation.message; return }
         val source = photo ?: ArtRepository.bitmap(app, selectedArt)
         startWork("Creating your preview", "Animating the photo on this device. No AI credits are used.") {
-            val output = File(projectDir, "motion_${UUID.randomUUID()}.mp4")
+            val output = File(projectDir(account), "motion_${UUID.randomUUID()}.mp4")
             pendingOutputs.add(output)
             val bitmap = withContext(Dispatchers.Default) { styleBitmap(source, request.selectedStyle) }
             try {
@@ -662,7 +667,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 val project = Project(title = request.prompt.trim().take(55).ifBlank { "${request.selectedStyle} photo animation" },
                     path = output.path, kind = MediaKind.VIDEO, duration = request.duration, aspect = request.aspect, style = request.selectedStyle)
-                try { persistProject(project) } catch(e: Exception) { output.delete(); throw e }
+                try { persistProject(account, project) } catch(e: Exception) { output.delete(); throw e }
+                if(activeAccountId != account) return@startWork
                 selectedProject = project
                 go(Screen.RESULT)
                 autoSave(project)
@@ -671,23 +677,29 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun generateVoice(style: String) {
+        val account = activeAccountId ?: return
         if (voiceText.isBlank() || voiceText.length > 500) { failure = "Enter between 1 and 500 characters for your voiceover."; return }
         val text = voiceText.trim()
         startWork("Creating voice sample", "Using your device’s speech engine. This is a test voice.") {
-            val output = File(projectDir, "voice_${UUID.randomUUID()}.wav")
+            val output = File(projectDir(account), "voice_${UUID.randomUUID()}.wav")
             pendingOutputs.add(output)
             DeviceVoiceEngine.synthesize(app, text, style, output)
             val project = Project(title = text.take(55), path = output.path, kind = MediaKind.AUDIO, style = style)
-            try { persistProject(project) } catch(e: Exception) { output.delete(); throw e }
+            try { persistProject(account, project) } catch(e: Exception) { output.delete(); throw e }
+            if(activeAccountId != account) return@startWork
             selectedProject = project
             go(Screen.RESULT)
         }
     }
 
-    private suspend fun persistProject(project: Project) {
-        withContext(Dispatchers.IO) { store.upsertProject(project) }
+    private suspend fun persistProject(account: String, project: Project) {
+        require(activeAccountId == account) { "Your account changed. Sign in again." }
+        require(File(project.path).canonicalPath.startsWith(projectDir(account).canonicalPath + File.separator)) { "Project storage does not belong to this account." }
+        withContext(Dispatchers.IO) { store.upsertProject(account, project) }
         pendingOutputs.remove(File(project.path))
-        projects = withContext(Dispatchers.IO) { store.projects() }
+        val ownProjects = withContext(Dispatchers.IO) { store.projects(account) }
+        if(activeAccountId != account) throw CancellationException("Account changed while saving a project.")
+        projects = ownProjects
         if(settings.notifications) runCatching {
             val manager = app.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel("creations", "Finished creations", NotificationManager.IMPORTANCE_DEFAULT))
@@ -698,16 +710,18 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
     private suspend fun autoSave(project: Project) {
-        if (settings.autoSave && Build.VERSION.SDK_INT >= 29 && project.kind == MediaKind.VIDEO) {
+        if (ownsProject(project) && settings.autoSave && Build.VERSION.SDK_INT >= 29 && project.kind == MediaKind.VIDEO) {
             try { LocalMediaEngine.exportToGallery(app, MediaAccess.uri(project.path), "MotionMagic_${project.id.take(8)}.mp4", project.mimeType); message("Saved to your gallery") }
             catch(e: Exception) { message("Project saved. Gallery export failed; use Download to try again.") }
         }
     }
     fun exportToGallery(project: Project) = startWork("Saving to gallery") {
+        require(ownsProject(project)) { "This project does not belong to the signed-in account." }
         LocalMediaEngine.exportToGallery(app, MediaAccess.uri(project.path), "MotionMagic_${project.id.take(8)}.mp4", project.mimeType)
         message("Saved to Movies / MotionMagic AI")
     }
     fun saveDocument(project: Project, uri: Uri) = startWork("Saving file") {
+        require(ownsProject(project)) { "This project does not belong to the signed-in account." }
         withContext(Dispatchers.IO) {
             app.contentResolver.openOutputStream(uri)?.use { out -> MediaAccess.open(app, MediaAccess.uri(project.path)).use { MediaAccess.copy(it, out) } }
                 ?: throw IOException("Could not write to the selected location.")
@@ -715,23 +729,30 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         message("File saved")
     }
     fun share(project: Project): Intent? = try {
+        require(ownsProject(project)) { "This project does not belong to the signed-in account." }
         require(MediaAccess.external(project.path) || File(project.path).isFile) { "This media file is no longer available." }
         val uri = if(MediaAccess.external(project.path)) Uri.parse(project.path) else FileProvider.getUriForFile(app, "${app.packageName}.files", File(project.path))
         LocalMediaEngine.shareIntent(uri).apply { type = project.mimeType }
     } catch(e: Exception) { failure = e.message ?: "Could not share this file."; null }
 
     fun delete(project: Project) {
+        val account = activeAccountId ?: return
+        if(projects.none { it.id == project.id && it.path == project.path }) return
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
+                    require(activeAccountId == account) { "Your account changed. Sign in again." }
+                    require(store.projects(account).any { it.id == project.id && it.path == project.path }) { "Project does not belong to this account." }
                     val file = File(project.path)
                     if(!MediaAccess.external(project.path)) {
-                    require(file.canonicalPath.startsWith(projectDir.canonicalPath + File.separator)) { "This file is outside the project folder." }
+                    require(file.canonicalPath.startsWith(projectDir(account).canonicalPath + File.separator)) { "This file is outside this account's project folder." }
                     if(file.exists() && !file.delete()) throw IOException("Could not delete this file. Close its player and try again.")
                     }
-                    store.deleteProject(project.id)
+                    store.deleteProject(account, project.id)
                 }
-                projects = withContext(Dispatchers.IO) { store.projects() }
+                val ownProjects = withContext(Dispatchers.IO) { store.projects(account) }
+                if(activeAccountId != account) return@launch
+                projects = ownProjects
                 if (selectedProject?.id == project.id) { selectedProject = null; tab(Screen.PROJECTS) }
                 message("Project deleted. Exported gallery copies are kept.")
             } catch(e: Exception) { failure = e.message ?: "Could not delete the project." }

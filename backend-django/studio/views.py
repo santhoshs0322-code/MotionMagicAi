@@ -213,9 +213,11 @@ class Assets(Private):
 class AssetDetail(Private):
     def find(self, request, identifier):
         try:
-            return Asset.objects.get(pk=identifier, account=request.user, deleted=False)
+            asset = Asset.objects.get(pk=identifier, account=request.user, deleted=False)
         except Asset.DoesNotExist:
             raise Problem("Media not found.", 404) from None
+        storage.require_owner_key(asset)
+        return asset
     def post(self, request, identifier):
         return ok(asset=asset_public(storage.confirm_upload(self.find(request, identifier))))
     def get(self, request, identifier):

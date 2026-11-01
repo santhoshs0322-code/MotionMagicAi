@@ -10,6 +10,10 @@ from .errors import Problem
 
 MIMES = {"image/jpeg", "image/png", "image/webp", "video/mp4", "audio/mpeg", "audio/mp4", "audio/wav"}
 
+def require_owner_key(asset):
+    if not asset.key.startswith(f"accounts/{asset.account_id}/") or ".." in asset.key:
+        raise Problem("Media ownership is invalid.", 503)
+
 def client():
     if not settings.S3_BUCKET:
         raise Problem("Cloud storage is not enabled.", 503)
@@ -38,6 +42,7 @@ def begin_upload(account, mime, size):
     return asset, form
 
 def confirm_upload(asset):
+    require_owner_key(asset)
     info = client().head_object(Bucket=settings.S3_BUCKET, Key=asset.key)
     if info["ContentLength"] != asset.size or info.get("ContentType") != asset.mime:
         raise Problem("Uploaded object does not match its declared type and size.")
@@ -46,6 +51,7 @@ def confirm_upload(asset):
     return asset
 
 def download(asset):
+    require_owner_key(asset)
     return client().generate_presigned_url("get_object", Params={"Bucket": settings.S3_BUCKET, "Key": asset.key, "ResponseContentDisposition": 'attachment; filename="motionmagic-media"'}, ExpiresIn=60)
 
 def provider_output(job, data):
@@ -58,6 +64,8 @@ def provider_output(job, data):
     if info["ContentLength"] != size or info.get("ContentType") != mime:
         raise Problem("Provider output is not ready.", 503)
     asset, _ = Asset.objects.get_or_create(key=key, defaults={"account_id": job.account_id, "mime": mime, "size": size, "ready": True})
+    if str(asset.account_id) != str(job.account_id) or asset.deleted or not asset.ready:
+        raise Problem("Provider output does not belong to this account.", 503)
     return asset
 
 def generated_key(job, mime="image/png"):

@@ -184,7 +184,7 @@ fun ProfileScreen(vm: MotionViewModel) {
             Column {
                 SettingRow(Icons.Rounded.HelpOutline, "Help & Support", onClick = { showHelp(vm) })
                 SettingRow(Icons.Rounded.StarOutline, "Rate Us", onClick = { vm.notice("Thanks for trying MotionMagic", "This is a local test build and has no Google Play listing yet.") }, tint = Color(0xFFFFBF46))
-                SettingRow(Icons.Rounded.FolderOpen, "Local workspace", onClick = { vm.notice("Local workspace", "Projects stay on this device, regardless of the signed-in account. Google sign-in does not upload or sync projects.") })
+                SettingRow(Icons.Rounded.FolderOpen, "Local workspace", onClick = { vm.notice("Local workspace", "Saved projects on this device are shown only for the signed-in account. Cloud generations belong to that account and can be recovered from My Projects. Device-only previews and voice clips are not uploaded or synced.") })
             }
         }
         TestNotice("Sign in for AI creation. Device Voice uses your installed speech engine.")

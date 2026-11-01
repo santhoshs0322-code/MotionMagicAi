@@ -120,7 +120,7 @@ class FalFlowTests(TestCase):
         asset = Asset.objects.create(account=other, key="other/image", mime="image/png", size=100, ready=True)
         with self.assertRaisesMessage(Exception, "Source media is unavailable"):
             services.create_quote(self.account, {"service": "qwen-image-720p", "prompt": "Photo", "asset_id": str(asset.pk)})
-        asset.account = self.account; asset.size = 20 * 1024**2; asset.save()
+        asset.account = self.account; asset.key = f"accounts/{self.account.pk}/uploads/{asset.pk}"; asset.size = 20 * 1024**2; asset.save()
         with self.assertRaisesMessage(Exception, "too large"):
             services.create_quote(self.account, {"service": "qwen-image-720p", "prompt": "Photo", "asset_id": str(asset.pk)})
         self.assertFalse(Ledger.objects.exists())

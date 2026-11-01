@@ -56,6 +56,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
     val work by vm.work.collectAsState()
     var menu by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Project?>(null) }
+    LaunchedEffect(vm.activeAccountId) { pendingExport = null; snackbar.currentSnackbarData?.dismiss() }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::importPhoto) }
     val documentSaver = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val uri = if(result.resultCode == android.app.Activity.RESULT_OK) result.data?.data else null

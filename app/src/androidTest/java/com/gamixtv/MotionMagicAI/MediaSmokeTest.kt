@@ -16,6 +16,8 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -76,18 +78,25 @@ class MediaSmokeTest {
         try {
             val store = MotionStore(isolated)
             val project = Project(title = "Missing file retained", path = File(context.cacheDir, "missing.mp4").path, kind = MediaKind.VIDEO)
+            val legacy = JSONArray().put(JSONObject().put("id", project.id).put("title", project.title)
+                .put("path", project.path).put("kind", project.kind.name).put("createdAt", project.createdAt).put("duration", 0))
+            isolated.getSharedPreferences(name, Context.MODE_PRIVATE).edit().putString("projects", legacy.toString()).commit()
+            assertTrue(store.projects("account-a").isEmpty()) // Unknown legacy owner must not be guessed.
             val draft = CreationDraft("My prompt", "Anime", 15, "1:1")
-            store.upsertProject(project)
+            store.upsertProject("account-a", project)
             store.saveDraft(draft, accountId = "account-a")
             store.saveSettings(AppSettings(defaultAspect = "16:9", autoSave = true))
             val reopened = MotionStore(isolated)
-            assertEquals(project, reopened.projects().single())
+            assertEquals(project, reopened.projects("account-a").single())
+            assertTrue(reopened.projects("account-b").isEmpty())
             assertEquals(draft, reopened.draft(accountId = "account-a"))
             assertEquals("", reopened.draft(accountId = "account-b").prompt)
             assertEquals("16:9", reopened.settings().defaultAspect)
             assertTrue(reopened.settings().autoSave)
-            reopened.deleteProject(project.id)
-            assertTrue(MotionStore(isolated).projects().isEmpty())
+            reopened.deleteProject("account-b", project.id)
+            assertEquals(project, reopened.projects("account-a").single())
+            reopened.deleteProject("account-a", project.id)
+            assertTrue(MotionStore(isolated).projects("account-a").isEmpty())
         } finally { context.deleteSharedPreferences(name) }
     }
 
