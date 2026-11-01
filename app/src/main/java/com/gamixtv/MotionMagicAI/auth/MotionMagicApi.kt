@@ -41,7 +41,7 @@ class MotionMagicApi(
         return AuthSession(token, user, expiry, refreshToken)
     }
 
-    suspend fun refresh(refreshToken: String): AuthSession {
+    override suspend fun refresh(refreshToken: String): AuthSession {
         if (refreshToken.length !in 40..256) throw AuthException(AuthFailure.UNAUTHORIZED, "Your saved session has ended. Sign in again.")
         val result = request("POST", "/auth/motion-ai/refresh", JSONObject().put("refreshToken", refreshToken))
         val user = parseUser(result.optJSONObject("user"))

@@ -58,6 +58,7 @@ data class AuthUiState(
 
 interface AuthBackend {
     suspend fun signIn(idToken: String): AuthSession
+    suspend fun refresh(refreshToken: String): AuthSession
     suspend fun me(token: String): AuthUser
     suspend fun logout(token: String)
 }

@@ -24,8 +24,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private val backend = MotionMagicApi(config)
     private val store = EncryptedAuthSessionStore(application, config)
     private val credentials = CredentialManager.create(application)
-    private val mutable = MutableStateFlow(AuthUiState(configured = config.isConfigured))
+    private val mutable = MutableStateFlow(AuthUiState(status = AuthStatus.RESTORING, busy = true, configured = config.isConfigured))
     val state = mutable.asStateFlow()
+    private val restorer = AuthSessionRestorer(backend, store)
     private var session: AuthSession? = null
     private var operation: Job? = null
     init { retryRestore() }
@@ -35,27 +36,20 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         operation = viewModelScope.launch {
             mutable.value = mutable.value.copy(status = AuthStatus.RESTORING, busy = true, message = null)
             try {
-                val saved = session ?: store.read()
+                val saved = store.read()
                 if (saved == null) { mutable.value = AuthUiState(configured = config.isConfigured); return@launch }
-                session = saved
-                val current = if (saved.expiresAtEpochSeconds <= System.currentTimeMillis() / 1000 + 3600) {
-                    backend.refresh(saved.refreshToken).also { renewed ->
-                        if (renewed.user.id != saved.user.id) throw AuthException(AuthFailure.UNAUTHORIZED, "Account changed. Sign in again.")
-                        store.write(renewed)
-                    }
-                } else saved
-                val user = backend.me(current.token)
+                val current = restorer.restore(saved)
                 ensureActive()
-                if (user.id != current.user.id) throw AuthException(AuthFailure.UNAUTHORIZED, "Account changed. Sign in again.")
-                session = current.copy(user = user)
-                mutable.value = AuthUiState(AuthStatus.SIGNED_IN, user, configured = true)
+                session = current
+                mutable.value = AuthUiState(AuthStatus.SIGNED_IN, current.user, configured = true)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                if (e is AuthException && e.failure == AuthFailure.UNAUTHORIZED) {
+                val needsSignIn = e is AuthException && e.failure in setOf(AuthFailure.UNAUTHORIZED, AuthFailure.STORAGE)
+                if (needsSignIn) {
                     runCatching { store.clear() }; session = null
                 }
-                mutable.value = AuthUiState(if (session != null) AuthStatus.OFFLINE else AuthStatus.GUEST,
-                    session?.user, safeMessage(e), configured = config.isConfigured)
+                mutable.value = AuthUiState(if (needsSignIn) AuthStatus.GUEST else AuthStatus.OFFLINE,
+                    message = safeMessage(e), configured = config.isConfigured)
             }
         }
     }

@@ -19,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -38,7 +37,6 @@ import com.gamixtv.MotionMagicAI.Screen
 import com.gamixtv.MotionMagicAI.auth.LoginGate
 import com.gamixtv.MotionMagicAI.data.MediaKind
 import com.gamixtv.MotionMagicAI.data.Project
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,7 +54,6 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val work by vm.work.collectAsState()
-    var splash by rememberSaveable { mutableStateOf(true) }
     var menu by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Project?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::importPhoto) }
@@ -79,13 +76,8 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
                 .setType(project.mimeType).putExtra(Intent.EXTRA_TITLE, "MotionMagic_${project.id.take(8)}.$extension"))
         }
     }
-    LaunchedEffect(Unit) { delay(950); splash = false }
     LaunchedEffect(vm) { vm.messages.collect { snackbar.showSnackbar(it) } }
     BackHandler(enabled = vm.screen != Screen.HOME && work == null) { vm.back() }
-    if(splash) {
-        SplashScreen()
-        return
-    }
     val roots = listOf(Screen.HOME, Screen.TEMPLATES, Screen.PROJECTS, Screen.PROFILE)
     val creating = vm.screen in listOf(Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE)
     Scaffold(containerColor = Ink, snackbarHost = {
@@ -210,7 +202,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
 fun showHelp(vm: MotionViewModel) = vm.notice("Your creative studio", "Choose Image to Video, Text to Video or Create Image. Add your photo or prompt, then choose a model and settings. Available models depend on the server configuration. Tap Create to review the credit price before confirming. Use Check cloud generation to recover a submitted request or download after reconnecting. Kling and PixVerse image-to-video follow the source photo’s shape.\n\nDevice Voice uses your installed Android speech engine. Saved creations can be played, downloaded and shared from My Projects.")
 
 @Composable
-fun SplashScreen() {
+fun SplashScreen(message: String = "Opening your creative studio", onRetry: (() -> Unit)? = null) {
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Color(0xFF0B031D))))) {
         Canvas(Modifier.fillMaxWidth().fillMaxHeight(.42f).align(Alignment.BottomCenter)) {
             for(i in 0..3) {
@@ -231,7 +223,10 @@ fun SplashScreen() {
             Spacer(Modifier.height(12.dp))
             Text("Turn Your Ideas Into Amazing Videos", color = Color(0xFFBCBFCE), fontSize = 13.sp)
             Spacer(Modifier.height(45.dp))
-            CircularProgressIndicator(Modifier.size(32.dp), color = Pink, strokeWidth = 3.dp)
+            if (onRetry == null) CircularProgressIndicator(Modifier.size(32.dp), color = Pink, strokeWidth = 3.dp)
+            else TextButton(onClick = onRetry) { Text("Try again", color = Color(0xFFDEA5FF)) }
+            Spacer(Modifier.height(14.dp))
+            Text(message, color = Color(0xFFBCBFCE), fontSize = 13.sp)
         }
         Text("YOUR CREATIVE STUDIO", color = Color(0xFFBA9ED9), letterSpacing = 3.sp, fontSize = 10.sp,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 45.dp))

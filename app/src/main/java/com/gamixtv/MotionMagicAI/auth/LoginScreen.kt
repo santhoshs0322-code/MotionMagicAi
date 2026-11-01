@@ -36,6 +36,7 @@ import com.gamixtv.MotionMagicAI.ui.MagicGradient
 import com.gamixtv.MotionMagicAI.ui.MagicLogo
 import com.gamixtv.MotionMagicAI.ui.Muted
 import com.gamixtv.MotionMagicAI.ui.Pink
+import com.gamixtv.MotionMagicAI.ui.SplashScreen
 import com.gamixtv.MotionMagicAI.ui.Violet
 
 /** Full-screen gate: no studio content is composed until server sign-in succeeds. */
@@ -43,11 +44,15 @@ import com.gamixtv.MotionMagicAI.ui.Violet
 fun LoginGate(auth: AuthViewModel = viewModel(), onExit: () -> Unit = {}, content: @Composable (String) -> Unit) {
     val state by auth.state.collectAsState()
     androidx.compose.runtime.LaunchedEffect(state.status) {
-        if (state.status != AuthStatus.SIGNED_IN) onExit()
+        if (state.status == AuthStatus.GUEST || state.status == AuthStatus.OFFLINE) onExit()
     }
     val accountId = state.user?.id
-    if (state.status == AuthStatus.SIGNED_IN && accountId != null) content(accountId)
-    else LoginScreen(state, auth::signIn, auth::retryRestore, auth::dismissMessage)
+    when {
+        state.status == AuthStatus.SIGNED_IN && accountId != null -> content(accountId)
+        state.status == AuthStatus.RESTORING -> SplashScreen("Checking your saved sign-in")
+        state.status == AuthStatus.OFFLINE -> SplashScreen(state.message ?: "Could not verify your session", auth::retryRestore)
+        else -> LoginScreen(state, auth::signIn, auth::retryRestore, auth::dismissMessage)
+    }
 }
 
 @Composable
