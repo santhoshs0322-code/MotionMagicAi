@@ -251,6 +251,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         try {
             val session = cloud.session()
             require(session.user.id == activeAccountId) { "Your account changed. Sign in again." }
+            // A previous background download may hold the poll lock for a large file.
+            cloudJobMonitor?.cancel()
+            cloudJobMonitor = null
+            cloudMonitorGeneration++
             val pending = withContext(Dispatchers.IO) { pendingCloudRequests(session) }
             for(request in pending) {
                 if(request.has("job_id")) continue
@@ -265,22 +269,28 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
             downloadFailures.clear()
-            pollCloudJobs(session.user.id, forceDownloads = true)
+            // Show the refreshed job list before fetching potentially large media files.
+            pollCloudJobs(session.user.id, downloadOutputs = false)
             tab(Screen.PROJECTS)
-            startCloudMonitor(session.user.id, restart = true)
-        } finally { cloudWork = false }
+            startCloudMonitor(session.user.id, restart = true, downloadReadyOnStart = true)
+        } finally {
+            cloudWork = false
+            if(cloudJobMonitor == null) activeAccountId?.let { startCloudMonitor(it) }
+        }
     }
 
-    private fun startCloudMonitor(account: String, restart: Boolean = false) {
+    private fun startCloudMonitor(account: String, restart: Boolean = false, downloadReadyOnStart: Boolean = false) {
         if(cloudJobMonitor?.isActive == true && !restart) return
         cloudJobMonitor?.cancel()
         val generation = ++cloudMonitorGeneration
         cloudJobMonitor = viewModelScope.launch {
             var failures = 0
+            var downloadReady = downloadReadyOnStart
             try {
                 while(isActive && activeAccountId == account) {
                     val active = try {
-                        val result = pollCloudJobs(account)
+                        val result = pollCloudJobs(account, forceDownloads = downloadReady)
+                        downloadReady = false
                         failures = 0
                         result
                     } catch(e: CancellationException) { throw e }
@@ -297,7 +307,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private suspend fun pollCloudJobs(account: String, forceDownloads: Boolean = false): Boolean = cloudPollLock.withLock {
+    private suspend fun pollCloudJobs(account: String, forceDownloads: Boolean = false, downloadOutputs: Boolean = true): Boolean = cloudPollLock.withLock {
         val session = cloud.session()
         if(session.user.id != account || activeAccountId != account) return@withLock false
         val rows = cloud.request("GET", "/jobs", session).getJSONArray("results")
@@ -331,7 +341,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
             }
         }
-        for(job in cloudJobs.filter { it.isReady && it.id !in downloadFailures && (forceDownloads || it.id in observedActiveJobIds) }) {
+        for(job in cloudJobs.filter { downloadOutputs && it.isReady && it.id !in downloadFailures && (forceDownloads || it.id in observedActiveJobIds) }) {
             if(activeAccountId != account) break
             try { downloadCloudJob(account, session, job) }
             catch(e: CancellationException) { throw e }
