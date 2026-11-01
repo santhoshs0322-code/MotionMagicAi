@@ -71,14 +71,14 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
                 throw CloudException(status, when(status) {
                     401 -> "Your session expired. Sign in from My Account and check your generation again."
                     402 -> "You do not have enough generation credits. No new generation was started."
-                    429 -> "Generation capacity is busy. Wait a moment and try again."
+                    429 -> message?.take(250)?.takeIf { it.isNotBlank() } ?: "Generation capacity is busy. Wait a moment and try again."
                     else -> message?.take(250)?.takeIf { it.isNotBlank() } ?: "The generation server is unavailable. Please retry."
                 })
             }
             val result = connection.inputStream.use { JSONObject(readBounded(it, 512 * 1024)) }
             if(!result.optBoolean("ok")) throw CloudException(0, "The server could not complete this request.")
             result
-        } catch(e: IOException) { throw CloudException(0, "Connection interrupted. Use Check cloud generation to recover any submitted job.") }
+        } catch(e: IOException) { throw CloudException(0, "Connection interrupted. Open My Projects and tap Refresh projects to recover a submitted job.") }
         finally { connection.disconnect() }
     }
 
@@ -123,7 +123,7 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
         return id
     }
 
-    suspend fun download(assetId: String, session: AuthSession, destination: File): String {
+    suspend fun download(assetId: String, session: AuthSession, destination: File, onProgress: suspend (Long, Long) -> Unit = { _, _ -> }): String {
         val result = request("GET", "/assets/$assetId", session)
         val asset = result.getJSONObject("asset")
         val mime = asset.getString("mime"); val size = asset.getLong("size")
@@ -134,12 +134,14 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
             try {
                 if(connection.responseCode != 200) throw CloudException(0, "Download expired. Check your cloud generation to try again.")
                 connection.inputStream.use { input -> destination.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024); var total = 0L
+                    val buffer = ByteArray(64 * 1024); var total = 0L; var reportedPercent = -1
                     while(true) {
                         currentCoroutineContext().ensureActive()
                         val count = input.read(buffer); if(count < 0) break
                         total += count; require(total <= size) { "Downloaded media exceeds its declared size." }
                         output.write(buffer, 0, count)
+                        val percent = (total * 100 / size).toInt()
+                        if(percent != reportedPercent) { reportedPercent = percent; onProgress(total, size) }
                     }
                     require(total == size) { "Download was incomplete. Check your cloud generation to retry." }
                 } }

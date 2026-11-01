@@ -8,9 +8,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.gamixtv.MotionMagicAI.MotionViewModel
 import com.gamixtv.MotionMagicAI.BuildConfig
 import com.gamixtv.MotionMagicAI.Screen
+import com.gamixtv.MotionMagicAI.cloud.CloudJob
 import com.gamixtv.MotionMagicAI.data.MediaKind
 import com.gamixtv.MotionMagicAI.data.Project
 import com.gamixtv.MotionMagicAI.data.CreationMode
@@ -77,19 +80,28 @@ fun TemplatesScreen(vm: MotionViewModel) = ReferenceCatalogScreen(vm, templatePa
 fun ProjectsScreen(vm: MotionViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     var deletion by remember { mutableStateOf<Project?>(null) }
-    val items = vm.projects.sortedByDescending { it.createdAt }.filter { it.title.contains(query, ignoreCase = true) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column { Text("Made by you", fontSize = 23.sp, fontWeight = FontWeight.Bold); Text("${vm.projects.size} saved creations", color = Muted, fontSize = 13.sp) }
+    val saved = vm.projects.sortedByDescending { it.createdAt }.filter { it.title.contains(query, ignoreCase = true) }
+    val pending = vm.cloudJobs.filter { it.title.contains(query, ignoreCase = true) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text("Made by you", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Text("${vm.projects.size} saved · ${vm.cloudJobs.count { it.isGenerating }} of 3 generating", color = Muted, fontSize = 13.sp)
+                }
+            }
         }
-        OutlinedButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("Check cloud generation") }
-        if(vm.projects.isEmpty()) {
-            EmptyState(Icons.Rounded.VideoLibrary, "Your ideas live here", "Create your first image, video or voice clip.", "Create a video") { vm.go(Screen.IMAGE) }
+        item { OutlinedButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("Refresh projects") } }
+        if(vm.projects.isEmpty() && vm.cloudJobs.isEmpty()) {
+            item { EmptyState(Icons.Rounded.VideoLibrary, "Your ideas live here", "Create your first image, video or voice clip.", "Create a video") { vm.go(Screen.IMAGE) } }
         } else {
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search projects") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = PanelShape)
-            if(items.isEmpty()) Text("No projects match “$query”.", color = Muted, modifier = Modifier.padding(vertical = 30.dp))
-            items.forEach { project ->
+            item {
+                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search projects") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = PanelShape)
+            }
+            if(saved.isEmpty() && pending.isEmpty()) item { Text("No projects match “$query”.", color = Muted, modifier = Modifier.padding(vertical = 30.dp)) }
+            items(pending, key = { "job-${it.id}" }) { job -> CloudJobCard(job, vm::resumeCloudGeneration) }
+            items(saved, key = { "project-${it.id}" }) { project ->
                 Surface(onClick = { vm.open(project) }, color = Panel, shape = PanelShape) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF29203F)), contentAlignment = Alignment.Center) {
@@ -108,6 +120,27 @@ fun ProjectsScreen(vm: MotionViewModel) {
         }
     }
     deletion?.let { project -> DeleteDialog(project.title, { deletion = null }) { deletion = null; vm.delete(project) } }
+}
+
+@Composable
+private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit) {
+    Surface(color = Panel, shape = PanelShape, border = BorderStroke(1.dp, Color(0xFF6942A5))) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(if(job.kind == "image") Icons.Rounded.Image else Icons.Rounded.SmartDisplay, null, tint = Violet)
+                Spacer(Modifier.width(10.dp))
+                Text(job.title, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+            }
+            Text(job.statusLabel, color = Color(0xFFDAC8F2), fontSize = 12.sp)
+            SelectionContainer { Text("Job ID: ${job.id}", color = Muted, fontSize = 10.sp) }
+            if(job.isActive || job.isReady) {
+                LinearProgressIndicator(progress = { job.progressPercent / 100f }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Color(0xFF322645))
+                Text("${job.progressPercent}% · estimated progress; updates after each stage", color = Muted, fontSize = 10.sp)
+            }
+            if(job.isReady) TextButton(onClick = onRefresh) { Text("Download result") }
+            else if(job.isActive) TextButton(onClick = onRefresh) { Text("Check status") }
+        }
+    }
 }
 
 @Composable

@@ -180,7 +180,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Maximum charge: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
                 Text("Available balance: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.availablePaise)}")
-                Text("One creation. Credits are reserved when you confirm and released if generation fails. Closing progress does not cancel a submitted generation.", fontSize = 13.sp)
+                Text("After confirmation, your job appears in My Projects. You can run up to three generations at once. Credits are reserved until each job finishes or fails.", fontSize = 13.sp)
                 if(!enough) Text("Add generation credits before continuing. Your account balance is managed by the server.", color = MaterialTheme.colorScheme.error)
             } },
             confirmButton = { TextButton(onClick = vm::confirmCloudGeneration, enabled = enough) { Text("Confirm & create") } },
@@ -199,7 +199,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
     }
 }
 
-fun showHelp(vm: MotionViewModel) = vm.notice("Your creative studio", "Choose Image to Video, Text to Video or Create Image. Add your photo or prompt, then choose a model and settings. Available models depend on the server configuration. Tap Create to review the credit price before confirming. Use Check cloud generation to recover a submitted request or download after reconnecting. Kling and PixVerse image-to-video follow the source photo’s shape.\n\nDevice Voice uses your installed Android speech engine. Saved creations can be played, downloaded and shared from My Projects.")
+fun showHelp(vm: MotionViewModel) = vm.notice("Your creative studio", "Choose Image to Video, Text to Video or Create Image. Add your photo or prompt, then choose a model and settings. Available models depend on the server configuration. Tap Create to review the credit price before confirming. Submitted jobs appear in My Projects with a job ID and stage estimate. Tap Refresh projects to recover a request or download after reconnecting. Up to three generations can run at once. Kling and PixVerse image-to-video follow the source photo’s shape.\n\nDevice Voice uses your installed Android speech engine. Saved creations can be played, downloaded and shared from My Projects.")
 
 @Composable
 fun SplashScreen(message: String = "Opening your creative studio", onRetry: (() -> Unit)? = null) {

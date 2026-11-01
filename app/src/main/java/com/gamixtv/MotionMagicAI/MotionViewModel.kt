@@ -20,6 +20,7 @@ import com.gamixtv.MotionMagicAI.cloud.*
 import com.gamixtv.MotionMagicAI.billing.PlayBilling
 import com.gamixtv.MotionMagicAI.auth.AuthSession
 import com.gamixtv.MotionMagicAI.auth.AuthConfig
+import org.json.JSONArray
 import org.json.JSONObject
 import com.gamixtv.MotionMagicAI.media.DeviceVoiceEngine
 import com.gamixtv.MotionMagicAI.media.LocalMediaEngine
@@ -36,6 +37,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class Screen(val title: String) {
     HOME("MotionMagic AI"), IMAGE("Image to Video"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
@@ -82,6 +85,13 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private val cloud = CloudApi(app)
     private val playBilling = PlayBilling(app, ::verifyPlayPurchase, ::message)
     private val cloudPending = app.getSharedPreferences("motion_cloud_jobs", Application.MODE_PRIVATE)
+    private val cloudPendingLock = Any()
+    private val cloudPollLock = Mutex()
+    private var cloudJobMonitor: Job? = null
+    private var cloudMonitorGeneration = 0
+    private val downloadFailures = mutableSetOf<String>()
+    private val observedActiveJobIds = mutableSetOf<String>()
+    var cloudJobs by mutableStateOf<List<CloudJob>>(emptyList()); private set
     var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
     var cloudCatalogStatus by mutableStateOf("Checking model availability…"); private set
     var cloudQuote by mutableStateOf<CloudQuote?>(null); private set
@@ -159,9 +169,18 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun dismissCloudQuote() { cloudQuote = null }
     private fun cloudKey(session: AuthSession) = AuthConfig.fromBuildConfig().normalizedBaseUrl + "|" + session.user.id
-    private fun saveCloudPending(session: AuthSession, data: JSONObject?) {
+    private fun pendingId(request: JSONObject): String = request.optString("key").ifBlank { request.optString("job_id") }
+    private fun pendingCloudRequests(session: AuthSession): List<JSONObject> = synchronized(cloudPendingLock) {
+        val raw = cloudPending.getString(cloudKey(session), null) ?: return@synchronized emptyList()
+        val rows = if(raw.trimStart().startsWith("[")) JSONArray(raw) else JSONArray().put(JSONObject(raw))
+        (0 until rows.length()).map { rows.getJSONObject(it) }
+    }
+    private fun updateCloudPending(session: AuthSession, request: JSONObject?, requestId: String) = synchronized(cloudPendingLock) {
+        require(requestId.isNotBlank()) { "Saved generation has no request ID." }
+        val rows = pendingCloudRequests(session).filterNot { pendingId(it) == requestId }.toMutableList()
+        if(request != null) rows.add(request)
         val edit = cloudPending.edit()
-        if(data == null) edit.remove(cloudKey(session)) else edit.putString(cloudKey(session), data.toString())
+        if(rows.isEmpty()) edit.remove(cloudKey(session)) else edit.putString(cloudKey(session), JSONArray(rows).toString())
         check(edit.commit()) { "Could not save generation recovery details. Free some device storage and retry." }
     }
 
@@ -174,8 +193,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             val account = checkNotNull(activeAccountId) { "Sign in before creating with AI." }
             val session = cloud.session()
             require(session.user.id == account && activeAccountId == account) { "Your account changed. Start this creation again." }
-            if(cloudPending.contains(cloudKey(session))) {
-                error("You have a saved generation request. Use Check cloud generation before starting another.")
+            if(withContext(Dispatchers.IO) { pendingCloudRequests(session).count { !it.has("job_id") } } >= 3) {
+                error("Three requests need recovery. Open My Projects and refresh them before starting another.")
             }
             cloudRates = cloud.catalog()
             val rate = cloudRates.firstOrNull { it.matches(request, image) }
@@ -196,6 +215,11 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun confirmCloudGeneration() {
         val quote = cloudQuote ?: return
         if(work.value != null) return
+        if(cloudJobs.count { it.isGenerating } >= 3) {
+            cloudQuote = null
+            failure = "Three generations are already running. Wait for one to finish before confirming another."
+            return
+        }
         cloudQuote = null
         startWork("Starting your creation", "Your credits are reserved while the server generates your media.") {
             cloudWork = true
@@ -205,81 +229,161 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 val pending = JSONObject().put("quote_id", quote.id).put("key", UUID.randomUUID().toString())
                     .put("title", quote.draft.prompt.take(55).ifBlank { quote.title }).put("image", quote.image)
                     .put("duration", if(quote.image) 0 else quote.draft.duration).put("aspect", quote.draft.aspect)
-                withContext(Dispatchers.IO) { saveCloudPending(session, pending) }
-                followCloudJob(session, pending)
+                withContext(Dispatchers.IO) { updateCloudPending(session, pending, pending.getString("key")) }
+                val job = try {
+                    cloud.request("POST", "/jobs", session, JSONObject().put("quote_id", quote.id), pending.getString("key"))
+                } catch(e: CloudException) {
+                    if(e.status in listOf(400, 402, 404, 409, 429)) withContext(Dispatchers.IO) { updateCloudPending(session, null, pending.getString("key")) }
+                    throw e
+                }
+                pending.put("job_id", job.getString("id"))
+                withContext(Dispatchers.IO) { updateCloudPending(session, pending, pending.getString("key")) }
+                observedActiveJobIds.add(job.getString("id"))
+                cloudJobs = (listOf(CloudJob.from(job)) + cloudJobs).distinctBy { it.id }
+                tab(Screen.PROJECTS)
+                startCloudMonitor(session.user.id, restart = true)
             } finally { cloudWork = false }
         }
     }
 
-    fun resumeCloudGeneration() = startWork("Checking cloud generation", "Recovering your saved request and finished media.") {
+    fun resumeCloudGeneration() = startWork("Refreshing projects", "Checking generation jobs and saved media.") {
         cloudWork = true
         try {
             val session = cloud.session()
-            var pending = withContext(Dispatchers.IO) { cloudPending.getString(cloudKey(session), null)?.let(::JSONObject) }
-            if(pending == null) {
-                val rows = cloud.request("GET", "/jobs", session).getJSONArray("results")
-                val job = (0 until rows.length()).map { rows.getJSONObject(it) }.firstOrNull {
-                    it.getString("state") !in listOf("failed", "cancelled") && projects.none { p -> p.id == "cloud_" + it.getString("id") && File(p.path).isFile }
+            require(session.user.id == activeAccountId) { "Your account changed. Sign in again." }
+            val pending = withContext(Dispatchers.IO) { pendingCloudRequests(session) }
+            for(request in pending) {
+                if(request.has("job_id")) continue
+                val id = pendingId(request)
+                try {
+                    val job = cloud.request("POST", "/jobs", session, JSONObject().put("quote_id", request.getString("quote_id")), request.getString("key"))
+                    request.put("job_id", job.getString("id"))
+                    withContext(Dispatchers.IO) { updateCloudPending(session, request, id) }
+                } catch(e: CloudException) {
+                    if(e.status in listOf(400, 402, 404, 409, 429)) withContext(Dispatchers.IO) { updateCloudPending(session, null, id) }
+                    else throw e
                 }
-                if(job == null) { message("No pending or new cloud creations."); return@startWork }
-                pending = JSONObject().put("job_id", job.getString("id")).put("title", job.optString("title", "AI creation"))
-                    .put("image", job.optString("kind") == "image").put("duration", job.optInt("duration"))
-                    .put("aspect", job.optString("aspect_ratio", "9:16"))
-                withContext(Dispatchers.IO) { saveCloudPending(session, pending) }
             }
-            followCloudJob(session, pending)
+            downloadFailures.clear()
+            pollCloudJobs(session.user.id, forceDownloads = true)
+            tab(Screen.PROJECTS)
+            startCloudMonitor(session.user.id, restart = true)
         } finally { cloudWork = false }
     }
 
-    private suspend fun followCloudJob(session: AuthSession, pending: JSONObject) {
-        var job = if(pending.has("job_id")) cloud.request("GET", "/jobs/${pending.getString("job_id")}", session)
-        else try {
-            cloud.request("POST", "/jobs", session, JSONObject().put("quote_id", pending.getString("quote_id")), pending.getString("key"))
-        } catch(e: CloudException) {
-            // Definitive rejection: no job exists for this quote/key. Network errors keep recovery data.
-            if(e.status in listOf(400, 402, 404, 409)) withContext(Dispatchers.IO) { saveCloudPending(session, null) }
-            throw e
+    private fun startCloudMonitor(account: String, restart: Boolean = false) {
+        if(cloudJobMonitor?.isActive == true && !restart) return
+        cloudJobMonitor?.cancel()
+        val generation = ++cloudMonitorGeneration
+        cloudJobMonitor = viewModelScope.launch {
+            var failures = 0
+            try {
+                while(isActive && activeAccountId == account) {
+                    val active = try {
+                        val result = pollCloudJobs(account)
+                        failures = 0
+                        result
+                    } catch(e: CancellationException) { throw e }
+                    catch(e: Exception) {
+                        failures++
+                        if(failures == 1) message("Could not refresh generation status. My Projects will retry.")
+                        if(failures >= 3 && cloudJobs.none { it.isActive }) break
+                        true
+                    }
+                    if(!active) break
+                    delay(30_000)
+                }
+            } finally { if(generation == cloudMonitorGeneration) cloudJobMonitor = null }
         }
-        pending.put("job_id", job.getString("id"))
-        withContext(Dispatchers.IO) { saveCloudPending(session, pending) }
-        repeat(120) {
-            when(job.getString("state")) {
-                "succeeded" -> {
-                    val id = "cloud_" + job.getString("id")
-                    projects.firstOrNull { it.id == id && File(it.path).isFile }?.let {
-                        withContext(Dispatchers.IO) { saveCloudPending(session, null) }; open(it); return
-                    }
-                    work.value = WorkState("Downloading your creation", detail = "Your media is saved on the server. You can retry this download.")
-                    val output = File(projectDir, "$id.media")
-                    pendingOutputs.add(output)
-                    val mime = cloud.download(job.getString("output_asset_id"), session, output)
-                    val image = mime.startsWith("image/")
-                    val duration = if(image) 0L else withContext(Dispatchers.IO) {
-                        val retriever = MediaMetadataRetriever()
-                        try { retriever.setDataSource(output.path); retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: pending.optInt("duration") * 1000L }
-                        finally { retriever.release() }
-                    }
-                    val project = Project(id = id, title = pending.optString("title", "AI creation"), path = output.path,
-                        kind = if(image) MediaKind.IMAGE else MediaKind.VIDEO, duration = (duration / 1000).toInt(), durationMs = duration,
-                        aspect = pending.optString("aspect", "9:16"), mimeType = mime)
-                    persistProject(project)
-                    withContext(Dispatchers.IO) { saveCloudPending(session, null) }
-                    selectedProject = project; go(Screen.RESULT); autoSave(project)
-                    message("Saved · ${credits(job.getLong("charged_paise"))} charged")
-                    return
-                }
-                "failed", "cancelled" -> {
-                    withContext(Dispatchers.IO) { saveCloudPending(session, null) }
-                    error("Generation did not complete. The server released your reserved credits. You can try another prompt or model.")
-                }
-                else -> {
-                    work.value = WorkState("Creating your media", detail = "${if(job.getString("state") == "uncertain") "Checking provider status" else "Generation in progress"}. You can close this progress window and use Check cloud generation later.")
-                    delay(job.optInt("poll_after_seconds", 30).coerceIn(15, 120) * 1000L)
-                    job = cloud.request("GET", "/jobs/${pending.getString("job_id")}", session)
+    }
+
+    private suspend fun pollCloudJobs(account: String, forceDownloads: Boolean = false): Boolean = cloudPollLock.withLock {
+        val session = cloud.session()
+        if(session.user.id != account || activeAccountId != account) return@withLock false
+        val rows = cloud.request("GET", "/jobs", session).getJSONArray("results")
+        if(activeAccountId != account) return@withLock false
+        val recent = (0 until rows.length()).map { CloudJob.from(rows.getJSONObject(it)) }
+        val latestById = recent.associateByTo(LinkedHashMap()) { it.id }
+        val pinned = withContext(Dispatchers.IO) { pendingCloudRequests(session) }
+        for(request in pinned) {
+            val rawId = request.optString("job_id")
+            if(rawId.isBlank()) continue
+            val id = runCatching { UUID.fromString(rawId).toString() }.getOrNull()
+            if(id == null || projects.any { it.id == "cloud_$id" && File(it.path).isFile }) {
+                withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
+                continue
+            }
+            if(id !in latestById) {
+                try { latestById[id] = CloudJob.from(cloud.request("GET", "/jobs/$id", session)) }
+                catch(e: CloudException) {
+                    if(e.status == 404) withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
+                    else throw e
                 }
             }
         }
-        message("Your generation is still processing. Check cloud generation again later.")
+        val latest = latestById.values.toList()
+        observedActiveJobIds.addAll(latest.filter { it.isActive }.map { it.id })
+        val newIds = latestById.keys
+        cloudJobs = (latest + cloudJobs.filter { it.isGenerating && it.id !in newIds })
+            .filterNot { job -> projects.any { it.id == "cloud_${job.id}" && File(it.path).isFile } }
+        for(job in latest.filter { it.state == "failed" || it.state == "cancelled" }) {
+            pinned.firstOrNull { it.optString("job_id") == job.id }?.let { request ->
+                withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
+            }
+        }
+        for(job in cloudJobs.filter { it.isReady && it.id !in downloadFailures && (forceDownloads || it.id in observedActiveJobIds) }) {
+            if(activeAccountId != account) break
+            try { downloadCloudJob(account, session, job) }
+            catch(e: CancellationException) { throw e }
+            catch(e: Exception) {
+                downloadFailures.add(job.id)
+                cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "succeeded", progressPercent = 90) else it }
+                message("${job.title}: ready on the server, but download failed. Tap Refresh projects to retry.")
+            }
+        }
+        cloudJobs.any { it.isGenerating }
+    }
+
+    private suspend fun downloadCloudJob(account: String, session: AuthSession, job: CloudJob) {
+        val id = "cloud_${job.id}"
+        val output = File(projectDir, "$id.media")
+        val temporary = File(projectDir, "$id.part")
+        cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "downloading", progressPercent = 90) else it }
+        try {
+            withContext(Dispatchers.IO) { temporary.delete() }
+            val mime = cloud.download(checkNotNull(job.outputAssetId), session, temporary) { transferred, total ->
+                withContext(Dispatchers.Main.immediate) {
+                    if(activeAccountId == account) cloudJobs = cloudJobs.map {
+                        if(it.id == job.id) it.copy(progressPercent = 90 + (transferred * 9 / total).toInt().coerceIn(0, 9)) else it
+                    }
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            require(activeAccountId == account) { "Your account changed. Download was stopped." }
+            val image = mime.startsWith("image/")
+            val duration = if(image) 0L else withContext(Dispatchers.IO) {
+                val retriever = MediaMetadataRetriever()
+                try { retriever.setDataSource(temporary.path); retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: job.duration * 1000L }
+                finally { retriever.release() }
+            }
+            withContext(Dispatchers.IO) {
+                if(output.exists() && !output.delete()) throw IOException("Could not replace an incomplete download.")
+                if(!temporary.renameTo(output)) throw IOException("Could not save the downloaded creation.")
+            }
+            val project = Project(id = id, title = job.title, path = output.path,
+                kind = if(image) MediaKind.IMAGE else MediaKind.VIDEO, duration = (duration / 1000).toInt(), durationMs = duration,
+                aspect = job.aspect, mimeType = mime)
+            persistProject(project)
+            withContext(Dispatchers.IO) {
+                pendingCloudRequests(session).firstOrNull { it.optString("job_id") == job.id }?.let {
+                    updateCloudPending(session, null, pendingId(it))
+                }
+            }
+            cloudJobs = cloudJobs.filterNot { it.id == job.id }
+            observedActiveJobIds.remove(job.id)
+            autoSave(project)
+            message("${job.title} saved · ${credits(job.chargedPaise)} charged")
+        } finally { withContext(NonCancellable + Dispatchers.IO) { temporary.delete() } }
     }
 
     init {
@@ -296,6 +400,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun activateAccount(accountId: String?) {
         if (activeAccountId == accountId) return
         activeJob?.cancel()
+        cloudJobMonitor?.cancel(); cloudJobMonitor = null; cloudMonitorGeneration++
+        cloudJobs = emptyList(); downloadFailures.clear(); observedActiveJobIds.clear()
         draftSave?.cancel(); imageDraftSave?.cancel()
         photoRevision++
         activeAccountId = accountId
@@ -317,6 +423,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
             refreshBilling()
+            startCloudMonitor(accountId)
         }
     }
 
@@ -608,7 +715,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun cancelWork() {
         val submitted = cloudWork
         activeJob?.cancel()
-        message(if(submitted) "Progress closed. Submitted generations continue on the server; check your cloud generation later." else "Operation cancelled.")
+        message(if(submitted) "Progress closed. Submitted generations continue on the server; open My Projects and refresh later." else "Operation cancelled.")
     }
 
     private fun startWork(title: String, detail: String = "", action: suspend () -> Unit) {

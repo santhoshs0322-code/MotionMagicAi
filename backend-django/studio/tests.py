@@ -60,6 +60,22 @@ class PricingTests(TestCase):
             submit_job(account, quote.pk, "request-key-123")
         self.assertFalse(Job.objects.exists())
 
+    @override_settings(**RUNTIME, MAX_ACTIVE_JOBS=3)
+    def test_three_parallel_generations_and_fourth_waits_for_a_slot(self):
+        account = Account.objects.create(google_sub="parallel-3", email="parallel@example.test", name="Three")
+        paid_account(account)
+        Wallet.objects.create(account=account, balance_paise=10_000)
+        rate = Rate.objects.create(slug="parallel-video", title="Video", kind="video", enabled=True,
+                                   provider_model="gateway/video", unit_cost_paise=20, max_units=15)
+        quotes = [create_quote(account, {"service": rate.pk, "prompt": f"Video {i}", "duration": 5}) for i in range(4)]
+        jobs = [submit_job(account, quotes[i].pk, f"parallel-request-{i}")[0] for i in range(3)]
+        self.assertEqual(Job.objects.filter(account=account).exclude(state__in=("succeeded", "failed", "cancelled")).count(), 3)
+        with self.assertRaisesMessage(Exception, "up to 3 generations"):
+            submit_job(account, quotes[3].pk, "parallel-request-3")
+        self.assertEqual(submit_job(account, quotes[0].pk, "parallel-request-0")[0].pk, jobs[0].pk)
+        finish_job(jobs[0].pk, "failed", 0)
+        self.assertTrue(submit_job(account, quotes[3].pk, "parallel-request-3")[1])
+
     @override_settings(FAL_ONLY=False, GATEWAY_URL="", GATEWAY_TOKEN="", GEMINI_API_KEY="server-key", S3_BUCKET="test-bucket", DAILY_PROVIDER_BUDGET_PAISE=6_400_000)
     def test_gemini_rate_quote_freezes_aspect_ratio_and_price(self):
         account = Account.objects.create(google_sub="google-image", email="image@example.test", name="Image")

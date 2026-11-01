@@ -135,7 +135,7 @@ WELCOME_CREDITS = int(env("WELCOME_CREDITS", "200"))
 # Use one shard for a small launch budget. At AWS scale use up to 64, together
 # with a budget large enough for the most expensive single generation per shard.
 BUDGET_SHARDS = int(env("BUDGET_SHARDS", "64"))
-MAX_ACTIVE_JOBS = int(env("MAX_ACTIVE_JOBS", "2"))
+MAX_ACTIVE_JOBS = int(env("MAX_ACTIVE_JOBS", "3"))
 GENERATION_LEASE_SECONDS = int(env("GENERATION_LEASE_SECONDS", "1200"))
 PLAY_ENABLED = flag("PLAY_ENABLED")
 ENABLE_CREDIT_PACKS = flag("ENABLE_CREDIT_PACKS")  # Legacy name; use ENABLE_TOPUPS for new deployments.

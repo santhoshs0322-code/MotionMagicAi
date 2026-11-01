@@ -40,6 +40,8 @@ Google Play has two recurring plans and one consumable, permanent top-up: `motio
 
 Free accounts can spend credits on Qwen Image 720p and PixVerse V6 720p silent only. Creator and Legend can spend credits on every enabled model, resolution and audio variant. The app shows upgrade options for restricted selections, and the API enforces the same rule at quote and job submission. A top-up does not unlock the paid catalog. At the example fal allowances and 90,000-basis-point markup, the minimum PixVerse silent video costs 250 credits for five seconds, so the 200-credit welcome grant alone is insufficient for that generation.
 
+The server allows three active generation jobs per account by default (`MOTION_AI_MAX_ACTIVE_JOBS=3`). Set that value explicitly on both the Render API and generation worker if an older deployment still has `2`. Android shows each job in My Projects with its ID and a stage estimate. The provider does not expose a reliable completion percentage; download progress is measured from transferred bytes.
+
 ## Commands
 
 - `python manage.py sync_provider_rates`: synchronize all Google and fal model/resolution/audio rates from integer-paise environment costs. Zero disables a rate. The older `sync_gemini_rates` remains Google-only.

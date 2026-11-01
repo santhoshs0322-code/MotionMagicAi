@@ -265,7 +265,7 @@ def submit_job(account, quote_id, key):
     if wallet.available_paise < quote.charge_paise:
         raise Problem("Insufficient credits.", 402)
     if Job.objects.filter(account=account).exclude(state__in=TERMINAL).count() >= settings.MAX_ACTIVE_JOBS:
-        raise Problem("Finish or cancel an existing generation first.", 429)
+        raise Problem(f"You can run up to {settings.MAX_ACTIVE_JOBS} generations at once. Wait for one to finish.", 429)
     shard = int(digest(str(account.pk))[:8], 16) % settings.BUDGET_SHARDS
     bucket, _ = Budget.objects.get_or_create(day=timezone.now().date(), shard=shard)
     bucket = Budget.objects.select_for_update().get(pk=bucket.pk)

@@ -132,7 +132,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
             }
         }
         Text(vm.cloudCatalogStatus, color = RefMuted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp))
-        TextButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("Check cloud generation", fontSize = 12.sp) }
+        TextButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("View My Projects", fontSize = 12.sp) }
         ReferenceComposerBar(draft, still, modelName, ready, false, { settings = true }, update, create)
     }
     if(modes) CreationModeSheet(mode, { modes = false }) { chosen ->

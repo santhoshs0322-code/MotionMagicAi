@@ -45,7 +45,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - Persistent projects, drafts and settings; project search, confirmation before deletion, missing-file recovery messages and cancellation cleanup.
 - Optional local completion notifications, subject to Android notification permission.
 
-For a walkthrough: **Sign in → choose a creation mode → add a photo or prompt → choose an enabled model/settings → Create → review the price → Confirm.** A funded server wallet is required. Check cloud generation recovers submitted requests after reconnecting. Create Image accepts an optional reference. Kling/PixVerse image-to-video follows the photo's shape; text-to-video uses the chosen ratio.
+For a walkthrough: **Sign in → choose a creation mode → add a photo or prompt → choose an enabled model/settings → Create → review the price → Confirm.** A funded server wallet is required. Submitted jobs appear in My Projects with a job ID and stage estimate; up to three can run at once. Refresh projects recovers requests and downloads results after reconnecting. Create Image accepts an optional reference. Kling/PixVerse image-to-video follows the photo's shape; text-to-video uses the chosen ratio.
 
 ## Test mode and production work
 
