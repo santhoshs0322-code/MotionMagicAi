@@ -80,12 +80,9 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
         if(modes || settings || gallery || selectedTemplate != null) focus.clearFocus()
     }
     val ready = if(mode == CreationMode.IMAGE_TO_VIDEO) vm.photo != null else draft.prompt.isNotBlank()
-    LaunchedEffect(Unit) { vm.refreshCloudCatalog(); vm.refreshBilling() }
     val create: () -> Unit = {
         focus.clearFocus()
-        val rate = vm.cloudRates.firstOrNull { it.matches(draft, still) }
-        if(vm.currentPlan == PlanTier.FREE && rate?.requiredPlan == PlanTier.PRO) upgradePrompt = true
-        else vm.prepareCloudGeneration()
+        vm.prepareCloudGeneration()
     }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
         Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(Color(0xFF160926), Color(0xFF30084A)))).padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {

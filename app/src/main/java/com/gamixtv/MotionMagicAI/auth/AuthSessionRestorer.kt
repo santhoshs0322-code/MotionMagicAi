@@ -1,5 +1,8 @@
 package com.gamixtv.MotionMagicAI.auth
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
 /** Checks a saved session with the server before it can open the studio. */
 class AuthSessionRestorer(
     private val backend: AuthBackend,
@@ -26,7 +29,7 @@ class AuthSessionRestorer(
     private suspend fun renew(saved: AuthSession): AuthSession {
         val renewed = backend.refresh(saved.refreshToken)
         if (renewed.user.id != saved.user.id) throw AuthException(AuthFailure.UNAUTHORIZED, "Account changed. Sign in again.")
-        store.write(renewed)
+        withContext(Dispatchers.IO) { store.write(renewed) }
         return renewed
     }
 }

@@ -105,6 +105,22 @@ class FalFlowTests(TestCase):
         with self.assertRaisesMessage(Exception, "Quote expired or service changed"):
             services.submit_job(self.account, quote.pk, "another-key")
 
+    @patch("studio.storage.client")
+    def test_new_media_is_grouped_by_account_kind_and_stage(self, s3):
+        from . import storage
+        s3.return_value.generate_presigned_post.return_value = {"url": "https://s3.test", "fields": {}}
+        image_upload, _ = storage.begin_upload(self.account, "image/png", 5, "image")
+        video_source, _ = storage.begin_upload(self.account, "image/png", 5, "video")
+        self.assertTrue(image_upload.key.startswith(f"accounts/{self.account.pk}/image/uploaded/"))
+        self.assertTrue(video_source.key.startswith(f"accounts/{self.account.pk}/video/uploaded/"))
+        image_job = self.job()
+        self.assertEqual(storage.generated_key(image_job), f"accounts/{self.account.pk}/image/generated/{image_job.pk}/generated.png")
+        video_quote = services.create_quote(self.account, {"service": "pixverse-v6-720p-silent", "prompt": "A lake", "duration": 5, "generated_audio": False})
+        video_job = services.submit_job(self.account, video_quote.pk, "request-video-12345")[0]
+        self.assertEqual(storage.generated_key(video_job, "video/mp4"), f"accounts/{self.account.pk}/video/generated/{video_job.pk}/generated.mp4")
+        with self.assertRaisesMessage(Exception, "Choose image or video storage"):
+            storage.begin_upload(self.account, "image/png", 5, "other")
+
     def test_settings_are_frozen_and_silent_price_cannot_buy_native_audio(self):
         job = self.job("kling-3-omni-720p-silent", duration=5, generated_audio=False)
         self.assertEqual(job.quote.charge_paise, 500)

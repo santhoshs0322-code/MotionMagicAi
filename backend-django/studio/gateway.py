@@ -2,6 +2,7 @@ import json
 import requests
 from django.conf import settings
 from .errors import Problem
+from . import storage
 
 def request(method, path, body=None, key=None):
     if not settings.GATEWAY_URL:
@@ -26,7 +27,7 @@ def request(method, path, body=None, key=None):
         return value
 
 def submit(job):
-    return request("POST", "/jobs", {**job.quote.payload, "request_id": str(job.pk), "maximum_cost_paise": job.quote.provider_cost_paise, "currency": "INR", "output_bucket": settings.S3_BUCKET, "output_prefix": f"accounts/{job.account_id}/outputs/{job.pk}/"}, str(job.pk))
+    return request("POST", "/jobs", {**job.quote.payload, "request_id": str(job.pk), "maximum_cost_paise": job.quote.provider_cost_paise, "currency": "INR", "output_bucket": settings.S3_BUCKET, "output_prefix": storage.output_prefix(job)}, str(job.pk))
 
 def reconcile(job):
     # The gateway contract requires this lookup to be authoritative and idempotent.

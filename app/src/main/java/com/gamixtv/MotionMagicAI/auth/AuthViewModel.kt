@@ -15,6 +15,8 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -36,7 +38,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         operation = viewModelScope.launch {
             mutable.value = mutable.value.copy(status = AuthStatus.RESTORING, busy = true, message = null)
             try {
-                val saved = store.read()
+                val saved = withContext(Dispatchers.IO) { store.read() }
                 if (saved == null) { mutable.value = AuthUiState(configured = config.isConfigured); return@launch }
                 val current = restorer.restore(saved)
                 ensureActive()
@@ -46,7 +48,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             catch (e: Exception) {
                 val needsSignIn = e is AuthException && e.failure in setOf(AuthFailure.UNAUTHORIZED, AuthFailure.STORAGE)
                 if (needsSignIn) {
-                    runCatching { store.clear() }; session = null
+                    withContext(Dispatchers.IO) { runCatching { store.clear() } }; session = null
                 }
                 mutable.value = AuthUiState(if (needsSignIn) AuthStatus.GUEST else AuthStatus.OFFLINE,
                     message = safeMessage(e), configured = config.isConfigured)
@@ -69,7 +71,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.value = mutable.value.copy(status = AuthStatus.VERIFYING)
                 created = backend.signIn(idToken)
                 ensureActive()
-                store.write(created)
+                withContext(Dispatchers.IO) { store.write(created) }
                 ensureActive()
                 session = created
                 mutable.value = AuthUiState(AuthStatus.SIGNED_IN, created.user, configured = true)
@@ -92,7 +94,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         operation = viewModelScope.launch {
             var message = "Signed out. Projects remain on this device."
             try {
-                store.clear()
+                withContext(Dispatchers.IO) { store.clear() }
                 runCatching { credentials.clearCredentialState(ClearCredentialStateRequest()) }
                 if (previous != null) try {
                     backend.revoke(previous.refreshToken)

@@ -206,8 +206,8 @@ class Assets(Private):
         return page(request, Asset.objects.filter(account=request.user, deleted=False, ready=True), asset_public)
     def post(self, request):
         authentication.rate_limit("uploads:" + str(request.user.pk), 10)
-        data = body(request, ("mime", "size"))
-        asset, upload = storage.begin_upload(request.user, data.get("mime"), data.get("size"))
+        data = body(request, ("mime", "size", "kind"))
+        asset, upload = storage.begin_upload(request.user, data.get("mime"), data.get("size"), data.get("kind", "image"))
         return ok(asset=asset_public(asset), upload=upload, expires_in=300)
 
 class AssetDetail(Private):

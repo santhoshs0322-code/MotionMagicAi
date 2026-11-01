@@ -82,9 +82,10 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
         finally { connection.disconnect() }
     }
 
-    suspend fun uploadImage(file: File, session: AuthSession): String {
+    suspend fun uploadImage(file: File, session: AuthSession, kind: String): String {
         require(file.length() in 1..10L * 1024 * 1024) { "Choose a photo smaller than 10 MB." }
-        val prepared = request("POST", "/assets", session, JSONObject().put("mime", "image/png").put("size", file.length()))
+        require(kind == "image" || kind == "video")
+        val prepared = request("POST", "/assets", session, JSONObject().put("mime", "image/png").put("size", file.length()).put("kind", kind))
         val id = prepared.getJSONObject("asset").getString("id")
         val upload = prepared.getJSONObject("upload")
         withContext(Dispatchers.IO) {

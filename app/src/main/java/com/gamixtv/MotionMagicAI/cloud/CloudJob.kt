@@ -14,6 +14,7 @@ data class CloudJob(
     val chargedPaise: Long,
     val errorCode: String,
     val progressPercent: Int = stagePercent(state),
+    val previewPath: String? = null,
 ) {
     val isGenerating: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain")
     val isActive: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain", "downloading")

@@ -208,7 +208,7 @@ def create_quote(account, data):
     units = duration if rate.kind == "video" else (len(prompt) + 999) // 1000 if rate.kind == "voice" else 1
     if units > rate.max_units:
         raise Problem("Requested generation exceeds this service's limit.")
-    payload = {"service": rate.pk, "kind": rate.kind, "model": rate.provider_model, "prompt": prompt.strip(), "units": units, "revision": rate.revision, "config": rate_config}
+    payload = {"service": rate.pk, "kind": rate.kind, "model": rate.provider_model, "prompt": prompt.strip(), "units": units, "revision": rate.revision, "config": rate_config, "storage_layout": "media-v1"}
     if rate.kind in ("image", "video"):
         default_ratio = "1:1" if rate.kind == "image" else "9:16"
         aspect_ratio = data.get("aspect_ratio", default_ratio)

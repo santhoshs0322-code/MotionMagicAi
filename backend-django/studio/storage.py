@@ -28,11 +28,13 @@ def client():
             credentials["aws_session_token"] = settings.AWS_SESSION_TOKEN
     return boto3.client("s3", region_name=settings.AWS_REGION, config=Config(connect_timeout=3, read_timeout=20, retries={"max_attempts": 2}, signature_version="s3v4"), **credentials)
 
-def begin_upload(account, mime, size):
+def begin_upload(account, mime, size, kind="image"):
     if mime not in MIMES or type(size) is not int or not 0 < size <= settings.MAX_UPLOAD_BYTES:
         raise Problem("Unsupported media type or file size.")
+    if kind not in ("image", "video"):
+        raise Problem("Choose image or video storage.")
     identifier = uuid.uuid4()
-    key = f"accounts/{account.pk}/uploads/{identifier}"
+    key = f"accounts/{account.pk}/{kind}/uploaded/{identifier}"
     asset = Asset.objects.create(id=identifier, account=account, key=key, mime=mime, size=size)
     try:
         form = client().generate_presigned_post(settings.S3_BUCKET, key, Fields={"Content-Type": mime}, Conditions=[{"Content-Type": mime}, ["content-length-range", size, size]], ExpiresIn=300)
@@ -56,7 +58,7 @@ def download(asset):
 
 def provider_output(job, data):
     # The gateway must put output under exactly this server-selected job prefix.
-    prefix = f"accounts/{job.account_id}/outputs/{job.pk}/"
+    prefix = output_prefix(job)
     key, mime, size = data.get("key"), data.get("mime"), data.get("size")
     if not isinstance(key, str) or not key.startswith(prefix) or ".." in key or len(key) > 300 or mime not in MIMES or type(size) is not int or not 0 < size <= settings.MAX_UPLOAD_BYTES:
         raise Problem("Invalid provider output.", 503)
@@ -68,11 +70,20 @@ def provider_output(job, data):
         raise Problem("Provider output does not belong to this account.", 503)
     return asset
 
+def output_prefix(job):
+    payload = job.quote.payload
+    if payload.get("storage_layout") == "media-v1":
+        kind = payload.get("kind")
+        if kind not in ("image", "video"):
+            raise Problem("Invalid generation storage category.", 503)
+        return f"accounts/{job.account_id}/{kind}/generated/{job.pk}/"
+    return f"accounts/{job.account_id}/outputs/{job.pk}/"
+
 def generated_key(job, mime="image/png"):
     extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4"}.get(mime)
     if not extension:
         raise Problem("Unsupported generated image type.", 503)
-    return f"accounts/{job.account_id}/outputs/{job.pk}/generated.{extension}"
+    return f"{output_prefix(job)}generated.{extension}"
 
 def put_generated_image(job, content, mime):
     if not isinstance(content, bytes) or not 0 < len(content) <= settings.GEMINI_MAX_OUTPUT_BYTES:

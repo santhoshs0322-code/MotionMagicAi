@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -104,10 +103,7 @@ fun ProjectsScreen(vm: MotionViewModel) {
             items(saved, key = { "project-${it.id}" }) { project ->
                 Surface(onClick = { vm.open(project) }, color = Panel, shape = PanelShape) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF29203F)), contentAlignment = Alignment.Center) {
-                            Icon(when(project.kind) { MediaKind.AUDIO -> Icons.Rounded.GraphicEq; MediaKind.IMAGE -> Icons.Rounded.Image; else -> Icons.Rounded.PlayCircle },
-                                null, Modifier.size(30.dp), tint = Violet)
-                        }
+                        ProjectThumbnail(project.path, project.kind == MediaKind.VIDEO)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text(project.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                             Text(if(!com.gamixtv.MotionMagicAI.media.MediaAccess.external(project.path) && !File(project.path).isFile) "File missing" else "${when(project.kind) { MediaKind.VIDEO -> "${project.duration}s · ${project.aspect}"; MediaKind.IMAGE -> "Image"; else -> "Voice sample" }} · ${SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(project.createdAt))}",
@@ -127,12 +123,14 @@ private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit) {
     Surface(color = Panel, shape = PanelShape, border = BorderStroke(1.dp, Color(0xFF6942A5))) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(if(job.kind == "image") Icons.Rounded.Image else Icons.Rounded.SmartDisplay, null, tint = Violet)
+                ProjectThumbnail(job.previewPath, false, 72.dp)
                 Spacer(Modifier.width(10.dp))
-                Text(job.title, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                Column(Modifier.weight(1f)) {
+                    Text(job.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                    Text(if(job.kind == "image") "Creating your image" else "Creating your video", color = Violet, fontSize = 11.sp)
+                }
             }
             Text(job.statusLabel, color = Color(0xFFDAC8F2), fontSize = 12.sp)
-            SelectionContainer { Text("Job ID: ${job.id}", color = Muted, fontSize = 10.sp) }
             if(job.isActive || job.isReady) {
                 LinearProgressIndicator(progress = { job.progressPercent / 100f }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Color(0xFF322645))
                 Text("${job.progressPercent}% · estimated progress; updates after each stage", color = Muted, fontSize = 10.sp)
