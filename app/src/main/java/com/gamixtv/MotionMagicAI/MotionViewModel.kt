@@ -82,6 +82,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages = _messages.asSharedFlow()
     private var activeJob: Job? = null
+    private var activeWorkReplaceable = false
     private var draftSave: Job? = null
     private val pendingOutputs = ConcurrentHashMap.newKeySet<File>()
     private fun accountHash(accountId: String): String {
@@ -236,7 +237,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         val request = if(image) imageDraft else draft
         val withVideo = !image && screen == Screen.IMAGE && request.modelId == "kling-o3-reference" && referenceVideoPath != null
         val withPhoto = !withVideo && screen != Screen.TEXT && screen != Screen.REELS && photo != null
-        startWork("Checking your creation", "Preparing a price. Generation starts only after you confirm.") {
+        startWork("Checking your creation", "Preparing a price. Generation starts only after you confirm.", replaceableOnCancel = true) {
             val account = checkNotNull(activeAccountId) { "Sign in before creating with AI." }
             val session = cloud.session()
             require(session.user.id == account && activeAccountId == account) { "Your account changed. Start this creation again." }
@@ -953,27 +954,39 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun cancelWork() {
         if (work.value == null) return
         val submitted = cloudWork
+        val cancelledJob = activeJob
+        if (activeWorkReplaceable) {
+            // A price check has not submitted a job. Let a new check start now;
+            // the old coroutine may still be waiting for a socket to close.
+            activeJob = null
+            activeWorkReplaceable = false
+            cloudQuote = null
+        }
         // A blocking network call can take time to observe coroutine cancellation.
         // Close the progress dialog immediately; the job still cleans up in finally.
         work.value = null
-        activeJob?.cancel()
+        cancelledJob?.cancel()
         message(if(submitted) "Progress closed. Submitted generations continue on the server; open My Projects and refresh later." else "Operation cancelled.")
     }
 
-    private fun startWork(title: String, detail: String = "", action: suspend () -> Unit) {
+    private fun startWork(title: String, detail: String = "", replaceableOnCancel: Boolean = false, action: suspend () -> Unit) {
         if (activeJob != null) {
             if (work.value == null) message("Finishing cancellation. Please try again in a moment.")
             return
         }
+        activeWorkReplaceable = replaceableOnCancel
         work.value = WorkState(title, detail = detail)
         val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            val thisJob = currentCoroutineContext().job
             try { action() }
-            catch(e: TimeoutCancellationException) { failure = "This operation took too long. Try a shorter clip or remove some effects, then retry." }
+            catch(e: TimeoutCancellationException) { if(activeJob === thisJob) failure = "This operation took too long. Try a shorter clip or remove some effects, then retry." }
             catch(e: CancellationException) { throw e }
-            catch(e: Exception) { failure = friendlyError(e) }
+            catch(e: Exception) { if(activeJob === thisJob) failure = friendlyError(e) }
             finally {
-                withContext(NonCancellable + Dispatchers.IO) { pendingOutputs.forEach { it.delete() }; pendingOutputs.clear() }
-                work.value = null; activeJob = null
+                if(activeJob === thisJob) {
+                    withContext(NonCancellable + Dispatchers.IO) { pendingOutputs.forEach { it.delete() }; pendingOutputs.clear() }
+                    work.value = null; activeJob = null; activeWorkReplaceable = false
+                }
             }
         }
         activeJob = job
