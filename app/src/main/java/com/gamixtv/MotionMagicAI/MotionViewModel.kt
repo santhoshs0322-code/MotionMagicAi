@@ -916,15 +916,22 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cancelWork() {
+        if (work.value == null) return
         val submitted = cloudWork
+        // A blocking network call can take time to observe coroutine cancellation.
+        // Close the progress dialog immediately; the job still cleans up in finally.
+        work.value = null
         activeJob?.cancel()
         message(if(submitted) "Progress closed. Submitted generations continue on the server; open My Projects and refresh later." else "Operation cancelled.")
     }
 
     private fun startWork(title: String, detail: String = "", action: suspend () -> Unit) {
-        if (work.value != null) return
+        if (activeJob != null) {
+            if (work.value == null) message("Finishing cancellation. Please try again in a moment.")
+            return
+        }
         work.value = WorkState(title, detail = detail)
-        activeJob = viewModelScope.launch {
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try { action() }
             catch(e: TimeoutCancellationException) { failure = "This operation took too long. Try a shorter clip or remove some effects, then retry." }
             catch(e: CancellationException) { throw e }
@@ -934,6 +941,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 work.value = null; activeJob = null
             }
         }
+        activeJob = job
+        job.start()
     }
 
     private fun friendlyError(error: Exception): String = when(error) {

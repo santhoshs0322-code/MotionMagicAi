@@ -166,7 +166,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
         }
     }
     work?.let { state ->
-        AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Rounded.AutoFixHigh, null, tint = Color(0xFFFFB6E8)) },
+        AlertDialog(onDismissRequest = vm::cancelWork, icon = { Icon(Icons.Rounded.AutoFixHigh, null, tint = Color(0xFFFFB6E8)) },
             title = { Text(state.title, fontSize = 20.sp) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
