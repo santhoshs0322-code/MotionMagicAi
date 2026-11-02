@@ -119,6 +119,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var cloudCatalogStatus by mutableStateOf("Checking model availability…"); private set
     var cloudQuote by mutableStateOf<CloudQuote?>(null); private set
     var billingReady by mutableStateOf(false); private set
+    var billingBusy by mutableStateOf(false); private set
+    private var billingAccountId: String? = null
     var creditProducts by mutableStateOf<List<Pair<String, Long>>>(emptyList()); private set
     var walletCredits by mutableStateOf<Long?>(null); private set
     var monthlyCredits by mutableStateOf<Long?>(null); private set
@@ -144,6 +146,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 if (session.user.id != account || activeAccountId != account) return@launch
                 val wallet = cloud.request("GET", "/wallet", session)
                 if (activeAccountId != account) return@launch
+                billingAccountId = wallet.getString("billing_account_id")
                 walletCredits = wallet.getLong("available_credits")
                 monthlyCredits = wallet.optLong("monthly_credits", 0)
                 topupCredits = wallet.optLong("topup_credits", 0)
@@ -168,6 +171,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 if(session.user.id != account || activeAccountId != account) return@launch
                 val wallet = cloud.request("GET", "/wallet", session)
                 if(activeAccountId != account) return@launch
+                billingAccountId = wallet.getString("billing_account_id")
                 walletCredits = wallet.getLong("available_credits")
                 monthlyCredits = wallet.optLong("monthly_credits", 0)
                 topupCredits = wallet.optLong("topup_credits", 0)
@@ -177,15 +181,21 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun buy(activity: Activity, productId: String) {
+        if (billingBusy) return
+        billingBusy = true
         viewModelScope.launch {
             try {
                 val account = checkNotNull(activeAccountId) { "Sign in before purchasing." }
                 val session = cloud.session()
                 require(session.user.id == account) { "Your account changed. Sign in again." }
-                val accountId = cloud.request("GET", "/wallet", session).getString("billing_account_id")
-                if(activeAccountId != account) return@launch
-                playBilling.buy(activity, productId, accountId)
-            } catch (e: Exception) { message(e.message ?: "Sign in and reconnect before purchasing.") }
+                val accountId = billingAccountId ?: cloud.request("GET", "/wallet", session).getString("billing_account_id")
+                if(activeAccountId != account) { billingBusy = false; return@launch }
+                billingAccountId = accountId
+                playBilling.buy(activity, productId, accountId) { billingBusy = false }
+            } catch (e: Exception) {
+                billingBusy = false
+                message(e.message ?: "Sign in and reconnect before purchasing.")
+            }
         }
     }
 
@@ -477,7 +487,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         activeAccountId = accountId
         photo = null; photoName = ""; referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0; cloudQuote = null
         selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
-        currentPlan = PlanTier.FREE; billingReady = false; creditProducts = emptyList()
+        currentPlan = PlanTier.FREE; billingReady = false; billingBusy = false; billingAccountId = null; creditProducts = emptyList()
         walletCredits = null; monthlyCredits = null; topupCredits = null; freeCredits = null
         history.clear(); screen = Screen.HOME
         draft = accountId?.let { store.draft("video", it) } ?: CreationDraft()

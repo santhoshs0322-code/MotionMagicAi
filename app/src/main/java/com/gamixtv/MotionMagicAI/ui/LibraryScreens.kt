@@ -276,7 +276,7 @@ fun PlansScreen(vm: MotionViewModel) {
                         if (mostPopular) Text("★ Most popular", color = Color(0xFFFFD052), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Text("One-time purchase · credits never expire", color = Color(0xFFCDB8E2), fontSize = 11.sp)
                     }
-                    TextButton(onClick = { if(activity == null) vm.message("Open the Android app to buy credits.") else vm.buy(activity, sku) }) { Text("Buy") }
+                    TextButton(enabled = !vm.billingBusy, onClick = { if(activity == null) vm.message("Open the Android app to buy credits.") else vm.buy(activity, sku) }) { Text(if(vm.billingBusy) "Opening Play…" else "Buy") }
                 }
             }
         }

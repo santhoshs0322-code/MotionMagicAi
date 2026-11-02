@@ -32,24 +32,45 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
         .enableAutoServiceReconnection()
         .build()
 
-    fun buy(activity: Activity, sku: String, accountId: String) {
-        if (sku !in creditPacks) return onMessage("This credit pack is not available.")
+    init {
+        client.startConnection(object : BillingClientStateListener {
+            override fun onBillingSetupFinished(result: BillingResult) = Unit
+            override fun onBillingServiceDisconnected() = Unit // Auto reconnection handles the next request.
+        })
+    }
+
+    fun buy(activity: Activity, sku: String, accountId: String, onFinished: () -> Unit) {
+        if (sku !in creditPacks) {
+            onMessage("This credit pack is not available.")
+            onFinished()
+            return
+        }
         val request = QueryProductDetailsParams.newBuilder().setProductList(listOf(
             QueryProductDetailsParams.Product.newBuilder().setProductId(sku).setProductType(type(sku)).build()
         )).build()
         client.queryProductDetailsAsync(request) { result, details ->
-            if (result.responseCode != BillingClient.BillingResponseCode.OK) return@queryProductDetailsAsync onMessage("Google Play is unavailable. Please try again.")
-            val item = details.productDetailsList.firstOrNull() ?: return@queryProductDetailsAsync onMessage("This credit pack is not active in Google Play yet.")
-            val detail = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(item).apply {
-                if (type(sku) == BillingClient.ProductType.SUBS) {
-                    val offer = item.subscriptionOfferDetails?.firstOrNull()?.offerToken
-                        ?: return@queryProductDetailsAsync onMessage("This subscription has no active base plan yet.")
-                    setOfferToken(offer)
+            activity.runOnUiThread {
+                try {
+                    if (result.responseCode != BillingClient.BillingResponseCode.OK) {
+                        onMessage("Google Play is unavailable. Please try again.")
+                        return@runOnUiThread
+                    }
+                    val item = details.productDetailsList.firstOrNull()
+                    if (item == null) {
+                        onMessage("This credit pack is not active in Google Play yet.")
+                        return@runOnUiThread
+                    }
+                    val detail = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(item).build()
+                    val params = BillingFlowParams.newBuilder().setProductDetailsParamsList(listOf(detail))
+                        .setObfuscatedAccountId(accountId).build()
+                    val launched = client.launchBillingFlow(activity, params)
+                    if (launched.responseCode != BillingClient.BillingResponseCode.OK) {
+                        onMessage("Google Play could not open payment. Please try again.")
+                    }
+                } finally {
+                    onFinished()
                 }
-            }.build()
-            val params = BillingFlowParams.newBuilder().setProductDetailsParamsList(listOf(detail))
-                .setObfuscatedAccountId(accountId).build()
-            client.launchBillingFlow(activity, params)
+            }
         }
     }
 
