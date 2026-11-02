@@ -33,7 +33,7 @@ in Play Console before enabling its flag.
 
 | SKU | Grant | Suggested Indian Play price* | Flag |
 |---|---:|---:|---|
-| `motion_topup_500` | 500 credits | ₹349 | `MOTION_AI_ENABLE_TOPUPS` |
+| `motion_credits_500_k7p4` | 500 credits | ₹349 | `MOTION_AI_ENABLE_TOPUPS` |
 | `motion_pack_2500` | 2,500 credits | ₹1,699 | `MOTION_AI_ENABLE_PACK_2500` |
 | `motion_pack_5000` | 5,000 credits | ₹3,399 | `MOTION_AI_ENABLE_PACK_5000` |
 | `motion_pack_10000` | 10,000 credits | ₹6,799 | `MOTION_AI_ENABLE_PACK_10000` |

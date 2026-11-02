@@ -18,7 +18,7 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
     companion object {
         const val CREATOR = "motion_creator_monthly"
         const val LEGEND = "motion_legend_monthly"
-        const val TOPUP_500 = "motion_topup_500"
+        const val TOPUP_500 = "motion_credits_500_k7p4"
         const val PACK_2500 = "motion_pack_2500"
         const val PACK_5000 = "motion_pack_5000"
         const val PACK_10000 = "motion_pack_10000"

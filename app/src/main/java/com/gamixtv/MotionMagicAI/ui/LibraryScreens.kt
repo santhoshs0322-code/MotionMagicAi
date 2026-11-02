@@ -267,7 +267,7 @@ fun PlansScreen(vm: MotionViewModel) {
         Text("Credit packs", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text("Choose any enabled model. The exact credit price appears before generation. Google Play shows the pack price before payment.", color = Muted, fontSize = 12.sp)
         vm.creditProducts.forEach { (sku, amount) ->
-            val mostPopular = sku == "motion_topup_500"
+            val mostPopular = sku == com.gamixtv.MotionMagicAI.billing.PlayBilling.TOPUP_500
             Surface(color = if (mostPopular) Color(0xFF391452) else Color(0xFF2A1740), shape = RoundedCornerShape(18.dp), border = BorderStroke(if (mostPopular) 2.dp else 1.dp, if (mostPopular) Color(0xFFF454D7) else Color(0xFFA840D9))) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFD052))

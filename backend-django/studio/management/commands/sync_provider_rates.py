@@ -32,7 +32,8 @@ class Command(BaseCommand):
         # Creator and Legend are recurring subscriptions, not consumable products.
         Product.objects.filter(pk__in=("motion_creator_credits", "motion_legend_credits")).update(enabled=False)
         enabled_topup = settings.PLAY_ENABLED and (settings.ENABLE_TOPUPS or settings.ENABLE_CREDIT_PACKS)
-        Product.objects.filter(pk="motion_topup_500").update(enabled=enabled_topup)
+        Product.objects.filter(pk="motion_topup_500").update(enabled=False)
+        Product.objects.filter(pk="motion_credits_500_k7p4").update(enabled=enabled_topup)
         Product.objects.filter(pk="motion_pack_2500").update(enabled=settings.PLAY_ENABLED and settings.ENABLE_PACK_2500)
         Product.objects.filter(pk="motion_pack_5000").update(enabled=settings.PLAY_ENABLED and settings.ENABLE_PACK_5000)
         Product.objects.filter(pk="motion_pack_10000").update(enabled=settings.PLAY_ENABLED and settings.ENABLE_PACK_10000)
