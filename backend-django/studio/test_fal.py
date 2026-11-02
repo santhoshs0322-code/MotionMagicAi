@@ -190,6 +190,8 @@ class FalFlowTests(TestCase):
         worker.run_one()
         job.refresh_from_db()
         self.assertEqual((job.state, job.provider_id, job.provider_context), ("running", "fal-request-123", {"root": "fal-ai/qwen-image", "endpoint": "fal-ai/qwen-image"}))
+        self.assertGreaterEqual((job.next_attempt_at - timezone.now()).total_seconds(), 13)
+        self.assertLessEqual((job.next_attempt_at - timezone.now()).total_seconds(), 16)
         self.wallet.refresh_from_db(); self.assertEqual(self.wallet.held_paise, 100)
         asset = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/outputs/{job.pk}/generated.png", mime="image/png", size=5, ready=True)
         output_asset.return_value = asset

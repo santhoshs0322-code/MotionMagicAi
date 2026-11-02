@@ -1,4 +1,5 @@
 import uuid
+import logging
 from datetime import timedelta
 from django.conf import settings
 from django.db import transaction
@@ -7,6 +8,8 @@ from django.utils import timezone
 from . import provider, storage
 from .models import Job
 from .services import finish_job, TERMINAL
+
+log = logging.getLogger(__name__)
 
 @transaction.atomic
 def claim():
@@ -33,6 +36,7 @@ def run_one():
         result = provider.submit(job) if fresh else provider.reconcile(job)
         # Never blindly resubmit after a timeout/crash: a provider may already have billed.
         if result["state"] == "not_found":
+            log.warning("generation_job_provider_status_unknown job_id=%s attempts=%s", job.pk, job.attempts)
             reschedule(job, lease, "uncertain", "provider_status_unknown")
             return True
         if result["state"] in TERMINAL:
@@ -41,17 +45,23 @@ def run_one():
                 raise ValueError("Invalid cost")
             asset = storage.provider_output(job, result.get("output", {})) if result["state"] == "succeeded" else None
             finish_job(job.pk, result["state"], cost, asset, "provider_failed" if result["state"] == "failed" else "", lease)
+            log.info("generation_job_terminal job_id=%s state=%s attempts=%s", job.pk, result["state"], job.attempts)
         else:
             provider_id = result.get("id", "")
             if not isinstance(provider_id, str) or len(provider_id) > 200:
                 raise ValueError("Invalid provider ID")
             Job.objects.filter(pk=job.pk, lease_id=lease).update(provider_id=provider_id)
+            if fresh:
+                log.info("generation_job_submitted job_id=%s provider=%s", job.pk, job.quote.rate.provider_model)
             reschedule(job, lease, "running")
     except Exception:
         # Keep the hold until the provider gives a definitive result. Alert on old uncertain jobs.
+        log.exception("generation_job_poll_failed job_id=%s state=%s attempts=%s", job.pk, job.state, job.attempts)
         reschedule(job, lease, "uncertain", "provider_status_unknown")
     return True
 
 def reschedule(job, lease, state, error=""):
-    delay = min(900, 15 * 2 ** min(job.attempts, 6))
+    # Provider generation duration is outside our control. Check known running
+    # requests frequently; use exponential backoff only when status is unknown.
+    delay = 15 if state == "running" else min(900, 15 * 2 ** min(job.attempts, 6))
     Job.objects.filter(pk=job.pk, lease_id=lease).exclude(state__in=TERMINAL).update(state=state, error_code=error, lease_id=None, lease_until=None, next_attempt_at=timezone.now() + timedelta(seconds=delay))
