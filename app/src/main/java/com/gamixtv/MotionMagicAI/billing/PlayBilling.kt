@@ -21,7 +21,9 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
         const val TOPUP_500 = "motion_topup_500"
         const val PACK_2500 = "motion_pack_2500"
         const val PACK_5000 = "motion_pack_5000"
-        private fun type(sku: String) = if (sku in setOf(TOPUP_500, PACK_2500, PACK_5000)) BillingClient.ProductType.INAPP else BillingClient.ProductType.SUBS
+        const val PACK_10000 = "motion_pack_10000"
+        private val creditPacks = setOf(TOPUP_500, PACK_2500, PACK_5000, PACK_10000)
+        private fun type(sku: String) = if (sku in creditPacks) BillingClient.ProductType.INAPP else BillingClient.ProductType.SUBS
     }
 
     private val client = BillingClient.newBuilder(context.applicationContext)
@@ -31,7 +33,7 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
         .build()
 
     fun buy(activity: Activity, sku: String, accountId: String) {
-        if (sku !in setOf(TOPUP_500, PACK_2500, PACK_5000)) return onMessage("This credit pack is not available.")
+        if (sku !in creditPacks) return onMessage("This credit pack is not available.")
         val request = QueryProductDetailsParams.newBuilder().setProductList(listOf(
             QueryProductDetailsParams.Product.newBuilder().setProductId(sku).setProductType(type(sku)).build()
         )).build()

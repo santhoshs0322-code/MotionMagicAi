@@ -27,7 +27,7 @@ submission. Story export on the device does not consume AI credits.
 
 ## Google Play products
 
-The server knows three credit-pack SKUs. It enables the two larger packs only
+The server knows four credit-pack SKUs. It enables the larger packs only
 after their matching flags are set. Create and activate each one-time product
 in Play Console before enabling its flag.
 
@@ -36,6 +36,7 @@ in Play Console before enabling its flag.
 | `motion_topup_500` | 500 credits | ₹349 | `MOTION_AI_ENABLE_TOPUPS` |
 | `motion_pack_2500` | 2,500 credits | ₹1,699 | `MOTION_AI_ENABLE_PACK_2500` |
 | `motion_pack_5000` | 5,000 credits | ₹3,399 | `MOTION_AI_ENABLE_PACK_5000` |
+| `motion_pack_10000` | 10,000 credits | ₹6,799 | `MOTION_AI_ENABLE_PACK_10000` |
 
 *Suggested prices assume roughly ₹95/USD, a 15% Play fee and 18% tax included
 in the customer price. Verify actual Play payouts and the current exchange rate
@@ -48,7 +49,8 @@ For AWS, set `MOTION_AI_CREDIT_ONLY_MODE=true`,
 Credit-only mode enforces the 16,667/1,500 pricing settings in code, even if
 older AWS environment entries still contain the previous markup.
 Set `MOTION_AI_ENABLE_TOPUPS=true` for the existing 500-credit product. Set
-`MOTION_AI_ENABLE_PACK_2500=true` and `MOTION_AI_ENABLE_PACK_5000=true` only
+`MOTION_AI_ENABLE_PACK_2500=true`, `MOTION_AI_ENABLE_PACK_5000=true`, and
+`MOTION_AI_ENABLE_PACK_10000=true` only
 after activating those products in Play Console. A six-scene 60-second story
 using one 10-second Kling O3 Pro audio clip and five 10-second reference clips
 costs about **3,110 customer credits** and **$9.80 in fal fees** at this rate

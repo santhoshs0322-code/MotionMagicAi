@@ -35,4 +35,5 @@ class Command(BaseCommand):
         Product.objects.filter(pk="motion_topup_500").update(enabled=enabled_topup)
         Product.objects.filter(pk="motion_pack_2500").update(enabled=settings.PLAY_ENABLED and settings.ENABLE_PACK_2500)
         Product.objects.filter(pk="motion_pack_5000").update(enabled=settings.PLAY_ENABLED and settings.ENABLE_PACK_5000)
+        Product.objects.filter(pk="motion_pack_10000").update(enabled=settings.PLAY_ENABLED and settings.ENABLE_PACK_10000)
         self.stdout.write(f"permanent 500-credit top-up: {'enabled' if enabled_topup else 'disabled'}")

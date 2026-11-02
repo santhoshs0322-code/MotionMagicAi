@@ -195,7 +195,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 val account = checkNotNull(activeAccountId) { "Sign in to verify this purchase." }
                 val session = cloud.session()
                 require(session.user.id == account && activeAccountId == account) { "Your account changed. Sign in again." }
-                require(productId in setOf(PlayBilling.TOPUP_500, PlayBilling.PACK_2500, PlayBilling.PACK_5000)) { "This credit pack is unavailable." }
+                require(productId in setOf(PlayBilling.TOPUP_500, PlayBilling.PACK_2500, PlayBilling.PACK_5000, PlayBilling.PACK_10000)) { "This credit pack is unavailable." }
                 cloud.request("POST", "/billing/verify", session, JSONObject().put("sku", productId).put("purchase_token", token))
                 if(activeAccountId == account) message("Credits added to your wallet.")
                 if(activeAccountId == account) refreshBilling(recoverPurchases = false)

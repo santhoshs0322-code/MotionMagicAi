@@ -267,11 +267,13 @@ fun PlansScreen(vm: MotionViewModel) {
         Text("Credit packs", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text("Choose any enabled model. The exact credit price appears before generation. Google Play shows the pack price before payment.", color = Muted, fontSize = 12.sp)
         vm.creditProducts.forEach { (sku, amount) ->
-            Surface(color = Color(0xFF2A1740), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFFA840D9))) {
+            val mostPopular = sku == "motion_topup_500"
+            Surface(color = if (mostPopular) Color(0xFF391452) else Color(0xFF2A1740), shape = RoundedCornerShape(18.dp), border = BorderStroke(if (mostPopular) 2.dp else 1.dp, if (mostPopular) Color(0xFFF454D7) else Color(0xFFA840D9))) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFD052))
                     Column(Modifier.weight(1f).padding(start = 10.dp)) {
                         Text("${"%,d".format(amount)} credits", fontWeight = FontWeight.Bold)
+                        if (mostPopular) Text("★ Most popular", color = Color(0xFFFFD052), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Text("One-time purchase · credits never expire", color = Color(0xFFCDB8E2), fontSize = 11.sp)
                     }
                     TextButton(onClick = { if(activity == null) vm.message("Open the Android app to buy credits.") else vm.buy(activity, sku) }) { Text("Buy") }
