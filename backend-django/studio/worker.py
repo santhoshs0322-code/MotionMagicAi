@@ -14,7 +14,9 @@ log = logging.getLogger(__name__)
 @transaction.atomic
 def claim():
     now = timezone.now()
-    job = Job.objects.select_for_update(skip_locked=True).filter(next_attempt_at__lte=now).filter(Q(lease_until__isnull=True) | Q(lease_until__lt=now)).exclude(state__in=TERMINAL).order_by("next_attempt_at").first()
+    job = Job.objects.select_for_update(skip_locked=True).filter(
+        state__in=("queued", "submitting", "running", "uncertain"), next_attempt_at__lte=now,
+    ).filter(Q(lease_until__isnull=True) | Q(lease_until__lt=now)).order_by("next_attempt_at").first()
     if not job:
         return None
     was_queued = job.state == "queued"

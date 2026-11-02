@@ -182,7 +182,13 @@ def job_public(job):
 
 class Jobs(Private):
     def get(self, request):
-        return page(request, Job.objects.filter(account=request.user).select_related("quote"), job_public)
+        scope = request.query_params.get("scope", "recent")
+        if scope not in ("recent", "active"):
+            raise Problem("Unknown job list scope.")
+        jobs = Job.objects.filter(account=request.user).select_related("quote")
+        if scope == "active":
+            jobs = jobs.filter(state__in=("queued", "submitting", "running", "uncertain"))
+        return page(request, jobs, job_public)
     def post(self, request):
         data = body(request, ("quote_id",))
         job, created = services.submit_job(request.user, data.get("quote_id"), request.headers.get("Idempotency-Key"))

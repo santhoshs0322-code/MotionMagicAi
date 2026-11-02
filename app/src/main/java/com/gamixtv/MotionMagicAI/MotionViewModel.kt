@@ -331,7 +331,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             }
             downloadFailures.clear()
             // Show the refreshed job list before fetching potentially large media files.
-            pollCloudJobs(session.user.id, downloadOutputs = false)
+            pollCloudJobs(session.user.id, downloadOutputs = false, includeRecent = true)
             tab(Screen.PROJECTS)
             startCloudMonitor(session.user.id, restart = true, downloadReadyOnStart = true)
         } finally {
@@ -366,18 +366,20 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun startCloudMonitor(account: String, restart: Boolean = false, downloadReadyOnStart: Boolean = false) {
+    private fun startCloudMonitor(account: String, restart: Boolean = false, downloadReadyOnStart: Boolean = false, includeRecentOnStart: Boolean = false) {
         if(cloudJobMonitor?.isActive == true && !restart) return
         cloudJobMonitor?.cancel()
         val generation = ++cloudMonitorGeneration
         cloudJobMonitor = viewModelScope.launch {
             var failures = 0
             var downloadReady = downloadReadyOnStart
+            var includeRecent = includeRecentOnStart
             try {
                 while(isActive && activeAccountId == account) {
                     val active = try {
-                        val result = pollCloudJobs(account, forceDownloads = downloadReady)
+                        val result = pollCloudJobs(account, forceDownloads = downloadReady, includeRecent = includeRecent || downloadReady)
                         downloadReady = false
+                        includeRecent = false
                         failures = 0
                         result
                     } catch(e: CancellationException) { throw e }
@@ -394,10 +396,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private suspend fun pollCloudJobs(account: String, forceDownloads: Boolean = false, downloadOutputs: Boolean = true): Boolean = cloudPollLock.withLock {
+    private suspend fun pollCloudJobs(account: String, forceDownloads: Boolean = false, downloadOutputs: Boolean = true, includeRecent: Boolean = false): Boolean = cloudPollLock.withLock {
         val session = cloud.session()
         if(session.user.id != account || activeAccountId != account) return@withLock false
-        val rows = cloud.request("GET", "/jobs", session).getJSONArray("results")
+        val rows = cloud.request("GET", "/jobs?scope=${if (includeRecent) "recent" else "active"}", session).getJSONArray("results")
         if(activeAccountId != account) return@withLock false
         val pinned = withContext(Dispatchers.IO) { pendingCloudRequests(session) }
         val previews = pinned.mapNotNull { request -> request.optString("job_id").takeIf { it.isNotBlank() }?.let { it to request } }.toMap()
@@ -407,22 +409,28 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 previewVideo = previews[row.getString("id")]?.optBoolean("preview_video") ?: false)
         }
         val latestById = recent.associateByTo(LinkedHashMap()) { it.id }
-        for(request in pinned) {
-            val rawId = request.optString("job_id")
+        val knownIds = pinned.mapNotNull { request -> request.optString("job_id").takeIf { it.isNotBlank() } }.toSet() + observedActiveJobIds
+        for(rawId in knownIds) {
             if(rawId.isBlank()) continue
             val id = runCatching { UUID.fromString(rawId).toString() }.getOrNull()
             if(id == null || projects.any { it.id == "cloud_$id" && File(it.path).isFile }) {
-                withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
-                if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+                pinned.firstOrNull { it.optString("job_id") == rawId }?.let { request ->
+                    withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
+                    if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+                }
+                observedActiveJobIds.remove(rawId)
                 continue
             }
             if(id !in latestById) {
                 try { latestById[id] = CloudJob.from(cloud.request("GET", "/jobs/$id", session)).copy(
                     previewPath = previews[id]?.optString("preview")?.ifBlank { null }, previewVideo = previews[id]?.optBoolean("preview_video") ?: false) }
                 catch(e: CloudException) {
-                    if(e.status == 404) withContext(Dispatchers.IO) {
-                        updateCloudPending(session, null, pendingId(request))
-                        if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
+                    if(e.status == 404) {
+                        pinned.firstOrNull { it.optString("job_id") == id }?.let { request -> withContext(Dispatchers.IO) {
+                            updateCloudPending(session, null, pendingId(request))
+                            if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
+                        } }
+                        observedActiveJobIds.remove(id)
                     }
                     else throw e
                 }
@@ -434,6 +442,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         cloudJobs = (latest + cloudJobs.filter { it.isGenerating && it.id !in newIds })
             .filterNot { job -> projects.any { it.id == "cloud_${job.id}" && File(it.path).isFile } }
         for(job in latest.filter { it.state == "failed" || it.state == "cancelled" }) {
+            observedActiveJobIds.remove(job.id)
             pinned.firstOrNull { it.optString("job_id") == job.id }?.let { request ->
                 withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
                 refreshWallet()
@@ -527,7 +536,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 if(activeAccountId == accountId) {
                     projects = saved
                     if(warning != null) failure = warning
-                    startCloudMonitor(accountId)
+                    startCloudMonitor(accountId, includeRecentOnStart = true)
                 }
             }
             val revision = photoRevision

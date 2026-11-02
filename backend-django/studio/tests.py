@@ -292,6 +292,30 @@ class ApiTests(TestCase):
         self.auth()
         self.assertEqual(self.client.get("/api/v1/billing/products").json()["products"], [])
 
+    def test_active_job_list_is_server_filtered_and_account_scoped(self):
+        other = Account.objects.create(google_sub="other-jobs", email="other-jobs@example.test", name="Other")
+        rate = Rate.objects.create(slug="job-list-test", title="Test", kind="image", enabled=True,
+                                   provider_model="gateway/image", unit_cost_paise=1, max_units=1)
+        budget = Budget.objects.create(day=timezone.now().date(), shard=0)
+        def make_job(account, state, key):
+            quote = Quote.objects.create(account=account, rate=rate, payload={"prompt": key, "kind": "image"},
+                                         payload_hash=key, provider_cost_paise=1, overhead_paise=0,
+                                         markup_bps=0, fee_bps=0, charge_paise=2,
+                                         expires_at=timezone.now() + timedelta(minutes=5))
+            return Job.objects.create(account=account, quote=quote, budget=budget, state=state,
+                                      idempotency_key=key, next_attempt_at=timezone.now())
+        own_active = make_job(self.account, "running", "own-active")
+        own_done = make_job(self.account, "succeeded", "own-done")
+        other_active = make_job(other, "running", "other-active")
+        self.auth()
+        active = self.client.get("/api/v1/jobs?scope=active")
+        self.assertEqual(active.status_code, 200)
+        self.assertEqual([row["id"] for row in active.json()["results"]], [str(own_active.pk)])
+        recent_ids = {row["id"] for row in self.client.get("/api/v1/jobs?scope=recent").json()["results"]}
+        self.assertEqual(recent_ids, {str(own_active.pk), str(own_done.pk)})
+        self.assertEqual(self.client.get(f"/api/v1/jobs/{other_active.pk}").status_code, 404)
+        self.assertEqual(self.client.get("/api/v1/jobs?scope=all").status_code, 400)
+
 class InputTests(TestCase):
     def test_unknown_fields_are_rejected(self):
         account = Account.objects.create(google_sub="google-input", email="input@example.test", name="Input")

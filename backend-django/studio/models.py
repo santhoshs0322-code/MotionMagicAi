@@ -144,7 +144,10 @@ class Job(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:
         constraints = [models.UniqueConstraint(fields=["account", "idempotency_key"], name="job_account_idempotency"), models.CheckConstraint(condition=Q(state__in=("queued", "submitting", "running", "uncertain", "succeeded", "failed", "cancelled")), name="job_valid_state")]
-        indexes = [models.Index(fields=["state", "next_attempt_at"]), models.Index(fields=["account", "-created_at", "-id"])]
+        indexes = [models.Index(fields=["state", "next_attempt_at"]),
+                   models.Index(fields=["account", "-created_at", "-id"]),
+                   models.Index(fields=["next_attempt_at", "lease_until"], name="job_claim_pending_idx",
+                                condition=Q(state__in=("queued", "submitting", "running", "uncertain")))]
 
 class Product(models.Model):
     sku = models.CharField(primary_key=True, max_length=150)
