@@ -270,6 +270,15 @@ class ApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["user"]["id"], str(self.account.pk))
 
+    @override_settings(**RUNTIME)
+    def test_capabilities_include_exact_credit_prices_for_each_video_duration(self):
+        Rate.objects.create(slug="video-prices", title="Video", kind="video", enabled=True,
+                            provider_model="gateway/video", unit_cost_paise=20, overhead_paise=3,
+                            max_units=10, config={"durations": [5, 10], "aspect_ratios": ["9:16"]})
+        rates = self.client.get("/api/v1/capabilities").json()["cloud"]
+        item = next(row for row in rates if row["id"] == "video-prices")
+        self.assertEqual(item["credit_prices"], {"5": price(103), "10": price(203)})
+
     def test_logout_revokes_token(self):
         token = issue_token(self.account)
         self.client.credentials(HTTP_AUTHORIZATION="Bearer " + token)

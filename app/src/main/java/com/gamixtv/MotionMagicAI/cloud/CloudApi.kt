@@ -39,13 +39,22 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
             val row = rows.getJSONObject(i); val settings = row.getJSONObject("config")
             val ratios = settings.optJSONArray("aspect_ratios")
             val durations = settings.optJSONArray("durations")
+            val prices = row.optJSONObject("credit_prices")
+            val creditPrices = mutableMapOf<Int, Long>()
+            if (prices != null) {
+                val keys = prices.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    key.toIntOrNull()?.let { creditPrices[it] = prices.getLong(key) }
+                }
+            }
             CloudRate(row.getString("id"), row.getString("title"), settings.optString("app_model_id"), row.getString("kind"),
                 settings.optString("image_size", settings.optString("resolution")),
                 (0 until (ratios?.length() ?: 0)).map { ratios!!.getString(it) },
                 (0 until (durations?.length() ?: 0)).map { durations!!.getInt(it) },
                 if(settings.optString("provider") == "fal" && settings.has("generated_audio")) settings.getBoolean("generated_audio") else null,
                 settings.optString("image_aspect_ratio") == "source", row.optLong("minimum_charge_paise"), row.optInt("minimum_units", 1),
-                if (row.optString("required_plan") == "free") PlanTier.FREE else PlanTier.PRO)
+                creditPrices, if (row.optString("required_plan") == "free") PlanTier.FREE else PlanTier.PRO)
         }
     }
 

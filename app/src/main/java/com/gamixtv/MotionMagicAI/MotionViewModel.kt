@@ -117,6 +117,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private val observedActiveJobIds = mutableSetOf<String>()
     var cloudJobs by mutableStateOf<List<CloudJob>>(emptyList()); private set
     var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
+    private var catalogCheckedAt = 0L
     var cloudCatalogStatus by mutableStateOf("Checking model availability…"); private set
     var cloudQuote by mutableStateOf<CloudQuote?>(null); private set
     var billingReady by mutableStateOf(false); private set
@@ -132,11 +133,17 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun refreshCloudCatalog() {
         viewModelScope.launch {
             try {
-                cloudRates = cloud.catalog()
-                cloudCatalogStatus = if(cloudRates.isEmpty()) "Cloud models are not enabled on the server yet." else "Generation credits · review the price before you create"
+                ensureCloudCatalog()
             } catch(e: CancellationException) { throw e }
             catch(e: Exception) { cloudCatalogStatus = "Cannot check model availability. Reconnect and try Create again." }
         }
+    }
+
+    private suspend fun ensureCloudCatalog() {
+        if (cloudRates.isNotEmpty() && System.currentTimeMillis() - catalogCheckedAt < 5 * 60_000) return
+        cloudRates = cloud.catalog()
+        catalogCheckedAt = System.currentTimeMillis()
+        cloudCatalogStatus = if(cloudRates.isEmpty()) "Cloud models are not enabled on the server yet." else "Generation credits · review the price before you create"
     }
 
     fun refreshBilling(recoverPurchases: Boolean = true) {
@@ -244,22 +251,25 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             if(withContext(Dispatchers.IO) { pendingCloudRequests(session).count { !it.has("job_id") } } >= 3) {
                 error("Three requests need recovery. Open My Projects and refresh them before starting another.")
             }
-            cloudRates = cloud.catalog()
+            ensureCloudCatalog()
             val rate = cloudRates.firstOrNull { it.matches(request, image) }
                 ?: error("This model and resolution are not enabled on the server yet. Choose an available setting or try again after setup.")
             require(request.aspect in rate.ratios) { "This model supports ${rate.ratios.joinToString()}. Change the aspect ratio in Settings." }
             require(image || request.duration in rate.durations) { "Choose a supported video duration." }
-            val wallet = cloud.request("GET", "/wallet", session)
-            if(activeAccountId == account) walletCredits = wallet.getLong("available_credits")
             val payload = JSONObject().put("service", rate.id).put("aspect_ratio", request.aspect)
                 .put("prompt", request.prompt.trim().ifBlank { "Animate this photo with gentle natural movement." })
             if(!image) payload.put("duration", request.duration).put("generated_audio", request.generatedAudio)
-            if(withPhoto) payload.put("asset_id", cloud.uploadImage(selectedPhotoFile, session, if(image) "image" else "video"))
-            if(withVideo) payload.put("asset_id", cloud.uploadReferenceVideo(File(checkNotNull(referenceVideoPath)), session))
-            val quote = cloud.request("POST", "/quotes", session, payload)
-            cloudQuote = CloudQuote(quote.getString("id"), quote.getLong("maximum_charge_paise"), wallet.getLong("available_paise"),
-                quote.getString("title"), session, request.copy(outputCount = 1), image, withPhoto,
-                if(withVideo) referenceVideoPath else null, if(withVideo) storyRoot else null, if(withVideo) storyPart else 0)
+            coroutineScope {
+                val walletCheck = async { cloud.request("GET", "/wallet", session) }
+                if(withPhoto) payload.put("asset_id", cloud.uploadImage(selectedPhotoFile, session, if(image) "image" else "video"))
+                if(withVideo) payload.put("asset_id", cloud.uploadReferenceVideo(File(checkNotNull(referenceVideoPath)), session))
+                val quote = cloud.request("POST", "/quotes", session, payload)
+                val wallet = walletCheck.await()
+                if(activeAccountId == account) walletCredits = wallet.getLong("available_credits")
+                cloudQuote = CloudQuote(quote.getString("id"), quote.getLong("maximum_charge_paise"), wallet.getLong("available_paise"),
+                    quote.getString("title"), session, request.copy(outputCount = 1), image, withPhoto,
+                    if(withVideo) referenceVideoPath else null, if(withVideo) storyRoot else null, if(withVideo) storyPart else 0)
+            }
         }
     }
 
@@ -530,6 +540,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         imageDraft = accountId?.let { store.draft("image-generation", it) } ?: CreationDraft()
         voiceText = accountId?.let { store.draft("voice", it).prompt }.orEmpty()
         if (accountId != null) {
+            refreshCloudCatalog()
             refreshWallet()
             playBilling.recover()
             viewModelScope.launch {

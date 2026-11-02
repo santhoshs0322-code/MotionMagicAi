@@ -151,6 +151,8 @@ class Capabilities(Public):
             "required_plan": services.minimum_plan(r),
             "minimum_units": min(r.config.get("durations", [5])) if r.kind == "video" else 1,
             "minimum_charge_paise": services.price(r.unit_cost_paise * (min(r.config.get("durations", [5])) if r.kind == "video" else 1) + r.overhead_paise),
+            "credit_prices": {str(units): services.price(r.unit_cost_paise * units + r.overhead_paise)
+                              for units in (r.config.get("durations", [5]) if r.kind == "video" else [1])},
         } for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=settings.PLAY_ENABLED and settings.SUBSCRIPTIONS_ENABLED, currency="CREDITS", credit_value_usd_cents=0.5, markup_bps=settings.MARKUP_BPS)
 
 class WalletView(Private):

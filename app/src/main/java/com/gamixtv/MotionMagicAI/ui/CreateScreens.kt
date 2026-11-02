@@ -63,6 +63,8 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
     val video = vm.selectedVideoModel
     val image = ImageModelCatalog.find(draft.imageModelId)
     val modelName = if(still) image.title else video.title
+    val selectedRate = vm.cloudRates.firstOrNull { it.matches(draft, still) }
+    val estimatedCredits = selectedRate?.priceFor(draft, still)
     val update: (CreationDraft) -> Unit = { if(still) vm.updateImageDraft(it) else vm.updateDraft(it) }
     val focus = LocalFocusManager.current
     var modes by remember { mutableStateOf(false) }
@@ -83,6 +85,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         focus.clearFocus()
         vm.prepareCloudGeneration()
     }
+    LaunchedEffect(Unit) { vm.refreshCloudCatalog() }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
         Row(Modifier.fillMaxWidth().height(40.dp).background(Brush.horizontalGradient(listOf(Color(0xFF160926), Color(0xFF30084A)))).padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             MagicLogo(Modifier.size(25.dp))
@@ -136,7 +139,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         }
         Text(vm.cloudCatalogStatus, color = RefMuted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp))
         TextButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("View My Projects", fontSize = 12.sp) }
-        ReferenceComposerBar(draft, still, modelName, ready, false, { settings = true }, update, create)
+        ReferenceComposerBar(draft, still, modelName, ready, estimatedCredits, false, { settings = true }, update, create)
     }
     if(modes) CreationModeSheet(mode, { modes = false }) { chosen ->
         vm.switchCreationMode(chosen); modes = false
@@ -145,7 +148,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         Column(Modifier.fillMaxWidth()) {
             ReferenceSettings(draft, still, video, image, vm.currentPlan, update, vm::selectVideoModel, { settings = false },
                 vm.cloudRates, mode == CreationMode.IMAGE_TO_VIDEO)
-            ReferenceComposerBar(draft, still, modelName, ready, true, { settings = false }, update, { settings = false; create() })
+            ReferenceComposerBar(draft, still, modelName, ready, estimatedCredits, true, { settings = false }, update, { settings = false; create() })
         }
     }
     if(gallery) ModalBottomSheet(onDismissRequest = { gallery = false }, containerColor = Ink, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -205,7 +208,7 @@ private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, onPick: () 
 }
 
 @Composable
-private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: String, ready: Boolean, expanded: Boolean, settings: () -> Unit, update: (CreationDraft) -> Unit, create: () -> Unit) {
+private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: String, ready: Boolean, estimatedCredits: Long?, expanded: Boolean, settings: () -> Unit, update: (CreationDraft) -> Unit, create: () -> Unit) {
     Surface(color = Color(0xFF17181D), shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(top = 10.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if(!expanded) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,7 +233,7 @@ private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: St
                     Text("Create", color = if(ready) Color.White else Color.White.copy(alpha = .4f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
                     Icon(Icons.Rounded.Bolt, null, Modifier.size(16.dp), tint = Color(0xFFFFD272).copy(alpha = if(ready) 1f else .4f))
-                    Text(" —", color = Color.White.copy(alpha = if(ready) .8f else .3f), fontSize = 12.sp)
+                    Text(if(estimatedCredits == null) " Check price" else " ≈ $estimatedCredits credits", color = Color.White.copy(alpha = if(ready) .9f else .4f), fontSize = 12.sp)
                 }
             }
         }
@@ -288,8 +291,9 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
             IconButton(onClick = close, modifier = Modifier.size(25.dp)) { Icon(Icons.Rounded.KeyboardArrowDown, "Close settings", tint = RefMuted) }
         }
         Text(when {
-            activeRate == null -> "Availability and price are checked when you tap Create"
-            else -> "Available · price shown before generation"
+            activeRate == null -> "Checking model availability and credit price"
+            activeRate.priceFor(draft, still) == null -> "Choose a supported duration and aspect ratio"
+            else -> "Estimated ${activeRate.priceFor(draft, still)} credits · exact price reviewed before generation"
         }, color = RefMuted, fontSize = 11.sp)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             if(still) items(ImageModelCatalog.models, key = { it.id }) { option ->

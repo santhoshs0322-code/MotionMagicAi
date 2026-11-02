@@ -8,8 +8,13 @@ data class CloudRate(
     val id: String, val title: String, val modelId: String, val kind: String, val size: String,
     val ratios: List<String>, val durations: List<Int>, val audio: Boolean?, val sourceRatio: Boolean,
     val minimumPricePaise: Long = 0, val minimumUnits: Int = 1,
+    val creditPrices: Map<Int, Long> = emptyMap(),
     val requiredPlan: PlanTier = PlanTier.PRO,
 ) {
+    fun priceFor(draft: CreationDraft, image: Boolean): Long? =
+        if (matches(draft, image) && draft.aspect in ratios && (image || draft.duration in durations))
+            creditPrices[if (image) 1 else draft.duration]
+        else null
     fun matches(draft: CreationDraft, image: Boolean): Boolean =
         kind == (if(image) "image" else "video") && modelId == (if(image) draft.imageModelId else draft.modelId) &&
             size == (if(image) draft.imageQuality else draft.resolution) && (image || audio == null || audio == draft.generatedAudio)
