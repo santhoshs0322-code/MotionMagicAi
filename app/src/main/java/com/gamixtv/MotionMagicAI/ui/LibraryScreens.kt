@@ -79,8 +79,11 @@ fun TemplatesScreen(vm: MotionViewModel) = ReferenceCatalogScreen(vm, templatePa
 fun ProjectsScreen(vm: MotionViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     var deletion by remember { mutableStateOf<Project?>(null) }
-    val saved = vm.projects.sortedByDescending { it.createdAt }.filter { it.title.contains(query, ignoreCase = true) }
-    val pending = vm.cloudJobs.filter { it.title.contains(query, ignoreCase = true) }
+    val saved = vm.projects.sortedByDescending { it.createdAt }.distinctBy { it.id }
+        .filter { it.title.contains(query, ignoreCase = true) }
+    val savedCloudIds = vm.projects.mapNotNull { it.id.removePrefix("cloud_").takeIf { id -> it.id.startsWith("cloud_") && id.isNotBlank() } }.toSet()
+    val pending = vm.cloudJobs.distinctBy { it.id }
+        .filter { it.id !in savedCloudIds && it.title.contains(query, ignoreCase = true) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -99,7 +102,9 @@ fun ProjectsScreen(vm: MotionViewModel) {
                     leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = PanelShape)
             }
             if(saved.isEmpty() && pending.isEmpty()) item { Text("No projects match “$query”.", color = Muted, modifier = Modifier.padding(vertical = 30.dp)) }
-            items(pending, key = { "job-${it.id}" }) { job -> CloudJobCard(job, vm::resumeCloudGeneration) }
+            items(pending, key = { "job-${it.id}" }) { job ->
+                CloudJobCard(job, vm::resumeCloudGeneration, { vm.downloadCloudResult(job.id) })
+            }
             items(saved, key = { "project-${it.id}" }) { project ->
                 Surface(onClick = { vm.open(project) }, color = Panel, shape = PanelShape) {
                     Column {
@@ -127,7 +132,7 @@ fun ProjectsScreen(vm: MotionViewModel) {
 }
 
 @Composable
-private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit) {
+private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit, onDownload: () -> Unit) {
     Surface(color = Panel, shape = PanelShape, border = BorderStroke(1.dp, Color(0xFF6942A5))) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -141,9 +146,9 @@ private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit) {
             Text(job.statusLabel, color = Color(0xFFDAC8F2), fontSize = 12.sp)
             if(job.isActive || job.isReady) {
                 LinearProgressIndicator(progress = { job.progressPercent / 100f }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Color(0xFF322645))
-                Text("${job.progressPercent}% · estimated progress; updates after each stage", color = Muted, fontSize = 10.sp)
+                Text(if(job.isReady) "100% · generation completed" else "${job.progressPercent}% · estimated progress; updates after each stage", color = Muted, fontSize = 10.sp)
             }
-            if(job.isReady) TextButton(onClick = onRefresh) { Text("Download result") }
+            if(job.isReady) TextButton(onClick = onDownload) { Text("Save to My Projects") }
             else if(job.isActive) TextButton(onClick = onRefresh) { Text("Check status") }
         }
     }

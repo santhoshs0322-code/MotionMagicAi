@@ -340,6 +340,32 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun downloadCloudResult(jobId: String) = startWork("Saving your creation", "Downloading the completed result to My Projects.") {
+        val account = checkNotNull(activeAccountId) { "Sign in to save your creation." }
+        val session = cloud.session()
+        require(session.user.id == account && activeAccountId == account) { "Your account changed. Sign in again." }
+        // A completed server job needs only its saved output asset, not another
+        // provider status check. Avoid racing the background downloader.
+        cloudJobMonitor?.cancel()
+        cloudJobMonitor = null
+        cloudMonitorGeneration++
+        try {
+            cloudPollLock.withLock {
+                if (projects.any { it.id == "cloud_$jobId" && File(it.path).isFile }) return@withLock
+                val job = cloudJobs.firstOrNull { it.id == jobId && it.isReady }
+                    ?: error("This result is not ready to save. Refresh My Projects to check its status.")
+                downloadFailures.remove(jobId)
+                try { downloadCloudJob(account, session, job) }
+                catch (e: Exception) {
+                    cloudJobs = cloudJobs.map { if (it.id == jobId) it.copy(state = "succeeded", progressPercent = 100) else it }
+                    throw e
+                }
+            }
+        } finally {
+            if (activeAccountId == account) startCloudMonitor(account)
+        }
+    }
+
     private fun startCloudMonitor(account: String, restart: Boolean = false, downloadReadyOnStart: Boolean = false) {
         if(cloudJobMonitor?.isActive == true && !restart) return
         cloudJobMonitor?.cancel()
@@ -420,7 +446,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             catch(e: CancellationException) { throw e }
             catch(e: Exception) {
                 downloadFailures.add(job.id)
-                cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "succeeded", progressPercent = 90) else it }
+                cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "succeeded", progressPercent = 100) else it }
                 message("${job.title}: ready on the server, but download failed. Tap Refresh projects to retry.")
             }
         }
