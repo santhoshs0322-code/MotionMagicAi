@@ -46,8 +46,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class Template(val name: String, val art: Artwork, val category: String, val aspect: String = "9:16", val duration: Int = 5) {
+data class Template(val name: String, val art: Artwork, val category: String, val aspect: String = "9:16", val duration: Int = 5,
+    val remoteId: String? = null, val posterUrl: String? = null, val videoUrl: String? = null,
+    val exampleInputUrl: String? = null, val mediaRevision: String = "", val prompt: String? = null,
+    val mode: CreationMode = CreationMode.IMAGE_TO_VIDEO, val modelId: String? = null,
+    val resolution: String? = null, val generatedAudio: Boolean = false, val featured: Boolean = false) {
     fun promptFor(mode: CreationMode): String {
+        if (!prompt.isNullOrBlank()) return prompt
         val scene = when(name) {
             "Cinematic" -> "A sunlit portrait with warm golden light, shallow depth of field and a soft cinematic atmosphere"
             "Anime" -> "An expressive anime character in a vivid illustrated world, soft light, detailed hand-painted scenery"

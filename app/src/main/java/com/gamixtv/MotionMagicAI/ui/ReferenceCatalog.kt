@@ -33,15 +33,18 @@ private val mainCatalogTools = listOf(
     CatalogTool("Create Image", Icons.Rounded.Image, Screen.CREATE_IMAGE),
     CatalogTool("Image to Video", Icons.Rounded.SmartDisplay, Screen.IMAGE),
     CatalogTool("Text to Video", Icons.Rounded.Title, Screen.TEXT),
-    CatalogTool("Device Voice", Icons.Rounded.GraphicEq, Screen.VOICE),
+    CatalogTool("Continue Story", Icons.Rounded.VideoLibrary, Screen.PROJECTS),
 )
 
 @Composable
 fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
+    LaunchedEffect(Unit) { vm.refreshShowcase() }
     var expanded by rememberSaveable { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var preview by remember { mutableStateOf<Template?>(null) }
+    val visibleTemplates = vm.showcaseTemplates.ifEmpty { templates }
+    val featured = vm.showcaseTemplates.firstOrNull { it.featured }
     Column(Modifier.fillMaxSize().background(Ink)) {
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { searching = !searching }) { Icon(Icons.Rounded.Search, "Search templates", Modifier.size(28.dp)) }
@@ -63,8 +66,17 @@ fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) {
             if(!templatePage && query.isBlank()) {
                 item {
-                    Box(Modifier.padding(horizontal = 5.dp).fillMaxWidth().aspectRatio(3.1f).clip(RoundedCornerShape(15.dp)).clickable { vm.go(Screen.IMAGE) }) {
-                        Art(Artwork.Banner, Modifier.fillMaxSize(), "MotionMagic creation studio")
+                    Box(Modifier.padding(horizontal = 5.dp).fillMaxWidth().aspectRatio(2.65f).clip(RoundedCornerShape(15.dp)).clickable { if(featured != null) preview = featured else vm.go(Screen.IMAGE) }) {
+                        if(featured != null) ShowcasePoster(featured, Modifier.fillMaxSize(), "Featured: ${featured.name}")
+                        else Art(Artwork.Banner, Modifier.fillMaxSize(), "MotionMagic creation studio")
+                        if(featured != null) {
+                            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .82f)))))
+                            Column(Modifier.align(Alignment.BottomStart).padding(15.dp)) {
+                                Text("FEATURED STORY", color = Color(0xFFFFCBF3), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text(featured.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                Text("Watch example · Use template", color = Color.White.copy(alpha = .87f), fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
                 item {
@@ -92,7 +104,8 @@ fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
                     }
                 }
             }
-            val groups = if(query.isNotBlank()) listOf("Search results" to templates.filter { it.name.contains(query, true) || it.category.contains(query, true) })
+            val groups = if(query.isNotBlank()) listOf("Search results" to visibleTemplates.filter { it.name.contains(query, true) || it.category.contains(query, true) })
+            else if(vm.showcaseTemplates.isNotEmpty()) visibleTemplates.groupBy { it.category }.toList()
             else listOf(
                 "Trending" to templates,
                 "Little Heroes" to templates.filter { it.name in listOf("Anime", "Birthday", "3D Cartoon") },
@@ -108,14 +121,15 @@ fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
                     }
                     if(options.isEmpty()) Text("No templates match your search.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
                     else LazyRow(contentPadding = PaddingValues(horizontal = 15.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        items(options, key = { it.name }) { item -> TemplatePosterCard(item, Modifier.width(118.dp).height(160.dp)) { preview = item } }
+                        items(options, key = { it.remoteId ?: it.name }) { item -> TemplatePosterCard(item, Modifier.width(118.dp).height(160.dp)) { preview = item } }
                     }
                 }
             }
         }
     }
-    preview?.let { item -> TemplatePreviewSheet(item, CreationMode.IMAGE_TO_VIDEO, { preview = null }) {
-        vm.useTemplate(item.art, item.name, item.promptFor(CreationMode.IMAGE_TO_VIDEO), CreationMode.IMAGE_TO_VIDEO, item.aspect, item.duration)
+    preview?.let { item -> TemplatePreviewSheet(item, item.mode, { preview = null }) {
+        vm.useTemplate(item.art, item.name, item.promptFor(item.mode), item.mode, item.aspect, item.duration,
+            item.modelId, item.resolution, item.generatedAudio)
         preview = null
     } }
 }
@@ -146,13 +160,16 @@ private fun RoundCatalogTool(title: String, icon: ImageVector, action: () -> Uni
 @Composable
 private fun CatalogCreationCard(tool: CatalogTool, modifier: Modifier, action: () -> Unit) {
     val tone = studioTone(tool.title)
+    val artwork = when(tool.destination) { Screen.CREATE_IMAGE -> Artwork.Cinematic; Screen.IMAGE -> Artwork.Travel; Screen.TEXT -> Artwork.Anime; else -> Artwork.Love }
     Surface(onClick = action, color = Color.Transparent, shape = RoundedCornerShape(19.dp), border = BorderStroke(1.dp, tone.accent.copy(alpha = .3f)), modifier = modifier.height(108.dp)) {
         Box(Modifier.fillMaxSize().background(tone.gradient)) {
+            Art(artwork, Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(93.dp), null)
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(tone.start, tone.start.copy(alpha = .95f), Color.Transparent))))
             Box(Modifier.align(Alignment.TopEnd).offset(x = 16.dp, y = (-20).dp).size(94.dp).background(Color.White.copy(alpha = .07f), CircleShape))
             Icon(tool.icon, null, Modifier.align(Alignment.TopEnd).padding(13.dp).size(29.dp), tint = Color.White)
             Column(Modifier.align(Alignment.BottomStart).padding(13.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(tool.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.3).sp)
-                Text(when(tool.destination) { Screen.CREATE_IMAGE -> "Imagine it. Create it."; Screen.IMAGE -> "Turn photos or clips into story scenes"; Screen.TEXT -> "Your words, in motion"; else -> "Give your story a voice" }, color = Color.White.copy(alpha = .82f), fontSize = 10.sp, lineHeight = 14.sp)
+                Text(when(tool.destination) { Screen.CREATE_IMAGE -> "Imagine it. Create it."; Screen.IMAGE -> "Animate your photo"; Screen.TEXT -> "Your words, in motion"; else -> "Make the next scene" }, color = Color.White.copy(alpha = .82f), fontSize = 10.sp, lineHeight = 14.sp)
             }
         }
     }
@@ -161,7 +178,7 @@ private fun CatalogCreationCard(tool: CatalogTool, modifier: Modifier, action: (
 @Composable
 fun TemplatePosterCard(template: Template, modifier: Modifier = Modifier, action: () -> Unit) {
     Box(modifier.clip(RoundedCornerShape(13.dp)).clickable(onClick = action)) {
-        Art(template.art, Modifier.fillMaxSize(), "${template.name} template")
+        ShowcasePoster(template, Modifier.fillMaxSize(), "${template.name} template")
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .82f)))))
         Text(template.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2,
             modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 10.dp, vertical = 12.dp))

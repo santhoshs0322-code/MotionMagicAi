@@ -2,6 +2,12 @@
 
 This deploys Django, its generation worker, and a Caddy HTTPS edge on one EC2 instance. It keeps the **existing Aiven PostgreSQL and Valkey** and the existing private S3 bucket. No data is copied into a second database during this first cutover. It is a small-launch setup, not the architecture for one million concurrent users; use [AWS_ARCHITECTURE.md](AWS_ARCHITECTURE.md) for that later stage.
 
+## Owner-managed home showcase
+
+After deploying the updated backend and Android app, open `https://YOUR_ELASTIC_IP/owner/showcase/` with the existing owner login. Add a template title, category, prompt, mode, enabled model rate, supported aspect ratio and duration. Upload a poster (JPG/PNG/WebP), a short MP4 sample video, and optionally an example reference image. Publish to show it in the Android home feed; mark one item Featured for the large banner. The example reference image explains the template; each user still selects their own input before generation. You can edit or unpublish templates without rebuilding Android.
+
+The upload form sends the owner's media through Django to the private S3 bucket. Keep sample MP4 files short and compressed; the app initially downloads posters only, then plays one video when its preview opens. The backend caches the public metadata feed in Valkey for 60 seconds and clears it on edits. At larger traffic, serve posters and preview videos through CloudFront and move owner uploads to direct S3 upload so the EC2 web worker does not handle media bytes.
+
 AWS Free Tier eligibility depends on the account creation date and remaining credits. For new accounts the Free plan ends after six months or when credits run out; existing-account offers differ. Check the AWS Billing **Credits** and **Free Tier** pages before creating resources. EC2, public IPv4, S3 storage/requests/egress, optional paid domain/DNS, and any later RDS/ElastiCache services can consume credits or incur charges. Create a small AWS Budget with email alerts. fal.ai, Aiven and Google Play charges are separate from AWS credits.
 
 ## 1. Prepare AWS

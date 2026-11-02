@@ -83,6 +83,34 @@ class Rate(models.Model):
     revision = models.PositiveIntegerField(default=1)
     updated_at = models.DateTimeField(auto_now=True)
 
+
+class ShowcaseTemplate(models.Model):
+    """Owner-curated example media; customers supply their own input for generation."""
+    MODE_CHOICES = [
+        ("image_to_video", "Image to Video"),
+        ("text_to_video", "Text to Video"),
+        ("create_image", "Create Image"),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=90)
+    category = models.CharField(max_length=40)
+    prompt = models.CharField(max_length=500)
+    mode = models.CharField(max_length=20, choices=MODE_CHOICES)
+    rate = models.ForeignKey(Rate, on_delete=models.PROTECT)
+    aspect_ratio = models.CharField(max_length=10, default="9:16")
+    duration = models.PositiveSmallIntegerField(default=5)
+    poster_key = models.CharField(max_length=300, blank=True)
+    video_key = models.CharField(max_length=300, blank=True)
+    example_input_key = models.CharField(max_length=300, blank=True)
+    featured = models.BooleanField(default=False)
+    published = models.BooleanField(default=False)
+    position = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["published", "category", "position", "-created_at"], name="showcase_feed_idx")]
+
 class Asset(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     account = models.ForeignKey(Account, on_delete=models.PROTECT)

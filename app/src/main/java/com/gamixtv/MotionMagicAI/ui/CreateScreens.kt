@@ -152,11 +152,12 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         }
     }
     if(gallery) ModalBottomSheet(onDismissRequest = { gallery = false }, containerColor = Ink, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        val galleryTemplates = vm.showcaseTemplates.filter { it.mode == mode }.ifEmpty { templates }
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text("Templates", fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
             Text("Choose a look to start with", color = RefMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp, bottom = 16.dp))
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 490.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
-                items(templates.chunked(2)) { pair ->
+                items(galleryTemplates.chunked(2)) { pair ->
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         pair.forEach { item -> Box(Modifier.weight(1f)) { TemplatePosterCard(item, Modifier.fillMaxWidth().height(190.dp)) { gallery = false; selectedTemplate = item } } }
                     }
@@ -164,8 +165,11 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
             }
         }
     }
-    selectedTemplate?.let { item -> TemplatePreviewSheet(item, mode, { selectedTemplate = null }) {
-        vm.useTemplate(item.art, item.name, item.promptFor(mode), mode, item.aspect, item.duration); selectedTemplate = null
+    selectedTemplate?.let { item ->
+        val templateMode = if(item.remoteId == null) mode else item.mode
+        TemplatePreviewSheet(item, templateMode, { selectedTemplate = null }) {
+        vm.useTemplate(item.art, item.name, item.promptFor(templateMode), templateMode, item.aspect, item.duration,
+            item.modelId, item.resolution, item.generatedAudio); selectedTemplate = null
     } }
 }
 

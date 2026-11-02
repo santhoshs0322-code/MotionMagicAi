@@ -1,9 +1,13 @@
 from django.urls import path
 from studio import views as v
 from studio import owner
+from studio import showcase
 
 urlpatterns = [
     path("owner/", owner.dashboard, name="owner-dashboard"),
+    path("owner/showcase/", showcase.owner_templates, name="owner-templates"),
+    path("owner/showcase/<uuid:identifier>/", showcase.owner_templates, name="owner-template-edit"),
+    path("owner/showcase/<uuid:identifier>/unpublish/", showcase.unpublish_template, name="owner-template-unpublish"),
     path("owner/login/", owner.sign_in, name="owner-login"),
     path("owner/logout/", owner.sign_out, name="owner-logout"),
     path("owner/records/<str:kind>/", owner.records, name="owner-records"),
@@ -18,6 +22,7 @@ urlpatterns = [
     path("auth/motion-ai/revoke", v.RevokeRefresh.as_view()),
     path("auth/motion-ai/me", v.Me.as_view()), path("auth/motion-ai/logout", v.Logout.as_view()),
     path("api/v1/capabilities", v.Capabilities.as_view()),
+    path("api/v1/templates", showcase.ShowcaseFeed.as_view()),
     path("api/v1/wallet", v.WalletView.as_view()), path("api/v1/transactions", v.Transactions.as_view()),
     path("api/v1/quotes", v.Quotes.as_view()), path("api/v1/jobs", v.Jobs.as_view()), path("api/v1/jobs/<uuid:identifier>", v.JobDetail.as_view()),
     path("api/v1/assets", v.Assets.as_view()), path("api/v1/assets/<uuid:identifier>", v.AssetDetail.as_view()),

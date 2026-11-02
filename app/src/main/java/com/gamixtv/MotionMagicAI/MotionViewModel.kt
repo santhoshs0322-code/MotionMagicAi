@@ -28,6 +28,7 @@ import com.gamixtv.MotionMagicAI.media.MediaAccess
 import com.gamixtv.MotionMagicAI.media.StoryExporter
 import com.gamixtv.MotionMagicAI.ui.ArtRepository
 import com.gamixtv.MotionMagicAI.ui.Artwork
+import com.gamixtv.MotionMagicAI.ui.Template
 import java.io.File
 import java.io.IOException
 import java.util.ArrayDeque
@@ -117,6 +118,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private val observedActiveJobIds = mutableSetOf<String>()
     var cloudJobs by mutableStateOf<List<CloudJob>>(emptyList()); private set
     var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
+    var showcaseTemplates by mutableStateOf<List<Template>>(emptyList()); private set
+    private var showcaseCheckedAt = 0L
+    private var showcaseLoading = false
     private var catalogCheckedAt = 0L
     var cloudCatalogStatus by mutableStateOf("Checking model availability…"); private set
     var cloudQuote by mutableStateOf<CloudQuote?>(null); private set
@@ -136,6 +140,40 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 ensureCloudCatalog()
             } catch(e: CancellationException) { throw e }
             catch(e: Exception) { cloudCatalogStatus = "Cannot check model availability. Reconnect and try Create again." }
+        }
+    }
+
+    fun refreshShowcase() {
+        if (showcaseLoading || System.currentTimeMillis() - showcaseCheckedAt < 2 * 60_000) return
+        showcaseLoading = true
+        viewModelScope.launch {
+            try {
+                val rows = cloud.request("GET", "/templates").getJSONArray("templates")
+                showcaseTemplates = (0 until rows.length()).mapNotNull { index ->
+                    val row = rows.getJSONObject(index)
+                    val mode = when(row.optString("mode")) {
+                        "create_image" -> CreationMode.CREATE_IMAGE
+                        "text_to_video" -> CreationMode.TEXT_TO_VIDEO
+                        "image_to_video" -> CreationMode.IMAGE_TO_VIDEO
+                        else -> return@mapNotNull null
+                    }
+                    val category = row.optString("category", "Trending")
+                    val art = when {
+                        category.contains("anime", true) -> Artwork.Anime
+                        category.contains("travel", true) -> Artwork.Travel
+                        category.contains("birthday", true) -> Artwork.Birthday
+                        else -> Artwork.Cinematic
+                    }
+                    Template(row.getString("title"), art, category, row.optString("aspect_ratio", "9:16"),
+                        row.optInt("duration", 5), row.getString("id"), row.getString("poster_url"),
+                        row.getString("video_url"), row.optString("example_input_url"), row.optString("updated_at"),
+                        row.getString("prompt"), mode, row.optString("model_id"), row.optString("resolution"),
+                        row.optBoolean("generated_audio"), row.optBoolean("featured"))
+                }
+                showcaseCheckedAt = System.currentTimeMillis()
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Keep the locally bundled template previews available offline. */ }
+            finally { showcaseLoading = false }
         }
     }
 
@@ -731,11 +769,20 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
     fun useTemplate(art: Artwork, title: String, prompt: String = "A $title scene with a slow cinematic camera movement",
-                    mode: CreationMode = CreationMode.IMAGE_TO_VIDEO, aspect: String = "9:16", duration: Int = 5) {
+                    mode: CreationMode = CreationMode.IMAGE_TO_VIDEO, aspect: String = "9:16", duration: Int = 5,
+                    modelId: String? = null, resolution: String? = null, generatedAudio: Boolean = false) {
         selectedArt = art
-        if(mode == CreationMode.CREATE_IMAGE) updateImageDraft(imageDraft.copy(selectedStyle = title, prompt = prompt, aspect = aspect))
-        else updateDraft(draft.copy(selectedStyle = title, prompt = prompt, aspect = aspect,
-            duration = duration.takeIf { it in selectedVideoModel.durations } ?: selectedVideoModel.durations.min()))
+        if(mode == CreationMode.CREATE_IMAGE) updateImageDraft(imageDraft.copy(selectedStyle = title, prompt = prompt, aspect = aspect,
+            imageModelId = modelId?.takeIf { id -> ImageModelCatalog.models.any { it.id == id } } ?: imageDraft.imageModelId,
+            imageQuality = resolution ?: imageDraft.imageQuality))
+        else {
+            val model = VideoModelCatalog.find(modelId ?: draft.modelId)
+            updateDraft(draft.copy(selectedStyle = title, prompt = prompt, aspect = aspect, modelId = model.id,
+                resolution = resolution?.takeIf { it in model.resolutions }
+                    ?: draft.resolution.takeIf { it in model.resolutions } ?: model.resolutions.first(),
+                generatedAudio = generatedAudio && model.supportsGeneratedAudio,
+                duration = duration.takeIf { it in model.durations } ?: model.durations.min()))
+        }
         val target = when(mode) {
             CreationMode.IMAGE_TO_VIDEO -> Screen.IMAGE
             CreationMode.TEXT_TO_VIDEO -> Screen.TEXT
