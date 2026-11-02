@@ -85,10 +85,12 @@ def _subscription_details(receipt, product_id):
     return state, _time(line.get("expiryTime")), bool(isinstance(renew, dict)), identifiers.get("obfuscatedExternalAccountId"), line.get("latestSuccessfulOrderId") or receipt.get("latestOrderId", "")
 
 def verify_subscription(account, product_id, token):
-    if not settings.SUBSCRIPTIONS_ENABLED:
-        raise Problem("Subscriptions are not enabled yet.", 503)
     if product_id not in SUBSCRIPTIONS or not isinstance(token, str) or not 10 <= len(token) <= 4096:
         raise Problem("Invalid subscription request.")
+    if not settings.SUBSCRIPTIONS_ENABLED and not Subscription.objects.filter(
+        account=account, product_id=product_id, token_hash=digest(token)).exists():
+        # Stop new subscriptions while honoring and reconciling earlier buyers.
+        raise Problem("New subscriptions are not available.", 503)
     plan, credits = SUBSCRIPTIONS[product_id]
     receipt = play_subscription_request(token)
     state, expires_at, auto_renewing, external_id, order_id = _subscription_details(receipt, product_id)

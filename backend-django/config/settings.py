@@ -125,11 +125,12 @@ GEMINI_VIDEO_RATE_COSTS = {
     resolution: int(env(f"GEMINI_OMNI_{resolution.upper()}_COST_PAISE_PER_SECOND", "0"))
     for resolution in ("720p", "1080p", "4k")
 }
-# Credits are USD-cent equivalents: 100 customer credits have a $1 face value.
-# A 40,000 bps markup makes the customer charge 5x the provider allowance,
-# leaving an 80% provider-cost gross margin before store/payment fees.
-MARKUP_BPS = int(env("MARKUP_BPS", "90000"))
-STORE_FEE_BPS = int(env("STORE_FEE_BPS", "0"))
+# 200 customer credits have a $1 face value. fal cost settings are USD cents.
+# A 16,667 bps markup plus an assumed 15% Play fee targets a 25% contribution
+# margin after that fee, before tax, hosting, storage, refunds and FX movement.
+CREDIT_ONLY_MODE = env("CREDIT_ONLY_MODE", "true").lower() == "true"
+MARKUP_BPS = 16_667 if CREDIT_ONLY_MODE else int(env("MARKUP_BPS", "90000"))
+STORE_FEE_BPS = 1_500 if CREDIT_ONLY_MODE else int(env("STORE_FEE_BPS", "0"))
 DAILY_PROVIDER_BUDGET_PAISE = int(env("DAILY_PROVIDER_BUDGET_PAISE", "0"))
 WELCOME_CREDITS = int(env("WELCOME_CREDITS", "200"))
 # Use one shard for a small launch budget. At AWS scale use up to 64, together
@@ -140,7 +141,9 @@ GENERATION_LEASE_SECONDS = int(env("GENERATION_LEASE_SECONDS", "1200"))
 PLAY_ENABLED = flag("PLAY_ENABLED")
 ENABLE_CREDIT_PACKS = flag("ENABLE_CREDIT_PACKS")  # Legacy name; use ENABLE_TOPUPS for new deployments.
 ENABLE_TOPUPS = flag("ENABLE_TOPUPS")
-SUBSCRIPTIONS_ENABLED = flag("SUBSCRIPTIONS_ENABLED")
+ENABLE_PACK_2500 = flag("ENABLE_PACK_2500")
+ENABLE_PACK_5000 = flag("ENABLE_PACK_5000")
+SUBSCRIPTIONS_ENABLED = flag("SUBSCRIPTIONS_ENABLED") and not CREDIT_ONLY_MODE
 CURRENT_SITE_URL = env("CURRENT_SITE_URL").rstrip("/")
 if CURRENT_SITE_URL and not CURRENT_SITE_URL.startswith("https://"):
     raise ImproperlyConfigured("MOTION_AI_CURRENT_SITE_URL must be HTTPS")

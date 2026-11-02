@@ -16,9 +16,13 @@ TERMINAL = ("succeeded", "failed", "cancelled")
 FREE_RATE_SLUGS = frozenset(("qwen-image-720p", "pixverse-v6-720p-silent"))
 
 def minimum_plan(rate):
+    if settings.CREDIT_ONLY_MODE:
+        return "free"
     return "free" if rate.pk in FREE_RATE_SLUGS else "creator"
 
 def require_rate_access(account, rate):
+    if settings.CREDIT_ONLY_MODE:
+        return
     if minimum_plan(rate) == "free":
         return
     if not Subscription.objects.filter(account=account, plan__in=("creator", "legend"),
@@ -233,14 +237,17 @@ def create_quote(account, data):
             asset = Asset.objects.get(pk=uuid.UUID(str(data["asset_id"])), account=account, ready=True, deleted=False)
         except (ValueError, Asset.DoesNotExist):
             raise Problem("Source media is unavailable.", 404) from None
-        if rate.kind == "voice" or not asset.mime.startswith("image/"):
-            raise Problem("This generation only accepts image input.")
+        reference_video = bool(rate_config.get("reference_video"))
+        if rate.kind == "voice" or (asset.mime != "video/mp4" if reference_video else not asset.mime.startswith("image/")):
+            raise Problem("Choose an MP4 reference video for this model." if reference_video else "This generation only accepts image input.")
         if not asset.key.startswith(f"accounts/{account.pk}/") or ".." in asset.key:
             raise Problem("Source media ownership is invalid.", 503)
-        if asset.size > settings.GEMINI_MAX_INPUT_BYTES:
-            raise Problem("Source image is too large for this model. Choose a smaller photo.")
+        if asset.size > (200 * 1024**2 if reference_video else settings.GEMINI_MAX_INPUT_BYTES):
+            raise Problem("Reference video must be under 200 MB." if reference_video else "Source image is too large for this model. Choose a smaller photo.")
         payload["input_key"] = asset.key
         payload["asset_id"] = str(asset.pk)
+    elif rate_config.get("reference_video"):
+        raise Problem("Select a reference video for this model.")
     cost = rate.unit_cost_paise * units
     charge = price(cost + rate.overhead_paise)
     return Quote.objects.create(account=account, rate=rate, payload=payload, payload_hash=digest(json.dumps(payload, sort_keys=True)), provider_cost_paise=cost, overhead_paise=rate.overhead_paise, markup_bps=settings.MARKUP_BPS, fee_bps=settings.STORE_FEE_BPS, charge_paise=charge, expires_at=timezone.now() + timedelta(minutes=5))

@@ -19,7 +19,9 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
         const val CREATOR = "motion_creator_monthly"
         const val LEGEND = "motion_legend_monthly"
         const val TOPUP_500 = "motion_topup_500"
-        private fun type(sku: String) = if (sku == TOPUP_500) BillingClient.ProductType.INAPP else BillingClient.ProductType.SUBS
+        const val PACK_2500 = "motion_pack_2500"
+        const val PACK_5000 = "motion_pack_5000"
+        private fun type(sku: String) = if (sku in setOf(TOPUP_500, PACK_2500, PACK_5000)) BillingClient.ProductType.INAPP else BillingClient.ProductType.SUBS
     }
 
     private val client = BillingClient.newBuilder(context.applicationContext)
@@ -29,13 +31,13 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
         .build()
 
     fun buy(activity: Activity, sku: String, accountId: String) {
-        if (sku !in setOf(CREATOR, LEGEND, TOPUP_500)) return onMessage("This Play product is not available.")
+        if (sku !in setOf(TOPUP_500, PACK_2500, PACK_5000)) return onMessage("This credit pack is not available.")
         val request = QueryProductDetailsParams.newBuilder().setProductList(listOf(
             QueryProductDetailsParams.Product.newBuilder().setProductId(sku).setProductType(type(sku)).build()
         )).build()
         client.queryProductDetailsAsync(request) { result, details ->
             if (result.responseCode != BillingClient.BillingResponseCode.OK) return@queryProductDetailsAsync onMessage("Google Play is unavailable. Please try again.")
-            val item = details.productDetailsList.firstOrNull() ?: return@queryProductDetailsAsync onMessage("This plan is not active in Google Play yet.")
+            val item = details.productDetailsList.firstOrNull() ?: return@queryProductDetailsAsync onMessage("This credit pack is not active in Google Play yet.")
             val detail = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(item).apply {
                 if (type(sku) == BillingClient.ProductType.SUBS) {
                     val offer = item.subscriptionOfferDetails?.firstOrNull()?.offerToken
@@ -51,7 +53,7 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
 
     /** Call after sign-in too: a completed purchase is recoverable after an app restart. */
     fun recover() {
-        listOf(BillingClient.ProductType.INAPP, BillingClient.ProductType.SUBS).forEach { productType ->
+        listOf(BillingClient.ProductType.INAPP).forEach { productType ->
             client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(productType).build()) { result, purchases ->
                 if (result.responseCode == BillingClient.BillingResponseCode.OK) purchases.forEach(::deliver)
             }

@@ -46,7 +46,10 @@ def submit(job):
         payload = job.quote.payload
         if payload.get("input_key"):
             asset = job.account.asset_set.get(pk=payload["asset_id"], key=payload["input_key"], ready=True, deleted=False)
-            if asset.mime not in {"image/png", "image/jpeg", "image/webp"} or asset.size > settings.GEMINI_MAX_INPUT_BYTES:
+            reference_video = bool(payload.get("config", {}).get("reference_video"))
+            valid_media = (asset.mime == "video/mp4" and asset.size <= 200 * 1024**2) if reference_video else (
+                asset.mime in {"image/png", "image/jpeg", "image/webp"} and asset.size <= settings.GEMINI_MAX_INPUT_BYTES)
+            if not valid_media:
                 return terminal(job, rejected=True)
             source_url = storage.client().generate_presigned_url("get_object", Params={"Bucket": settings.S3_BUCKET, "Key": asset.key}, ExpiresIn=86400)
         endpoint, body = fal_catalog.request(payload, source_url)

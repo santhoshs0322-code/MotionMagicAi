@@ -102,14 +102,22 @@ fun ProjectsScreen(vm: MotionViewModel) {
             items(pending, key = { "job-${it.id}" }) { job -> CloudJobCard(job, vm::resumeCloudGeneration) }
             items(saved, key = { "project-${it.id}" }) { project ->
                 Surface(onClick = { vm.open(project) }, color = Panel, shape = PanelShape) {
+                    Column {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         ProjectThumbnail(project.path, project.kind == MediaKind.VIDEO)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text(project.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                             Text(if(!com.gamixtv.MotionMagicAI.media.MediaAccess.external(project.path) && !File(project.path).isFile) "File missing" else "${when(project.kind) { MediaKind.VIDEO -> "${project.duration}s · ${project.aspect}"; MediaKind.IMAGE -> "Image"; else -> "Voice sample" }} · ${SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(project.createdAt))}",
                                 color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp))
+                            if(project.storyPart > 0) Text("Story scene ${project.storyPart + 1}", color = Color(0xFFFFBDE4), fontSize = 11.sp)
                         }
                         IconButton(onClick = { deletion = project }) { Icon(Icons.Rounded.DeleteOutline, "Delete ${project.title}", tint = Muted, modifier = Modifier.size(21.dp)) }
+                    }
+                    if(project.kind == MediaKind.VIDEO) Row(Modifier.fillMaxWidth().padding(start = 78.dp, end = 12.dp, bottom = 7.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = { vm.continueStory(project) }) { Text("Continue story", color = Color(0xFFFFBDE4), fontSize = 11.sp) }
+                        if(vm.projects.count { it.id == (project.storyRoot ?: project.id) || it.storyRoot == (project.storyRoot ?: project.id) } >= 2)
+                            TextButton(onClick = { vm.exportStory(project) }) { Text("Export story", color = Color(0xFF75DFFF), fontSize = 11.sp) }
+                    }
                     }
                 }
             }
@@ -123,7 +131,7 @@ private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit) {
     Surface(color = Panel, shape = PanelShape, border = BorderStroke(1.dp, Color(0xFF6942A5))) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ProjectThumbnail(job.previewPath, false, 72.dp)
+                ProjectThumbnail(job.previewPath, job.previewVideo, 72.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(job.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
@@ -146,7 +154,8 @@ fun DeleteDialog(title: String, onDismiss: () -> Unit, onDelete: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Delete project?") },
         text = { Text("“$title” will be removed from this app. Copies already saved to your gallery will remain.") },
         confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = Color(0xFFFF8190)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Keep project") } }, containerColor = Panel)
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Keep project", color = Color(0xFFDCA8FF)) } },
+        shape = RoundedCornerShape(24.dp), containerColor = Color(0xFF1D112D))
 }
 
 @Composable
@@ -169,7 +178,9 @@ fun ProfileScreen(vm: MotionViewModel) {
                 TextButton(onClick = { vm.go(Screen.PLANS) }) { Text("Services", color = Color.White) }
             }
             Text("${vm.walletCredits?.toString() ?: "…"} credits available", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text("Monthly: ${vm.monthlyCredits ?: "…"}  ·  Free: ${vm.freeCredits ?: "…"}  ·  Top-up: ${vm.topupCredits ?: "…"}", color = Color(0xFFE5D4F5), fontSize = 12.sp)
+            Text("Free: ${vm.freeCredits ?: "…"} · Purchased: ${vm.topupCredits ?: "…"}" +
+                if((vm.monthlyCredits ?: 0) > 0) " · Previous membership: ${vm.monthlyCredits}" else "",
+                color = Color(0xFFE5D4F5), fontSize = 12.sp)
         }
         com.gamixtv.MotionMagicAI.auth.AuthAccountCard()
         Surface(color = Panel, shape = PanelShape) {
@@ -223,7 +234,8 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
                 vm.saveSettings(vm.settings.copy(defaultAspect = ratio)); vm.updateDraft(vm.draft.copy(aspect = ratio)); ratioDialog = false
             } }
         }
-    }, confirmButton = { TextButton(onClick = { ratioDialog = false }) { Text("Close") } }, containerColor = Panel)
+    }, confirmButton = { TextButton(onClick = { ratioDialog = false }) { Text("Close", color = Color(0xFFDCA8FF)) } },
+        shape = RoundedCornerShape(24.dp), containerColor = Color(0xFF1D112D))
 }
 
 @Composable
@@ -243,51 +255,30 @@ fun PlansScreen(vm: MotionViewModel) {
             Text("Create your way", fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
             Text("Free tools. Pay for each AI creation.", color = Color(0xFFCCBCD9), fontSize = 14.sp)
         }
-        val rows = listOf(
-            "Native voice" to listOf("✓", "✓"),
-            "Result playback" to listOf("✓", "✓"),
-            "Local projects" to listOf("✓", "✓"),
-            "AI creation" to listOf("2 options", "All models"),
-        )
-        Surface(color = Color(0xFF160E23), shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, Color(0xFF634078))) {
-            Column {
-                Row(Modifier.height(116.dp).background(Brush.horizontalGradient(listOf(Color(0xFF28153F), Color(0xFF32184D))))) {
-                    Box(Modifier.weight(1.4f).fillMaxHeight().padding(12.dp), contentAlignment = Alignment.BottomStart) {
-                        Text("What’s\nincluded", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFE4D4F3), lineHeight = 19.sp)
-                    }
-                    listOf("Free", "Creator / Legend").forEachIndexed { index, name ->
-                        PlanHeader(name, accents[index], index == 0, Modifier.weight(1f))
-                    }
-                }
-                rows.forEachIndexed { rowIndex, (feature, values) ->
-                    HorizontalDivider(color = Color(0xFF75558F).copy(alpha = .22f), thickness = .5.dp)
-                    Row(Modifier.height(64.dp).background(if(rowIndex % 2 == 0) Color(0xFF20122F) else Color(0xFF180F25))) {
-                        PricingCell(feature, Color(0xFFE9DFF2), Modifier.weight(1.4f), label = true)
-                        values.forEachIndexed { index, value -> PricingCell(value, accents[index], Modifier.weight(1f)) }
-                    }
+        Surface(color = Color(0xFF241238), shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, Color(0xFFAD42E4))) {
+            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFD052), modifier = Modifier.size(30.dp))
+                Column(Modifier.padding(start = 12.dp)) {
+                    Text("${vm.walletCredits?.toString() ?: "…"} credits", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("200 free credits on your first sign-in · purchased credits never expire", color = Color(0xFFD7BCEB), fontSize = 11.sp)
                 }
             }
         }
-        Text("Free: Qwen Image 720p and PixVerse V6 720p without generated audio. Creator and Legend: every enabled model and resolution. Every creation still uses credits.", color = Color(0xFFCCBCD9), fontSize = 12.sp)
-        Text("Membership", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        Text(if(vm.billingReady) "Monthly credits reset at renewal and unused credits do not carry over. Monthly credits are used first. Top-up credits never expire and stay after cancellation." else "Membership is being activated on the server. Device Voice and saved creations remain available.", color = Muted, fontSize = 12.sp)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PlanPurchaseCard("Creator", "₹499 / month", "1,200 credits every month", Color(0xFFFFC13C), vm.currentPlan == com.gamixtv.MotionMagicAI.data.PlanTier.PRO, Modifier.weight(1f)) {
-                if(activity == null) vm.message("Open this screen in the MotionMagic app to purchase.") else vm.buy(activity, "motion_creator_monthly")
-            }
-            PlanPurchaseCard("Legend", "₹999 / month", "2,400 credits every month", Violet, vm.currentPlan == com.gamixtv.MotionMagicAI.data.PlanTier.PREMIUM, Modifier.weight(1f)) {
-                if(activity == null) vm.message("Open this screen in the MotionMagic app to purchase.") else vm.buy(activity, "motion_legend_monthly")
-            }
-        }
-        if(vm.creditProducts.any { it.first == "motion_topup_500" }) {
-            Surface(color = Color(0xFF13263A), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF2478BA))) {
+        Text("Credit packs", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("Choose any enabled model. The exact credit price appears before generation. Google Play shows the pack price before payment.", color = Muted, fontSize = 12.sp)
+        vm.creditProducts.forEach { (sku, amount) ->
+            Surface(color = Color(0xFF2A1740), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFFA840D9))) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.AddCircle, null, tint = Color(0xFF50BAFF)); Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) { Text("500 permanent credits", fontWeight = FontWeight.Bold); Text("₹249 · never expire", color = Color(0xFFB4D9F5), fontSize = 11.sp) }
-                    TextButton(onClick = { if(activity == null) vm.message("Open this screen in the MotionMagic app to purchase.") else vm.buy(activity, "motion_topup_500") }) { Text("Top up") }
+                    Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFD052))
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text("${"%,d".format(amount)} credits", fontWeight = FontWeight.Bold)
+                        Text("One-time purchase · credits never expire", color = Color(0xFFCDB8E2), fontSize = 11.sp)
+                    }
+                    TextButton(onClick = { if(activity == null) vm.message("Open the Android app to buy credits.") else vm.buy(activity, sku) }) { Text("Buy") }
                 }
             }
         }
+        if(vm.creditProducts.isEmpty()) Text("Credit packs are being prepared in Google Play.", color = Muted, fontSize = 12.sp)
         Text("Available AI models", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         if(vm.cloudRates.isEmpty()) Text(vm.cloudCatalogStatus, color = Muted, fontSize = 12.sp)
         vm.cloudRates.groupBy { it.modelId }.values.forEach { variants ->
@@ -297,7 +288,7 @@ fun PlansScreen(vm: MotionViewModel) {
                     Column(Modifier.weight(1f)) {
                         Text(if(cheapest.kind == "image") ImageModelCatalog.find(cheapest.modelId).title else VideoModelCatalog.find(cheapest.modelId).title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(variants.map { it.size.uppercase() }.distinct().joinToString(" · "), color = Muted, fontSize = 11.sp)
-                        Text(if(variants.any { it.requiredPlan == com.gamixtv.MotionMagicAI.data.PlanTier.FREE }) "Free option available" else "Creator / Legend", color = Color(0xFFFFCA67), fontSize = 10.sp)
+                        Text("Available with enough credits", color = Color(0xFFFFCA67), fontSize = 10.sp)
                     }
                     Text("From ${com.gamixtv.MotionMagicAI.cloud.credits(cheapest.minimumPricePaise)}\n${if(cheapest.kind == "image") "per image" else "per ${cheapest.minimumUnits}s video"}", color = accents[1], fontSize = 12.sp, textAlign = TextAlign.End)
                 }

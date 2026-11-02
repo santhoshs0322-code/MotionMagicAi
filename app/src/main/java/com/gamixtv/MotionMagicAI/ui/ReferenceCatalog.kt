@@ -47,11 +47,11 @@ fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
             IconButton(onClick = { searching = !searching }) { Icon(Icons.Rounded.Search, "Search templates", Modifier.size(28.dp)) }
             Spacer(Modifier.weight(1f))
             Text("MotionMagic AI", color = Color(0xFFF4E9FF), fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.4).sp, modifier = Modifier.padding(end = 10.dp))
-            Surface(onClick = { vm.go(Screen.PLANS) }, color = Color(0xFF202126), shape = RoundedCornerShape(20.dp)) {
+            Surface(onClick = { vm.go(Screen.PLANS) }, color = Color(0xFF281335), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color(0xFFA53BDE))) {
                 Row(Modifier.padding(start = 9.dp, top = 4.dp, bottom = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFCB52), modifier = Modifier.size(17.dp))
-                    Text(vm.currentPlan.title, color = Color(0xFFFFCB52), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 5.dp))
-                    Text("Upgrade", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                    Text("${vm.walletCredits?.toString() ?: "…"} credits", color = Color(0xFFFFD267), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 7.dp))
+                    Text("Add", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.background(ReferenceGradient, RoundedCornerShape(17.dp)).padding(horizontal = 12.dp, vertical = 7.dp))
                 }
             }
@@ -152,7 +152,7 @@ private fun CatalogCreationCard(tool: CatalogTool, modifier: Modifier, action: (
             Icon(tool.icon, null, Modifier.align(Alignment.TopEnd).padding(13.dp).size(29.dp), tint = Color.White)
             Column(Modifier.align(Alignment.BottomStart).padding(13.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(tool.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.3).sp)
-                Text(when(tool.destination) { Screen.CREATE_IMAGE -> "Imagine it. Create it."; Screen.IMAGE -> "Bring photos to life"; Screen.TEXT -> "Your words, in motion"; else -> "Give your story a voice" }, color = Color.White.copy(alpha = .82f), fontSize = 10.sp, lineHeight = 14.sp)
+                Text(when(tool.destination) { Screen.CREATE_IMAGE -> "Imagine it. Create it."; Screen.IMAGE -> "Turn photos or clips into story scenes"; Screen.TEXT -> "Your words, in motion"; else -> "Give your story a voice" }, color = Color.White.copy(alpha = .82f), fontSize = 10.sp, lineHeight = 14.sp)
             }
         }
     }

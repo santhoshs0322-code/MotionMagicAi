@@ -25,6 +25,7 @@ import org.json.JSONObject
 import com.gamixtv.MotionMagicAI.media.DeviceVoiceEngine
 import com.gamixtv.MotionMagicAI.media.LocalMediaEngine
 import com.gamixtv.MotionMagicAI.media.MediaAccess
+import com.gamixtv.MotionMagicAI.media.StoryExporter
 import com.gamixtv.MotionMagicAI.ui.ArtRepository
 import com.gamixtv.MotionMagicAI.ui.Artwork
 import java.io.File
@@ -69,6 +70,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var selectedArt by mutableStateOf(Artwork.Garden); private set
     var photo by mutableStateOf<Bitmap?>(null); private set
     var photoName by mutableStateOf(""); private set
+    var referenceVideoPath by mutableStateOf<String?>(null); private set
+    var referenceVideoName by mutableStateOf(""); private set
+    private var storyRoot: String? = null
+    private var storyPart: Int = 0
     var failure by mutableStateOf<String?>(null); private set
     var info by mutableStateOf<Pair<String, String>?>(null); private set
     var completedJobNotice by mutableStateOf<CompletedJobNotice?>(null); private set
@@ -143,19 +148,31 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 monthlyCredits = wallet.optLong("monthly_credits", 0)
                 topupCredits = wallet.optLong("topup_credits", 0)
                 freeCredits = wallet.optLong("free_credits", 0)
-                val entitlement = cloud.request("GET", "/billing/entitlement", session)
-                if (activeAccountId != account) return@launch
-                val plan = entitlement.optString("plan", "free")
-                currentPlan = when (plan) { "legend" -> PlanTier.PREMIUM; "creator" -> PlanTier.PRO; else -> PlanTier.FREE }
-                billingReady = entitlement.optBoolean("enabled")
                 val products = cloud.request("GET", "/billing/products", session).getJSONArray("products")
                 if (activeAccountId != account) return@launch
                 creditProducts = (0 until products.length()).map { index ->
                     products.getJSONObject(index).getString("sku") to products.getJSONObject(index).getLong("credits")
                 }
-                if (billingReady && recoverPurchases) playBilling.recover()
+                billingReady = true
+                if (recoverPurchases) playBilling.recover()
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (activeAccountId == account) billingReady = false }
+        }
+    }
+
+    fun refreshWallet() {
+        viewModelScope.launch {
+            val account = activeAccountId ?: return@launch
+            try {
+                val session = cloud.session()
+                if(session.user.id != account || activeAccountId != account) return@launch
+                val wallet = cloud.request("GET", "/wallet", session)
+                if(activeAccountId != account) return@launch
+                walletCredits = wallet.getLong("available_credits")
+                monthlyCredits = wallet.optLong("monthly_credits", 0)
+                topupCredits = wallet.optLong("topup_credits", 0)
+                freeCredits = wallet.optLong("free_credits", 0)
+            } catch (_: Exception) { /* Keep the last known balance; Create checks the server again. */ }
         }
     }
 
@@ -178,13 +195,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 val account = checkNotNull(activeAccountId) { "Sign in to verify this purchase." }
                 val session = cloud.session()
                 require(session.user.id == account && activeAccountId == account) { "Your account changed. Sign in again." }
-                if (productId == PlayBilling.TOPUP_500) {
-                    cloud.request("POST", "/billing/verify", session, JSONObject().put("sku", productId).put("purchase_token", token))
-                    if(activeAccountId == account) message("500 permanent credits added to your wallet.")
-                } else {
-                    cloud.request("POST", "/billing/subscriptions/verify", session, JSONObject().put("product_id", productId).put("purchase_token", token))
-                    if(activeAccountId == account) message("Your subscription is active. New credits are ready to use.")
-                }
+                require(productId in setOf(PlayBilling.TOPUP_500, PlayBilling.PACK_2500, PlayBilling.PACK_5000)) { "This credit pack is unavailable." }
+                cloud.request("POST", "/billing/verify", session, JSONObject().put("sku", productId).put("purchase_token", token))
+                if(activeAccountId == account) message("Credits added to your wallet.")
                 if(activeAccountId == account) refreshBilling(recoverPurchases = false)
             } catch (e: Exception) { message(e.message ?: "Google Play payment completed. Tap Restore purchases after reconnecting.") }
         }
@@ -211,7 +224,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         if(!validateCreationInput()) return
         val image = screen == Screen.CREATE_IMAGE
         val request = if(image) imageDraft else draft
-        val withPhoto = screen != Screen.TEXT && screen != Screen.REELS && photo != null
+        val withVideo = !image && screen == Screen.IMAGE && request.modelId == "kling-o3-reference" && referenceVideoPath != null
+        val withPhoto = !withVideo && screen != Screen.TEXT && screen != Screen.REELS && photo != null
         startWork("Checking your creation", "Preparing a price. Generation starts only after you confirm.") {
             val account = checkNotNull(activeAccountId) { "Sign in before creating with AI." }
             val session = cloud.session()
@@ -225,13 +239,16 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             require(request.aspect in rate.ratios) { "This model supports ${rate.ratios.joinToString()}. Change the aspect ratio in Settings." }
             require(image || request.duration in rate.durations) { "Choose a supported video duration." }
             val wallet = cloud.request("GET", "/wallet", session)
+            if(activeAccountId == account) walletCredits = wallet.getLong("available_credits")
             val payload = JSONObject().put("service", rate.id).put("aspect_ratio", request.aspect)
                 .put("prompt", request.prompt.trim().ifBlank { "Animate this photo with gentle natural movement." })
             if(!image) payload.put("duration", request.duration).put("generated_audio", request.generatedAudio)
             if(withPhoto) payload.put("asset_id", cloud.uploadImage(selectedPhotoFile, session, if(image) "image" else "video"))
+            if(withVideo) payload.put("asset_id", cloud.uploadReferenceVideo(File(checkNotNull(referenceVideoPath)), session))
             val quote = cloud.request("POST", "/quotes", session, payload)
             cloudQuote = CloudQuote(quote.getString("id"), quote.getLong("maximum_charge_paise"), wallet.getLong("available_paise"),
-                quote.getString("title"), session, request.copy(outputCount = 1), image, withPhoto)
+                quote.getString("title"), session, request.copy(outputCount = 1), image, withPhoto,
+                if(withVideo) referenceVideoPath else null, if(withVideo) storyRoot else null, if(withVideo) storyPart else 0)
         }
     }
 
@@ -255,22 +272,25 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 if(quote.sourcePhoto && selectedPhotoFile.isFile) {
                     val preview = File(projectDir(session.user.id), "preview_${pending.getString("key")}.jpg")
                     val saved = withContext(Dispatchers.IO) { runCatching { createJobPreview(selectedPhotoFile, preview) }.isSuccess }
-                    if(saved) pending.put("preview", preview.path)
+                    if(saved) pending.put("preview", preview.path).put("preview_temp", true)
                 }
+                quote.sourceVideoPath?.let { pending.put("preview", it).put("preview_video", true) }
+                quote.storyRoot?.let { pending.put("story_root", it).put("story_part", quote.storyPart) }
                 withContext(Dispatchers.IO) { updateCloudPending(session, pending, pending.getString("key")) }
                 val job = try {
                     cloud.request("POST", "/jobs", session, JSONObject().put("quote_id", quote.id), pending.getString("key"))
                 } catch(e: CloudException) {
                     if(e.status in listOf(400, 402, 403, 404, 409, 429)) withContext(Dispatchers.IO) {
                         updateCloudPending(session, null, pending.getString("key"))
-                        pending.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
+                        if(pending.optBoolean("preview_temp")) pending.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
                     }
                     throw e
                 }
                 pending.put("job_id", job.getString("id"))
                 withContext(Dispatchers.IO) { updateCloudPending(session, pending, pending.getString("key")) }
                 observedActiveJobIds.add(job.getString("id"))
-                cloudJobs = (listOf(CloudJob.from(job).copy(previewPath = pending.optString("preview").ifBlank { null })) + cloudJobs).distinctBy { it.id }
+                cloudJobs = (listOf(CloudJob.from(job).copy(previewPath = pending.optString("preview").ifBlank { null }, previewVideo = pending.optBoolean("preview_video"))) + cloudJobs).distinctBy { it.id }
+                refreshWallet()
                 tab(Screen.PROJECTS)
                 startCloudMonitor(session.user.id, restart = true)
             } finally { cloudWork = false }
@@ -344,8 +364,12 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         val rows = cloud.request("GET", "/jobs", session).getJSONArray("results")
         if(activeAccountId != account) return@withLock false
         val pinned = withContext(Dispatchers.IO) { pendingCloudRequests(session) }
-        val previews = pinned.mapNotNull { request -> request.optString("job_id").takeIf { it.isNotBlank() }?.let { it to request.optString("preview") } }.toMap()
-        val recent = (0 until rows.length()).map { CloudJob.from(rows.getJSONObject(it)).copy(previewPath = previews[rows.getJSONObject(it).getString("id")]?.ifBlank { null }) }
+        val previews = pinned.mapNotNull { request -> request.optString("job_id").takeIf { it.isNotBlank() }?.let { it to request } }.toMap()
+        val recent = (0 until rows.length()).map { index ->
+            val row = rows.getJSONObject(index)
+            CloudJob.from(row).copy(previewPath = previews[row.getString("id")]?.optString("preview")?.ifBlank { null },
+                previewVideo = previews[row.getString("id")]?.optBoolean("preview_video") ?: false)
+        }
         val latestById = recent.associateByTo(LinkedHashMap()) { it.id }
         for(request in pinned) {
             val rawId = request.optString("job_id")
@@ -353,15 +377,16 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             val id = runCatching { UUID.fromString(rawId).toString() }.getOrNull()
             if(id == null || projects.any { it.id == "cloud_$id" && File(it.path).isFile }) {
                 withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
-                request.optString("preview").takeIf { it.isNotBlank() }?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+                if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { withContext(Dispatchers.IO) { File(it).delete() } }
                 continue
             }
             if(id !in latestById) {
-                try { latestById[id] = CloudJob.from(cloud.request("GET", "/jobs/$id", session)).copy(previewPath = previews[id]?.ifBlank { null }) }
+                try { latestById[id] = CloudJob.from(cloud.request("GET", "/jobs/$id", session)).copy(
+                    previewPath = previews[id]?.optString("preview")?.ifBlank { null }, previewVideo = previews[id]?.optBoolean("preview_video") ?: false) }
                 catch(e: CloudException) {
                     if(e.status == 404) withContext(Dispatchers.IO) {
                         updateCloudPending(session, null, pendingId(request))
-                        request.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
+                        if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
                     }
                     else throw e
                 }
@@ -375,8 +400,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         for(job in latest.filter { it.state == "failed" || it.state == "cancelled" }) {
             pinned.firstOrNull { it.optString("job_id") == job.id }?.let { request ->
                 withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
+                refreshWallet()
             }
-            job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+            if(previews[job.id]?.optBoolean("preview_temp") == true) job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
         }
         for(job in cloudJobs.filter { downloadOutputs && it.isReady && it.id !in downloadFailures && (forceDownloads || it.id in observedActiveJobIds) }) {
             if(activeAccountId != account) break
@@ -417,9 +443,11 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 if(output.exists() && !output.delete()) throw IOException("Could not replace an incomplete download.")
                 if(!temporary.renameTo(output)) throw IOException("Could not save the downloaded creation.")
             }
+            val pending = withContext(Dispatchers.IO) { pendingCloudRequests(session).firstOrNull { it.optString("job_id") == job.id } }
             val project = Project(id = id, title = job.title, path = output.path,
                 kind = if(image) MediaKind.IMAGE else MediaKind.VIDEO, duration = (duration / 1000).toInt(), durationMs = duration,
-                aspect = job.aspect, mimeType = mime)
+                aspect = job.aspect, mimeType = mime,
+                storyRoot = pending?.optString("story_root")?.ifBlank { null }, storyPart = pending?.optInt("story_part") ?: 0)
             persistProject(account, project)
             val completion = CompletedJobNotice(project.id, project.title, project.kind, job.chargedPaise)
             if(completedJobNotice == null) completedJobNotice = completion else completionQueue.addLast(completion)
@@ -429,7 +457,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
             cloudJobs = cloudJobs.filterNot { it.id == job.id }
-            job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+            refreshWallet()
+            if(pending?.optBoolean("preview_temp") == true) job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
             observedActiveJobIds.remove(job.id)
             autoSave(project)
             message("${job.title} saved · ${credits(job.chargedPaise)} charged")
@@ -446,7 +475,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         draftSave?.cancel(); imageDraftSave?.cancel()
         photoRevision++
         activeAccountId = accountId
-        photo = null; photoName = ""; cloudQuote = null
+        photo = null; photoName = ""; referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0; cloudQuote = null
         selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
         currentPlan = PlanTier.FREE; billingReady = false; creditProducts = emptyList()
         walletCredits = null; monthlyCredits = null; topupCredits = null; freeCredits = null
@@ -455,6 +484,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         imageDraft = accountId?.let { store.draft("image-generation", it) } ?: CreationDraft()
         voiceText = accountId?.let { store.draft("voice", it).prompt }.orEmpty()
         if (accountId != null) {
+            refreshWallet()
+            playBilling.recover()
             viewModelScope.launch {
                 val (saved, warning) = withContext(Dispatchers.IO) { store.projects(accountId) to store.lastReadWarning }
                 if(activeAccountId == accountId) {
@@ -490,6 +521,55 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         selectedProject = project
         go(Screen.RESULT)
     }
+    fun continueStory(project: Project) {
+        if(!ownsProject(project) || project.kind != MediaKind.VIDEO || !File(project.path).isFile) {
+            failure = "Open one of your saved videos to continue its story."
+            return
+        }
+        val root = project.storyRoot ?: project.id
+        val clips = projects.filter { it.id == root || it.storyRoot == root }
+        val total = clips.sumOf { it.duration }
+        if(total >= 60 || clips.size >= 6) {
+            failure = "This story has reached one minute. Start a new story for the next chapter."
+            return
+        }
+        if(clips.maxByOrNull { it.storyPart }?.id != project.id) {
+            failure = "Continue from the latest scene to keep this story in order."
+            return
+        }
+        storyRoot = root
+        storyPart = (clips.maxOfOrNull { it.storyPart } ?: 0) + 1
+        referenceVideoPath = project.path
+        referenceVideoName = "Part ${storyPart - 1} reference"
+        photo = null; photoName = ""
+        updateDraft(draft.copy(modelId = "kling-o3-reference", resolution = "1080p", duration = if(60 - total < 10) 5 else 10,
+            generatedAudio = true, aspect = project.aspect,
+            prompt = "Continue this story from @Video1. Keep the characters, setting and visual style consistent. "))
+        tab(Screen.IMAGE)
+    }
+    fun exportStory(project: Project) = startWork("Exporting your story", "Combining scenes into a shareable video on this device.") {
+        require(ownsProject(project) && project.kind == MediaKind.VIDEO) { "Choose one of your saved story scenes." }
+        val account = checkNotNull(activeAccountId)
+        val root = project.storyRoot ?: project.id
+        val clips = projects.filter { it.id == root || it.storyRoot == root }.sortedBy { it.storyPart }
+        require(clips.size in 2..6 && clips.all { ownsProject(it) && File(it.path).isFile }) { "Finish at least two saved scenes before exporting a story." }
+        val duration = clips.sumOf { it.duration }
+        require(duration <= 60) { "Stories can be up to one minute long." }
+        val output = File(projectDir(account), "story_${UUID.randomUUID()}.mp4")
+        val requiredSpace = clips.sumOf { File(it.path).length() } + 32L * 1024 * 1024
+        require(android.os.StatFs(output.parentFile!!.path).availableBytes > requiredSpace) {
+            "Free some device storage before exporting this story. Your scenes are safe in My Projects."
+        }
+        pendingOutputs.add(output)
+        try {
+            StoryExporter.export(app, clips.map { File(it.path) }, output)
+            require(activeAccountId == account) { "Your account changed. Export was stopped." }
+            persistProject(account, Project(title = "${duration}s story", path = output.path, kind = MediaKind.VIDEO,
+                duration = duration, durationMs = duration * 1000L, aspect = clips.first().aspect))
+            pendingOutputs.remove(output)
+            message("Your ${duration}s story is ready in My Projects.")
+        } finally { if(output in pendingOutputs) output.delete() }
+    }
     private fun ownsProject(project: Project): Boolean {
         val account = activeAccountId ?: return false
         if(projects.none { it.id == project.id && it.path == project.path }) return false
@@ -521,6 +601,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
     fun selectVideoModel(model: VideoModelOption) {
+        if(model.id != "kling-o3-reference") { referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0 }
         updateDraft(draft.copy(
             modelId = model.id,
             duration = draft.duration.takeIf { it in model.durations } ?: model.durations.min(),
@@ -556,11 +637,15 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         photoName = ""
         selectedPhotoFile.delete()
     }
+    fun removeReferenceVideo() {
+        referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0
+    }
 
     fun validateCreationInput(): Boolean {
         val input = if(screen == Screen.CREATE_IMAGE) imageDraft else draft
         val errors = buildList {
-            if(screen == Screen.IMAGE && photo == null) add("Add a photo to animate.")
+            if(screen == Screen.IMAGE && photo == null && referenceVideoPath == null) add("Add a photo or reference video.")
+            if(screen == Screen.IMAGE && input.modelId == "kling-o3-reference" && referenceVideoPath == null) add("Choose a reference video for this model.")
             if(screen != Screen.IMAGE && input.prompt.isBlank()) add("Describe what you want to create.")
             if(input.prompt.length > 500) add("Keep your prompt to 500 characters or fewer.")
         }
@@ -647,7 +732,36 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         photoRevision++
         photo = bitmap
         photoName = "Your photo"
+        referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0
         message("Photo added")
+    }
+
+    fun importReferenceVideo(uri: Uri) = startWork("Opening reference video") {
+        val account = checkNotNull(activeAccountId) { "Sign in before choosing a video." }
+        val target = File(app.filesDir, "sources/${accountHash(account)}.mp4")
+        withContext(Dispatchers.IO) {
+            val temporary = copyUri(account, uri, 200L * 1024 * 1024, ".mp4")
+            try {
+                val retriever = MediaMetadataRetriever()
+                val duration = try {
+                    retriever.setDataSource(temporary.path)
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                        ?: error("This video has no readable duration.")
+                } finally { retriever.release() }
+                require(duration in 3_000..15_000) { "Choose a reference MP4 between 3 and 15 seconds." }
+                require(app.contentResolver.getType(uri) in setOf("video/mp4", "application/mp4")) { "Choose an MP4 reference video." }
+                target.parentFile?.mkdirs()
+                if(target.exists() && !target.delete()) error("Could not replace the previous reference video.")
+                if(!temporary.renameTo(target)) error("Could not save the reference video.")
+                pendingOutputs.remove(temporary)
+            } finally { temporary.delete() }
+        }
+        if(activeAccountId != account) return@startWork
+        referenceVideoPath = target.path; referenceVideoName = "Reference video"
+        photo = null; photoName = ""; storyRoot = null; storyPart = 0
+        updateDraft(draft.copy(modelId = "kling-o3-reference", resolution = "1080p", duration = 10, generatedAudio = true,
+            prompt = draft.prompt.ifBlank { "Create the next story scene from @Video1. Keep the same characters and style." }))
+        message("Reference video added")
     }
 
     private suspend fun copyUri(account: String, uri: Uri, maxBytes: Long, extension: String): File {

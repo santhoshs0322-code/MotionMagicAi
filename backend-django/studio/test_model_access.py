@@ -27,7 +27,7 @@ class ModelAccessTests(TestCase):
     def quote(self, slug, **options):
         return services.create_quote(self.account, {"service": slug, "prompt": "A quiet mountain", **options})
 
-    def test_free_can_quote_only_qwen_720p_and_pixverse_720p_silent(self):
+    def test_any_account_with_credits_can_quote_enabled_models(self):
         self.assertEqual(self.quote("qwen-image-720p").rate_id, "qwen-image-720p")
         self.assertEqual(self.quote("pixverse-v6-720p-silent", duration=5, generated_audio=False).rate_id,
                          "pixverse-v6-720p-silent")
@@ -38,10 +38,10 @@ class ModelAccessTests(TestCase):
             ("kling-3-omni-720p-silent", {"duration": 5, "generated_audio": False}),
             ("seedream-5-pro-1k", {}),
         ):
-            with self.subTest(slug=slug), self.assertRaisesMessage(Exception, "Upgrade to Creator or Legend"):
-                self.quote(slug, **options)
+            with self.subTest(slug=slug):
+                self.assertEqual(self.quote(slug, **options).rate_id, slug)
 
-    def test_paid_member_can_use_all_enabled_variants_and_expiry_blocks_new_job(self):
+    def test_subscription_expiry_does_not_block_credit_funded_job(self):
         subscription = Subscription.objects.create(account=self.account, product_id="motion_creator_monthly",
             token_hash="access-paid-token", token_encrypted="test", plan="creator", state="active",
             expires_at=timezone.now() + timedelta(days=1))
@@ -50,19 +50,16 @@ class ModelAccessTests(TestCase):
         Subscription.objects.filter(pk=subscription.pk).update(state="cancelled")
         self.assertEqual(self.quote("seedream-5-pro-2k").rate_id, "seedream-5-pro-2k")
         Subscription.objects.filter(pk=subscription.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
-        with self.assertRaisesMessage(Exception, "Upgrade to Creator or Legend"):
-            services.submit_job(self.account, quote.pk, "expired-plan-job")
+        self.assertEqual(services.submit_job(self.account, quote.pk, "expired-plan-job")[0].quote_id, quote.pk)
         self.assertEqual(self.quote("qwen-image-720p").rate_id, "qwen-image-720p")
 
-    def test_topup_balance_does_not_unlock_paid_models(self):
+    def test_topup_balance_unlocks_all_enabled_models(self):
         Wallet.objects.filter(account=self.account).update(topup_balance_paise=10_000, credit_buckets_version=1)
-        with self.assertRaisesMessage(Exception, "Upgrade to Creator or Legend"):
-            self.quote("gpt-image-2-1k")
+        self.assertEqual(self.quote("gpt-image-2-1k").rate_id, "gpt-image-2-1k")
 
     def test_catalog_marks_free_variants_for_the_app(self):
         response = APIClient().get("/api/v1/capabilities")
         self.assertEqual(response.status_code, 200)
         plans = {row["id"]: row["required_plan"] for row in response.json()["cloud"]}
-        self.assertEqual({slug for slug, plan in plans.items() if plan == "free"},
-                         services.FREE_RATE_SLUGS)
-        self.assertEqual(plans["gpt-image-2-2k"], "creator")
+        self.assertTrue(plans)
+        self.assertEqual(set(plans.values()), {"free"})

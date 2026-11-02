@@ -12,7 +12,8 @@ from . import fal, fal_catalog, services, worker, storage
 from .models import Account, Asset, Wallet, Job, Rate, Ledger, Subscription
 
 RUNTIME = dict(FAL_KEY="test-server-key", GEMINI_API_KEY="", GATEWAY_URL="", GATEWAY_TOKEN="", S3_BUCKET="test-bucket",
-               DAILY_PROVIDER_BUDGET_PAISE=6_400_000, FAL_RATE_COSTS={slug: 10 for slug, *_ in fal_catalog.variants()})
+               DAILY_PROVIDER_BUDGET_PAISE=6_400_000, FAL_RATE_COSTS={slug: 10 for slug, *_ in fal_catalog.variants()},
+               MARKUP_BPS=90_000, STORE_FEE_BPS=0)
 
 
 class Response:
@@ -52,13 +53,17 @@ class ContractTests(SimpleTestCase):
     def test_video_native_audio_and_resolution_map_to_correct_provider_arguments(self):
         for slug, _, config, _ in fal_catalog.variants():
             if "resolution" not in config: continue
-            for source in (None, "https://test-bucket.s3.amazonaws.com/photo"):
+            sources = ("https://test-bucket.s3.amazonaws.com/reference.mp4",) if config.get("reference_video") else (None, "https://test-bucket.s3.amazonaws.com/photo")
+            for source in sources:
                 for duration in config["durations"]:
                     payload = {"model": "fal:" + config["app_model_id"], "config": config, "aspect_ratio": "9:16", "prompt": "A beach", "units": duration, "generated_audio": config["generated_audio"]}
                     endpoint, body = fal_catalog.request(payload, source)
-                    self.assertEqual(body.get("image_url"), source)
-                    self.assertEqual(body.get("aspect_ratio"), None if source else "9:16")
-                    if "kling" in endpoint:
+                    self.assertEqual(body.get("image_url"), None if config.get("reference_video") else source)
+                    self.assertEqual(body.get("aspect_ratio"), "9:16" if config.get("reference_video") or not source else None)
+                    if config.get("reference_video"):
+                        self.assertEqual(body["video_url"], source)
+                        self.assertEqual(body["keep_audio"], config["generated_audio"])
+                    elif "kling" in endpoint:
                         self.assertIn("/standard/" if config["resolution"] == "720p" else "/pro/", endpoint)
                         self.assertEqual(body["duration"], str(duration))
                         self.assertEqual(body["generate_audio"], config["generated_audio"])
@@ -140,6 +145,39 @@ class FalFlowTests(TestCase):
         with self.assertRaisesMessage(Exception, "too large"):
             services.create_quote(self.account, {"service": "qwen-image-720p", "prompt": "Photo", "asset_id": str(asset.pk)})
         self.assertFalse(Ledger.objects.exists())
+
+    def test_story_reference_requires_owned_mp4_and_quotes_video_rate(self):
+        service = "kling-o3-reference-1080p-audio"
+        with self.assertRaisesMessage(Exception, "Select a reference video"):
+            services.create_quote(self.account, {"service": service, "prompt": "Next scene", "duration": 10, "generated_audio": True})
+        asset = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/video/uploaded/reference",
+                                     mime="video/mp4", size=12_000, ready=True)
+        quote = services.create_quote(self.account, {"service": service, "prompt": "Continue @Video1", "duration": 10,
+                                                    "generated_audio": True, "asset_id": str(asset.pk)})
+        self.assertEqual(quote.payload["input_key"], asset.key)
+        self.assertEqual(quote.provider_cost_paise, 100)
+        image_asset = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/image/uploaded/photo",
+                                           mime="image/png", size=12_000, ready=True)
+        with self.assertRaisesMessage(Exception, "MP4 reference video"):
+            services.create_quote(self.account, {"service": service, "prompt": "Next scene", "duration": 10,
+                                                  "generated_audio": True, "asset_id": str(image_asset.pk)})
+        other = Account.objects.create(google_sub="other-story", email="story@example.test", name="Other")
+        with self.assertRaisesMessage(Exception, "Source media is unavailable"):
+            services.create_quote(other, {"service": service, "prompt": "Next scene", "duration": 10,
+                                          "generated_audio": True, "asset_id": str(asset.pk)})
+
+    @patch("studio.fal.requests.post")
+    @patch("studio.fal.storage.client")
+    def test_story_reference_worker_sends_owned_video_to_fal(self, s3, post):
+        asset = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/video/uploaded/reference",
+                                     mime="video/mp4", size=12_000, ready=True)
+        job = self.job("kling-o3-reference-1080p-audio", duration=10, generated_audio=True, asset_id=str(asset.pk))
+        s3.return_value.generate_presigned_url.return_value = "https://test-bucket.s3.amazonaws.com/signed-reference.mp4"
+        post.return_value = Response({"request_id": "story-reference-request"}, status=202)
+        self.assertEqual(fal.submit(job)["state"], "running")
+        args, kwargs = post.call_args
+        self.assertIn("/video-to-video/reference", args[0])
+        self.assertEqual(kwargs["json"]["video_url"], "https://test-bucket.s3.amazonaws.com/signed-reference.mp4")
 
     @patch("studio.fal.requests.post")
     @patch("studio.fal.requests.get")

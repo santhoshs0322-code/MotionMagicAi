@@ -72,6 +72,15 @@ object VideoResolutionCatalog {
 object VideoModelCatalog {
     val models = listOf(
         VideoModelOption(
+            id = "kling-o3-reference", title = "Kling O3 Story Reference",
+            description = "Make the next scene from a reference video",
+            requiredPlan = PlanTier.FREE, durations = setOf(5, 10, 15),
+            resolutions = setOf("1080p"), supportsGeneratedAudio = true,
+            locallyAvailable = false, creditsPerSecond = 0,
+            workflow = "Reference video + prompt → next story scene",
+            capabilityLabels = listOf("Video reference", "Prompt", "Story", "Audio"),
+        ),
+        VideoModelOption(
             id = "kling-3-omni",
             title = "Kling O3",
             description = "Cinematic motion with native audio workflows",
@@ -126,6 +135,8 @@ data class Project(
     val style: String = "Realistic",
     val durationMs: Long = duration * 1000L,
     val mimeType: String = when(kind) { MediaKind.AUDIO -> "audio/wav"; MediaKind.IMAGE -> "image/png"; else -> "video/mp4" },
+    val storyRoot: String? = null,
+    val storyPart: Int = 0,
 )
 
 data class AppSettings(

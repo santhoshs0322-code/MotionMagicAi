@@ -15,6 +15,7 @@ Use one fal.ai generation key for the launch models; separate Kling, PixVerse, Q
 | Seedream 5 Lite | fal `bytedance/seedream/v5/lite/{text-to-image,edit}` | 2K |
 | Seedream 4.5 | fal `fal-ai/bytedance/seedream/v4.5/{text-to-image,edit}` | 2K |
 | Kling O3 (formerly labeled Kling 3 Omni) | fal `fal-ai/kling-video/o3/{standard,pro}/{text-to-video,image-to-video}` | 720p / 1080p, 5s / 10s, native sound on/off |
+| Kling O3 Story Reference | fal `fal-ai/kling-video/o3/pro/video-to-video/reference` | 1080p, 5s / 10s / 15s, owned MP4 reference (3–15s), keep sound on/off |
 | PixVerse V6 | fal `fal-ai/pixverse/v6/{text-to-video,image-to-video}` | 720p / 1080p, 5s / 10s / 15s, native sound on/off |
 
 The unsupported “PixVerse V6 Max” branding was removed; saved selections migrate to V6. Every image route supports text or one reference image with a prompt. Native video sound is generated output; uploading audio/voice clones, video references, batches and arbitrary provider settings are not implemented. Gemini's duration and silent-output instructions are prompt requests, not guaranteed API controls; its output can differ. Kling/PixVerse have explicit duration/audio parameters. Their image-to-video shape follows the source image. In image sizes, 1K/2K designate approximate square pixel area; non-square dimensions vary with the ratio.

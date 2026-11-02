@@ -189,7 +189,8 @@ class MotionStore(context: Context) {
         if (id.isBlank() || title.isBlank() || path.isBlank() || createdAt < 0 || duration < 0) return null
         return Project(id, title, path, kind, createdAt, duration,
             json.optString("aspect", "9:16"), json.optString("style", "Realistic"),
-            json.optLong("durationMs", duration * 1000L), json.optString("mimeType", if(kind == MediaKind.AUDIO) "audio/wav" else "video/mp4"))
+            json.optLong("durationMs", duration * 1000L), json.optString("mimeType", if(kind == MediaKind.AUDIO) "audio/wav" else "video/mp4"),
+            json.optString("storyRoot").takeUnless { it.isBlank() || it == "null" }, json.optInt("storyPart", 0))
     }
 
     private fun writeProjects(accountId: String, projects: List<Project>) {
@@ -203,7 +204,8 @@ class MotionStore(context: Context) {
                 .put("createdAt", project.createdAt)
                 .put("duration", project.duration)
                 .put("aspect", project.aspect)
-                .put("style", project.style).put("durationMs", project.durationMs).put("mimeType", project.mimeType))
+                .put("style", project.style).put("durationMs", project.durationMs).put("mimeType", project.mimeType)
+                .put("storyRoot", project.storyRoot).put("storyPart", project.storyPart))
         }
         val editor = preferences.edit()
         val key = projectKey(accountId)

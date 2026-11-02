@@ -58,6 +58,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
     var pendingExport by remember { mutableStateOf<Project?>(null) }
     LaunchedEffect(vm.activeAccountId) { pendingExport = null; snackbar.currentSnackbarData?.dismiss() }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::importPhoto) }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::importReferenceVideo) }
     val documentSaver = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val uri = if(result.resultCode == android.app.Activity.RESULT_OK) result.data?.data else null
         if(uri != null) pendingExport?.let { vm.saveDocument(it, uri) }
@@ -132,7 +133,9 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when(vm.screen) {
                 Screen.HOME -> HomeScreen(vm)
-                Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE -> CreateScreen(vm, onPickPhoto = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE -> CreateScreen(vm,
+                    onPickPhoto = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onPickVideo = { videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) })
                 Screen.VOICE -> VoiceScreen(vm)
                 Screen.TEMPLATES -> TemplatesScreen(vm)
                 Screen.PROJECTS -> ProjectsScreen(vm)
@@ -163,7 +166,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
         }
     }
     work?.let { state ->
-        AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Rounded.AutoFixHigh, null, tint = Violet) },
+        AlertDialog(onDismissRequest = {}, icon = { Icon(Icons.Rounded.AutoFixHigh, null, tint = Color(0xFFFFB6E8)) },
             title = { Text(state.title, fontSize = 20.sp) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -172,19 +175,23 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
                     Text(state.detail.ifBlank { "Please wait while we prepare your file." }, color = Muted)
                     if(state.progress > 0f) Text("${(state.progress * 100).toInt()}%", color = Color.White)
                 }
-            }, confirmButton = { TextButton(onClick = vm::cancelWork) { Text("Cancel") } }, containerColor = Panel)
+            }, confirmButton = { TextButton(onClick = vm::cancelWork) { Text("Cancel", color = Color(0xFFDCA8FF)) } },
+            shape = RoundedCornerShape(24.dp), containerColor = Color(0xFF1D112D))
     }
     vm.cloudQuote?.let { quote ->
         val enough = quote.availablePaise >= quote.chargePaise
-        AlertDialog(onDismissRequest = vm::dismissCloudQuote, containerColor = Panel,
+        AlertDialog(onDismissRequest = vm::dismissCloudQuote, containerColor = Color(0xFF1D112D), shape = RoundedCornerShape(24.dp),
+            icon = { Box(Modifier.size(52.dp).background(ReferenceGradient, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Bolt, null, tint = Color.White) } },
             title = { Text("Create with ${quote.title}") },
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Maximum charge: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
                 Text("Available balance: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.availablePaise)}")
                 Text("After confirmation, your job appears in My Projects. You can run up to three generations at once. Credits are reserved until each job finishes or fails.", fontSize = 13.sp)
-                if(!enough) Text("Add generation credits before continuing. Your account balance is managed by the server.", color = MaterialTheme.colorScheme.error)
+                if(!enough) Text("Add ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise - quote.availablePaise)} to create this video or image.", color = Color(0xFFFFD267))
             } },
-            confirmButton = { TextButton(onClick = vm::confirmCloudGeneration, enabled = enough) { Text("Confirm & create") } },
+            confirmButton = { Button(onClick = { if(enough) vm.confirmCloudGeneration() else { vm.dismissCloudQuote(); vm.go(Screen.PLANS) } },
+                modifier = Modifier.background(ReferenceGradient, RoundedCornerShape(12.dp)),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)) { Text(if(enough) "Confirm & create" else "Add credits") } },
             dismissButton = { TextButton(onClick = vm::dismissCloudQuote) { Text("Keep editing") } })
     }
     if(work == null && vm.cloudQuote == null && vm.failure == null && vm.info == null) vm.completedJobNotice?.let { notice ->
@@ -217,16 +224,18 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
         AlertDialog(onDismissRequest = vm::dismissFailure,
             icon = { Icon(Icons.Rounded.ErrorOutline, null, tint = Color(0xFFFF8190)) },
             title = { Text("Couldn’t finish that") }, text = { Text(error) },
-            confirmButton = { TextButton(onClick = vm::dismissFailure) { Text("OK") } }, containerColor = Panel)
+            confirmButton = { TextButton(onClick = vm::dismissFailure) { Text("OK", color = Color(0xFFDCA8FF)) } },
+            shape = RoundedCornerShape(24.dp), containerColor = Color(0xFF1D112D))
     }
     vm.info?.let { (title, body) ->
         AlertDialog(onDismissRequest = vm::dismissNotice, title = { Text(title) },
             text = { Text(body, Modifier.verticalScroll(rememberScrollState()), lineHeight = 22.sp) },
-            confirmButton = { TextButton(onClick = vm::dismissNotice) { Text("Got it") } }, containerColor = Panel)
+            confirmButton = { TextButton(onClick = vm::dismissNotice) { Text("Got it", color = Color(0xFFDCA8FF)) } },
+            shape = RoundedCornerShape(24.dp), containerColor = Color(0xFF1D112D))
     }
 }
 
-fun showHelp(vm: MotionViewModel) = vm.notice("Your creative studio", "Choose Image to Video, Text to Video or Create Image. Add your photo or prompt, then choose a model and settings. Available models depend on the server configuration. Tap Create to review the credit price before confirming. Submitted jobs appear in My Projects with a job ID and stage estimate. Tap Refresh projects to recover a request or download after reconnecting. Up to three generations can run at once. Kling and PixVerse image-to-video follow the source photo’s shape.\n\nDevice Voice uses your installed Android speech engine. Saved creations can be played, downloaded and shared from My Projects.")
+fun showHelp(vm: MotionViewModel) = vm.notice("Your creative studio", "Choose Image to Video, Text to Video or Create Image. Add your photo or prompt, then choose a model and settings. Tap Create to review the credit price before confirming. Submitted jobs appear in My Projects with a stage estimate. Tap Refresh projects to recover a request or download after reconnecting. Up to three generations can run at once. Kling and PixVerse image-to-video follow the source photo’s shape.\n\nDevice Voice uses your installed Android speech engine. Saved creations can be played, downloaded and shared from My Projects.")
 
 @Composable
 fun SplashScreen(message: String = "Opening your creative studio", onRetry: (() -> Unit)? = null) {

@@ -23,6 +23,13 @@ def paid_account(account):
                                 expires_at=timezone.now() + timedelta(days=1))
 
 class PricingTests(TestCase):
+    def test_credit_only_quote_targets_25_percent_after_assumed_play_fee(self):
+        # 10 seconds of Kling O3 Pro with audio: $1.40 fal = 140 USD cents.
+        charge = price(140, 16_667, 1_500)
+        self.assertEqual(charge, 440)
+        # 200 customer credits equal $1; the provider spends 280 credit-equivalents.
+        self.assertGreaterEqual((charge * 85 // 100 - 280) * 4, charge * 85 // 100)
+
     def test_150_percent_markup_and_store_fee_are_integer_safe(self):
         self.assertEqual(price(100, 15_000, 0), 250)
         self.assertEqual(price(100, 15_000, 1_500), 295)
@@ -88,7 +95,7 @@ class PricingTests(TestCase):
         )
         quote = create_quote(account, {"service": rate.pk, "prompt": "A neon city", "aspect_ratio": "9:16"})
         self.assertEqual(quote.payload["aspect_ratio"], "9:16")
-        self.assertEqual(quote.charge_paise, 3000)
+        self.assertEqual(quote.charge_paise, 942)
         with self.assertRaisesMessage(Exception, "supported aspect ratio"):
             create_quote(account, {"service": rate.pk, "prompt": "A neon city", "aspect_ratio": "16:9"})
 
@@ -296,6 +303,13 @@ class InputTests(TestCase):
         self.assertEqual(response.json()["ok"], False)
 
 class BillingTests(TestCase):
+    @override_settings(SUBSCRIPTIONS_ENABLED=False)
+    def test_credit_only_mode_rejects_new_subscription_purchase(self):
+        from .billing import verify_subscription
+        account = Account.objects.create(google_sub="credit-only", email="credit-only@example.test", name="Credit")
+        with self.assertRaisesMessage(Exception, "New subscriptions are not available"):
+            verify_subscription(account, "motion_creator_monthly", "new-subscription-token")
+
     @override_settings(PLAY_ENABLED=True, BILLING_ENCRYPTION_KEY="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=", PLAY_PACKAGE="com.gamixtv.MotionMagicAI")
     def test_purchase_retry_does_not_double_grant_and_refund_reverses_credit(self):
         account = Account.objects.create(google_sub="google-billing", email="bill@example.test", name="Billing")

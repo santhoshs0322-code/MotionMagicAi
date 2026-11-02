@@ -1,62 +1,59 @@
-# fal.ai credit map
+# Credit-only launch pricing
 
-Reviewed on 31 October 2026. MotionMagic uses integer credits: **200 customer
-credits have a US$1 face value**. The `*_COST_PAISE` environment names are
-legacy names; their values below are **raw fal provider USD-cent allowances**,
-not Indian paise. With `MOTION_AI_MARKUP_BPS=90000`, a customer is charged ten
-credits for every raw-cost credit, giving an **80% gross margin before Google
-Play/payment fees, tax, S3 and support costs**.
+MotionMagic grants **200 credits once** after a verified Google sign-in. Credit
+packs are one-time, consumable Google Play products; purchased credits do not
+expire. The subscription purchase flow is retained in code for a future launch
+and disabled by `MOTION_AI_CREDIT_ONLY_MODE=true`.
 
-| Service | fal cost basis | Raw allowance | Customer charge |
-|---|---:|---:|---:|
-| Qwen Image 720p | $0.02, one billed MP | 2 | 20 credits/image |
-| Qwen Image 1080p | $0.02 x two billed MP | 4 | 40 credits/image |
-| GPT Image 2.5 Flare/Sunburst 1K high | conservative generation/edit allowance | 7 | 70 credits/image |
-| GPT Image 2.5 Flare/Sunburst 2K high | conservative generation/edit allowance | 25 | 250 credits/image |
-| GPT Image 2 1K high | $0.211 canonical square maximum | 22 | 220 credits/image |
-| GPT Image 2 2K high | conservative high-quality allowance | 42 | 420 credits/image |
-| Seedream 5 Pro 1K | $0.0675 | 7 | 70 credits/image |
-| Seedream 5 Pro 2K | $0.135 | 14 | 140 credits/image |
-| Kling O3 Standard 720p, no audio | $0.084/second | 9/sec | 90 credits/sec |
-| Kling O3 Standard 720p, audio | $0.112/second | 12/sec | 120 credits/sec |
-| PixVerse V6 720p, no audio | $0.045/second | 5/sec | 50 credits/sec |
-| PixVerse V6 720p, audio | $0.060/second | 6/sec | 60 credits/sec |
-| PixVerse V6 1080p, no audio | $0.090/second | 9/sec | 90 credits/sec |
-| PixVerse V6 1080p, audio | $0.115/second | 12/sec | 120 credits/sec |
+fal cost environment variables named `*_COST_PAISE*` contain **USD cents**, not
+Indian paise. One USD equals 200 customer credits. With
+`MOTION_AI_MARKUP_BPS=16667` and `MOTION_AI_STORE_FEE_BPS=1500`, a quote charges
+`ceil(raw_fal_cents × 2.6667 / 0.85)` customer credits. This targets about
+**25% contribution margin after an assumed 15% Play service fee**, before
+GST, AWS, S3, refunds, foreign exchange and provider price changes. Configure
+all nonzero provider costs from the live fal account and update them when fal
+changes its prices. A zero-cost model remains unavailable.
 
-Qwen bills images by rounding up to a megapixel. GPT Image prices vary by
-prompt, output dimensions and reference image, so the configured values are
-deliberately rounded upward. Do not turn on a zero-cost rate: zero deliberately
-keeps it unavailable. Nano Banana remains excluded for this fal-only launch.
+| Kling O3 1080p service | fal allowance | User quote for 10 seconds |
+|---|---:|---:|
+| Silent image/text to video | 12 US cents/second | 377 credits |
+| Audio image/text to video | 14 US cents/second | 440 credits |
+| Story reference video to video | 17 US cents/second | 534 credits |
 
-Seedream 5 Lite, Seedream 4.5 and Kling O3 Pro/1080p stay disabled until their
-exact complete charge is confirmed in the fal account that will be billed. That
-prevents selling an unpriced service at a false margin.
+The story reference rate uses fal's $0.168/second published price rounded up
+to 17 cents. Video references must be MP4, 3–15 seconds, at most 200 MB, and
+belong to the signed-in account. Each generation is quoted and reserved before
+submission. Story export on the device does not consume AI credits.
 
-## Access and launch guardrails
+## Google Play products
 
-| Offering | Store price | Credit grant | Maximum fal allowance at this map |
-|---|---:|---:|---:|
-| Verified Google welcome | Free, once | 200 | $0.20 |
-| Creator | INR 499/month | 1,200 per paid period | $1.20 |
-| Legend | INR 999/month | 2,400 per paid period | $2.40 |
-| Permanent top-up | INR 249 | 500 | $0.50 |
+The server knows three credit-pack SKUs. It enables the two larger packs only
+after their matching flags are set. Create and activate each one-time product
+in Play Console before enabling its flag.
 
-Creator and Legend are recurring subscriptions. Their unused credits do not
-carry into the next period. Permanent top-up credits remain after cancellation.
-Free accounts can spend credits only on Qwen Image 720p and PixVerse V6 720p
-silent. Both paid plans unlock every enabled model; a top-up adds balance but
-does not unlock paid models. The minimum five-second PixVerse video costs 250
-credits, so the 200-credit welcome grant alone does not fund one.
+| SKU | Grant | Suggested Indian Play price* | Flag |
+|---|---:|---:|---|
+| `motion_topup_500` | 500 credits | ₹349 | `MOTION_AI_ENABLE_TOPUPS` |
+| `motion_pack_2500` | 2,500 credits | ₹1,699 | `MOTION_AI_ENABLE_PACK_2500` |
+| `motion_pack_5000` | 5,000 credits | ₹3,399 | `MOTION_AI_ENABLE_PACK_5000` |
 
-For a safe first launch use `MOTION_AI_DAILY_PROVIDER_BUDGET_PAISE=1000` and
-`MOTION_AI_BUDGET_SHARDS=1`: that limits raw fal spend to **$10/day**. A 64-shard
-AWS deployment needs a substantially larger daily cap, because each shard must
-be able to reserve the largest single generation.
+*Suggested prices assume roughly ₹95/USD, a 15% Play fee and 18% tax included
+in the customer price. Verify actual Play payouts and the current exchange rate
+before launch. The old ₹249 price for 500 credits is too low for the new
+25% margin target. The Android app intentionally shows the live Play purchase
+sheet price rather than a hard-coded rupee amount.
 
-Sources: [Qwen Image](https://fal.ai/models/fal-ai/qwen-image), [GPT Image
-2.5](https://fal.ai/gpt-image-2.5), [GPT Image
-2](https://fal.ai/models/openai/gpt-image-2), [Seedream 5
-Pro](https://fal.ai/models/bytedance/seedream/v5/pro/text-to-image), [Kling
-O3 Standard](https://fal.ai/models/fal-ai/kling-video/o3/standard/image-to-video)
-and [PixVerse V6](https://fal.ai/models/fal-ai/pixverse/v6/text-to-video).
+For AWS, set `MOTION_AI_CREDIT_ONLY_MODE=true`,
+`MOTION_AI_WELCOME_CREDITS=200`, and the verified per-model cost variables.
+Credit-only mode enforces the 16,667/1,500 pricing settings in code, even if
+older AWS environment entries still contain the previous markup.
+Set `MOTION_AI_ENABLE_TOPUPS=true` for the existing 500-credit product. Set
+`MOTION_AI_ENABLE_PACK_2500=true` and `MOTION_AI_ENABLE_PACK_5000=true` only
+after activating those products in Play Console. A six-scene 60-second story
+using one 10-second Kling O3 Pro audio clip and five 10-second reference clips
+costs about **3,110 customer credits** and **$9.80 in fal fees** at this rate
+map. The example $10/day provider budget allows roughly one such story per day;
+raise it deliberately as customer demand grows.
+
+Provider references: [Kling O3 Pro image to video](https://fal.ai/models/fal-ai/kling-video/o3/pro/image-to-video),
+[Kling O3 Pro reference video](https://fal.ai/models/fal-ai/kling-video/o3/pro/video-to-video/reference).

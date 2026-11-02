@@ -52,7 +52,7 @@ private val RefMuted = Color(0xFF8A8E9B)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
+fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -> Unit) {
     val mode = when(vm.screen) {
         Screen.CREATE_IMAGE -> CreationMode.CREATE_IMAGE
         Screen.TEXT, Screen.REELS -> CreationMode.TEXT_TO_VIDEO
@@ -68,7 +68,6 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
     var modes by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
     var gallery by remember { mutableStateOf(false) }
-    var upgradePrompt by remember { mutableStateOf(false) }
     var selectedTemplate by remember { mutableStateOf<Template?>(null) }
     val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if(result.resultCode == Activity.RESULT_OK) {
@@ -79,7 +78,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
     LaunchedEffect(modes, settings, gallery, selectedTemplate) {
         if(modes || settings || gallery || selectedTemplate != null) focus.clearFocus()
     }
-    val ready = if(mode == CreationMode.IMAGE_TO_VIDEO) vm.photo != null else draft.prompt.isNotBlank()
+    val ready = if(mode == CreationMode.IMAGE_TO_VIDEO) vm.photo != null || vm.referenceVideoPath != null else draft.prompt.isNotBlank()
     val create: () -> Unit = {
         focus.clearFocus()
         vm.prepareCloudGeneration()
@@ -99,7 +98,14 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
             IconButton(onClick = { gallery = true }) { Icon(Icons.Rounded.MenuBook, "Templates", Modifier.size(25.dp)) }
         }
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp).padding(top = 3.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if(mode != CreationMode.TEXT_TO_VIDEO) ReferencePhotoInput(vm, still, onPickPhoto)
+            if(mode != CreationMode.TEXT_TO_VIDEO) {
+                ReferencePhotoInput(vm, still, onPickPhoto, onPickVideo)
+                if(!still && vm.referenceVideoPath == null) TextButton(onClick = onPickVideo) {
+                    Icon(Icons.Rounded.VideoLibrary, null, tint = Color(0xFFFFABDD))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Use a reference video for the next scene", color = Color(0xFFFFC3E9))
+                }
+            }
             Surface(color = RefField, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).fillMaxWidth()) {
                 Column(Modifier.fillMaxSize().padding(5.dp)) {
                     TextField(draft.prompt, { update(draft.copy(prompt = it.take(501))) },
@@ -158,11 +164,6 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit) {
     selectedTemplate?.let { item -> TemplatePreviewSheet(item, mode, { selectedTemplate = null }) {
         vm.useTemplate(item.art, item.name, item.promptFor(mode), mode, item.aspect, item.duration); selectedTemplate = null
     } }
-    if(upgradePrompt) AlertDialog(onDismissRequest = { upgradePrompt = false },
-        title = { Text("Unlock this creation") },
-        text = { Text("This model or setting needs Creator or Legend. Free accounts can use Qwen Image 720p and PixVerse V6 720p without generated audio when they have enough credits.") },
-        confirmButton = { TextButton(onClick = { upgradePrompt = false; vm.go(Screen.PLANS) }) { Text("See plans") } },
-        dismissButton = { TextButton(onClick = { upgradePrompt = false }) { Text("Choose free model") } })
 }
 
 @Composable
@@ -173,15 +174,24 @@ private fun SmallPromptAction(icon: ImageVector, description: String, action: ()
 }
 
 @Composable
-private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, onPick: () -> Unit) {
+private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, onPick: () -> Unit, onPickVideo: () -> Unit) {
     val photo = vm.photo
+    val reference = if(still) null else vm.referenceVideoPath
     val shape = RoundedCornerShape(17.dp)
     Box(Modifier.fillMaxWidth().height(126.dp).clip(shape).background(Color(0xFF101115))
         .drawBehind {
             drawRoundRect(Color(0xFF555966), cornerRadius = CornerRadius(17.dp.toPx()),
                 style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))))
-        }.clickable(onClick = onPick).testTag("upload-photo"), contentAlignment = Alignment.Center) {
-        if(photo == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        }.clickable(onClick = if(reference == null) onPick else onPickVideo).testTag("upload-photo"), contentAlignment = Alignment.Center) {
+        if(reference != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ProjectThumbnail(reference, true, 88.dp)
+                Column { Text("Reference video selected", color = Color.White, fontWeight = FontWeight.Bold); Text("Use it to create the next story scene", color = RefMuted, fontSize = 11.sp) }
+            }
+            IconButton(onClick = vm::removeReferenceVideo, modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).size(29.dp).background(Color.Black.copy(alpha = .7f), RoundedCornerShape(8.dp))) {
+                Icon(Icons.Rounded.Close, "Remove reference video", Modifier.size(17.dp))
+            }
+        } else if(photo == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Icon(Icons.Rounded.AddPhotoAlternate, null, Modifier.size(26.dp), tint = RefMuted)
             Text(if(still) "Add reference image" else "Add an Image", color = RefMuted, fontSize = 14.sp)
         } else {
@@ -278,17 +288,16 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
             IconButton(onClick = close, modifier = Modifier.size(25.dp)) { Icon(Icons.Rounded.KeyboardArrowDown, "Close settings", tint = RefMuted) }
         }
         Text(when {
-            activeRate == null -> "This selection is not enabled on the server yet"
-            currentPlan == PlanTier.FREE && activeRate.requiredPlan == PlanTier.PRO -> "Creator or Legend required for this setting"
+            activeRate == null -> "Availability and price are checked when you tap Create"
             else -> "Available · price shown before generation"
-        }, color = if(activeRate != null && currentPlan == PlanTier.FREE && activeRate.requiredPlan == PlanTier.PRO) Color(0xFFFFCB66) else RefMuted, fontSize = 11.sp)
+        }, color = RefMuted, fontSize = 11.sp)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             if(still) items(ImageModelCatalog.models, key = { it.id }) { option ->
-                ModelSquare(option.title, option.id == image.id, currentPlan == PlanTier.FREE && rates.none { it.modelId == option.id && it.requiredPlan == PlanTier.FREE }, "model-option-${option.title}") {
+                ModelSquare(option.title, option.id == image.id, false, "model-option-${option.title}") {
                     update(draft.copy(imageModelId = option.id, imageQuality = draft.imageQuality.takeIf { it in option.resolutions } ?: option.resolutions.first()))
                 }
             } else items(VideoModelCatalog.models, key = { it.id }) { option ->
-                ModelSquare(option.title, option.id == video.id, currentPlan == PlanTier.FREE && rates.none { it.modelId == option.id && it.requiredPlan == PlanTier.FREE }, "model-option-${option.title}") { selectVideo(option) }
+                ModelSquare(option.title, option.id == video.id, false, "model-option-${option.title}") { selectVideo(option) }
             }
         }
         Text("Resolution", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -298,11 +307,8 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
                 Surface(onClick = { update(if(still) draft.copy(imageQuality = resolution) else draft.copy(resolution = resolution)) },
                     color = if(selected) RefSelected else RefTile, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).testTag("resolution-$resolution")) {
                     Box(Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
-                        val paid = currentPlan == PlanTier.FREE && modelRates.any { it.size == resolution } &&
-                            modelRates.none { it.size == resolution && it.requiredPlan == PlanTier.FREE && (still || it.audio == draft.generatedAudio) }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(resolution.uppercase(), fontSize = 12.sp, color = if(selected) Color.White else RefMuted)
-                            if(paid) Icon(Icons.Rounded.Star, "Creator or Legend", Modifier.size(11.dp), tint = Color(0xFFFFCB66))
                         }
                     }
                 }
@@ -327,8 +333,7 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Generate Audio", fontSize = 14.sp, modifier = Modifier.weight(1f))
-                if(currentPlan == PlanTier.FREE) Text("Creator+", color = Color(0xFFFFCB66), fontSize = 11.sp)
+                Text(if(video.id == "kling-o3-reference") "Keep reference audio" else "Generate Audio", fontSize = 14.sp, modifier = Modifier.weight(1f))
                 Switch(draft.generatedAudio, { update(draft.copy(generatedAudio = it)) }, enabled = video.supportsGeneratedAudio)
             }
         }

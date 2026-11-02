@@ -82,10 +82,15 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
         finally { connection.disconnect() }
     }
 
-    suspend fun uploadImage(file: File, session: AuthSession, kind: String): String {
-        require(file.length() in 1..10L * 1024 * 1024) { "Choose a photo smaller than 10 MB." }
+    suspend fun uploadImage(file: File, session: AuthSession, kind: String): String = uploadMedia(file, session, kind, "image/png")
+
+    suspend fun uploadReferenceVideo(file: File, session: AuthSession): String = uploadMedia(file, session, "video", "video/mp4")
+
+    private suspend fun uploadMedia(file: File, session: AuthSession, kind: String, mime: String): String {
+        val limit = if(mime == "video/mp4") 200L * 1024 * 1024 else 10L * 1024 * 1024
+        require(file.length() in 1..limit) { if(mime == "video/mp4") "Choose an MP4 video under 200 MB." else "Choose a photo smaller than 10 MB." }
         require(kind == "image" || kind == "video")
-        val prepared = request("POST", "/assets", session, JSONObject().put("mime", "image/png").put("size", file.length()).put("kind", kind))
+        val prepared = request("POST", "/assets", session, JSONObject().put("mime", mime).put("size", file.length()).put("kind", kind))
         val id = prepared.getJSONObject("asset").getString("id")
         val upload = prepared.getJSONObject("upload")
         withContext(Dispatchers.IO) {
@@ -96,7 +101,7 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
                     require(!name.contains('"') && !name.contains('\r') && !name.contains('\n'))
                     append("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n${fields.getString(name)}\r\n")
                 }
-                append("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"source.png\"\r\nContent-Type: image/png\r\n\r\n")
+                append("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"${if(mime == "video/mp4") "reference.mp4" else "source.png"}\"\r\nContent-Type: $mime\r\n\r\n")
             }.toByteArray(Charsets.UTF_8)
             val suffix = "\r\n--$boundary--\r\n".toByteArray()
             val connection = storageConnection(upload.getString("url"))
@@ -116,8 +121,8 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
                     }
                     output.write(suffix)
                 }
-                if(connection.responseCode !in 200..299) throw CloudException(0, "Photo upload failed. Try again.")
-            } catch(e: IOException) { throw CloudException(0, "Photo upload was interrupted. Please retry.") }
+                if(connection.responseCode !in 200..299) throw CloudException(0, "Media upload failed. Try again.")
+            } catch(e: IOException) { throw CloudException(0, "Media upload was interrupted. Please retry.") }
             finally { connection.disconnect() }
         }
         request("POST", "/assets/$id", session, JSONObject())
