@@ -174,6 +174,8 @@ class Job(models.Model):
         constraints = [models.UniqueConstraint(fields=["account", "idempotency_key"], name="job_account_idempotency"), models.CheckConstraint(condition=Q(state__in=("queued", "submitting", "running", "uncertain", "succeeded", "failed", "cancelled")), name="job_valid_state")]
         indexes = [models.Index(fields=["state", "next_attempt_at"]),
                    models.Index(fields=["account", "-created_at", "-id"]),
+                   models.Index(fields=["account", "-created_at", "-id"], name="job_active_account_idx",
+                                condition=Q(state__in=("queued", "submitting", "running", "uncertain"))),
                    models.Index(fields=["next_attempt_at", "lease_until"], name="job_claim_pending_idx",
                                 condition=Q(state__in=("queued", "submitting", "running", "uncertain")))]
 

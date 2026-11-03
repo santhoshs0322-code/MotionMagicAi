@@ -16,7 +16,7 @@ All JSON responses include `ok`. Protected routes require `Authorization: Bearer
 | `GET /api/v1/wallet` | Balance, held and available credits; separate `monthly_credits`, `monthly_expires_at`, `topup_credits` and `free_credits`; backfill missing welcome grant; includes Play account-binding hash |
 | `GET /api/v1/transactions` | Cursor-paginated immutable ledger |
 | `POST /api/v1/quotes` | Server-priced generation quote |
-| `GET, POST /api/v1/jobs` | Cursor-paginated jobs; reserve a quoted job |
+| `GET, POST /api/v1/jobs` | Account-scoped saved job statuses; reserve a quoted job. `scope=active` limits status refreshes, and `tracked=id1,id2` includes up to 12 older owned jobs in one response. |
 | `GET, DELETE /api/v1/jobs/{id}` | Poll or cancel a still-queued job |
 | `GET, POST /api/v1/assets` | List media; request an exact-size, five-minute S3 upload form |
 | `GET, POST, DELETE /api/v1/assets/{id}` | Download, confirm upload, or delete owned media |
@@ -32,6 +32,8 @@ Google Nano Banana image models and Gemini Omni video use server-only `MOTION_AI
 Monthly subscription credits are spent before welcome credits and permanent top-ups. Unused monthly credits expire at the end of the paid period; each verified renewal replaces them with a fresh monthly grant. Cancelling renewal preserves the current paid period, then only welcome/top-up credits remain. In-progress jobs keep their reserved credits until settlement; any unused monthly reservation is discarded after its period ends. Top-ups are tied to the Google account and do not expire unless the purchase is refunded.
 
 Capabilities include `config.app_model_id`, supported ratios/durations, resolution/image size, audio-priced variant and `minimum_charge_paise` / `minimum_units`. Those legacy `*_paise` field names are integer **credits**, not INR paise; the responses also include `maximum_credits` and wallet credit aliases. Two hundred credits have a US$1 face value. They do not include secrets or provider URLs. Quote POST accepts `service`, `prompt`, optional owned ready `asset_id`, `aspect_ratio`, video `duration` and `generated_audio`. It returns a five-minute quote ID, title and maximum charge; the server decides price. A fal silent rate rejects a sound-on request. One request generates one output. Job GET includes kind/title/aspect/duration for download recovery. Asset GET returns a short-lived S3 URL plus MIME/size metadata; stream the file and verify its size.
+
+My Projects reads `Job` rows from PostgreSQL. Opening it never queries fal.ai or another generation provider. The worker alone submits and reconciles provider requests, then atomically marks the saved job succeeded, failed or cancelled and settles the credit hold. A successful result is downloaded to the device only when the user taps Save to My Projects. The optional `tracked` query parameter batches device-saved job IDs with the active or recent list; results are always filtered to the authenticated account, and the response sets `tracked_supported=true` when this behavior is available.
 
 Each capability includes `required_plan`. Free accounts can create with `qwen-image-720p` and `pixverse-v6-720p-silent` when they have sufficient credits. Active Creator and Legend subscriptions unlock all other enabled rates, including higher resolutions and generated audio. Purchased top-up credits add balance but do not grant paid-model access. The server checks the entitlement when creating a quote and again before reserving a new job; duplicate job retries can still recover an existing job.
 

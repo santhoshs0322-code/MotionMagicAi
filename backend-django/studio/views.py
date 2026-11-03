@@ -189,7 +189,25 @@ class Jobs(Private):
             raise Problem("Unknown job list scope.")
         jobs = Job.objects.filter(account=request.user).select_related("quote")
         if scope == "active":
-            jobs = jobs.filter(state__in=("queued", "submitting", "running", "uncertain"))
+            jobs = jobs.filter(state__in=services.ACTIVE_STATES)
+        tracked = request.query_params.get("tracked", "")
+        if tracked:
+            raw_ids = tracked.split(",")
+            if len(raw_ids) > 12:
+                raise Problem("Track at most 12 generation jobs.")
+            try:
+                identifiers = {uuid.UUID(value) for value in raw_ids}
+            except ValueError:
+                raise Problem("Invalid tracked generation job.") from None
+            # One account-scoped database request for the visible page, plus one
+            # bounded lookup for older jobs saved on this device. Never ask the
+            # provider for status while browsing My Projects.
+            current = list(jobs.order_by("-created_at", "-pk")[:30])
+            saved = Job.objects.filter(account=request.user, pk__in=identifiers).select_related("quote")
+            combined = {row.pk: row for row in current}
+            combined.update({row.pk: row for row in saved})
+            ordered = sorted(combined.values(), key=lambda row: (row.created_at, row.pk), reverse=True)
+            return ok(results=[job_public(row) for row in ordered], next=None, tracked_supported=True)
         return page(request, jobs, job_public)
     def post(self, request):
         data = body(request, ("quote_id",))

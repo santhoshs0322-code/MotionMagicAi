@@ -322,6 +322,17 @@ class ApiTests(TestCase):
         self.assertEqual([row["id"] for row in active.json()["results"]], [str(own_active.pk)])
         recent_ids = {row["id"] for row in self.client.get("/api/v1/jobs?scope=recent").json()["results"]}
         self.assertEqual(recent_ids, {str(own_active.pk), str(own_done.pk)})
+        for index in range(31):
+            make_job(self.account, "succeeded", f"new-done-{index}")
+        tracked = self.client.get(f"/api/v1/jobs?scope=active&tracked={own_done.pk},{other_active.pk}")
+        self.assertEqual(tracked.status_code, 200)
+        self.assertTrue(tracked.json()["tracked_supported"])
+        self.assertEqual({row["id"] for row in tracked.json()["results"]}, {str(own_active.pk), str(own_done.pk)})
+        older = self.client.get(f"/api/v1/jobs?scope=recent&tracked={own_done.pk}")
+        self.assertEqual(older.status_code, 200)
+        self.assertIn(str(own_done.pk), {row["id"] for row in older.json()["results"]})
+        self.assertEqual(self.client.get("/api/v1/jobs?scope=active&tracked=invalid").status_code, 400)
+        self.assertEqual(self.client.get("/api/v1/jobs?scope=active&tracked=" + ",".join([str(own_done.pk)] * 13)).status_code, 400)
         self.assertEqual(self.client.get(f"/api/v1/jobs/{other_active.pk}").status_code, 404)
         self.assertEqual(self.client.get("/api/v1/jobs?scope=all").status_code, 400)
 

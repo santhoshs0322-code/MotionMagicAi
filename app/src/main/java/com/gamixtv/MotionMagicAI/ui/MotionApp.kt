@@ -206,7 +206,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(notice.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                    Text("Saved to My Projects · ${notice.chargedCredits} credits used", color = Muted, fontSize = 13.sp)
+                    Text("${if(vm.projects.any { it.id == notice.projectId }) "Saved on this device" else "Ready in My Projects"} · ${notice.chargedCredits} credits used", color = Muted, fontSize = 13.sp)
                 }
             },
             confirmButton = {

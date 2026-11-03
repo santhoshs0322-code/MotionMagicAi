@@ -13,6 +13,7 @@ from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset, Subscriptio
 from . import gemini, gemini_video, fal, fal_catalog
 
 TERMINAL = ("succeeded", "failed", "cancelled")
+ACTIVE_STATES = ("queued", "submitting", "running", "uncertain")
 FREE_RATE_SLUGS = frozenset(("qwen-image-720p", "pixverse-v6-720p-silent"))
 
 def minimum_plan(rate):
@@ -273,7 +274,7 @@ def submit_job(account, quote_id, key):
         raise Problem("This quote already has a job.", 409)
     if wallet.available_paise < quote.charge_paise:
         raise Problem("Insufficient credits.", 402)
-    if Job.objects.filter(account=account).exclude(state__in=TERMINAL).count() >= settings.MAX_ACTIVE_JOBS:
+    if Job.objects.filter(account=account, state__in=ACTIVE_STATES).count() >= settings.MAX_ACTIVE_JOBS:
         raise Problem(f"You can run up to {settings.MAX_ACTIVE_JOBS} generations at once. Wait for one to finish.", 429)
     shard = int(digest(str(account.pk))[:8], 16) % settings.BUDGET_SHARDS
     bucket, _ = Budget.objects.get_or_create(day=timezone.now().date(), shard=shard)

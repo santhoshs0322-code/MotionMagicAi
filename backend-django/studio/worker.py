@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 from . import provider, storage
 from .models import Job
-from .services import finish_job, TERMINAL
+from .services import ACTIVE_STATES, finish_job, TERMINAL
 
 log = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 def claim():
     now = timezone.now()
     job = Job.objects.select_for_update(skip_locked=True).filter(
-        state__in=("queued", "submitting", "running", "uncertain"), next_attempt_at__lte=now,
+        state__in=ACTIVE_STATES, next_attempt_at__lte=now,
     ).filter(Q(lease_until__isnull=True) | Q(lease_until__lt=now)).order_by("next_attempt_at").first()
     if not job:
         return None

@@ -114,7 +114,6 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private val cloudPollLock = Mutex()
     private var cloudJobMonitor: Job? = null
     private var cloudMonitorGeneration = 0
-    private val downloadFailures = mutableSetOf<String>()
     private val observedActiveJobIds = mutableSetOf<String>()
     var cloudJobs by mutableStateOf<List<CloudJob>>(emptyList()); private set
     var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
@@ -356,7 +355,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun resumeCloudGeneration() = startWork("Refreshing projects", "Checking generation jobs and saved media.") {
+    fun resumeCloudGeneration() = startWork("Refreshing projects", "Loading your saved generation status.") {
         cloudWork = true
         try {
             val session = cloud.session()
@@ -378,14 +377,14 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                     else throw e
                 }
             }
-            downloadFailures.clear()
-            // Show the refreshed job list before fetching potentially large media files.
-            pollCloudJobs(session.user.id, downloadOutputs = false, includeRecent = true)
+            // A project refresh reads saved database status only. Result media is
+            // downloaded separately when the user taps Save to My Projects.
+            pollCloudJobs(session.user.id, includeRecent = true)
             tab(Screen.PROJECTS)
-            startCloudMonitor(session.user.id, restart = true, downloadReadyOnStart = true)
+            if(cloudJobs.any { it.isGenerating }) startCloudMonitor(session.user.id, restart = true)
         } finally {
             cloudWork = false
-            if(cloudJobMonitor == null) activeAccountId?.let { startCloudMonitor(it) }
+            if(cloudJobMonitor == null && cloudJobs.any { it.isGenerating }) activeAccountId?.let { startCloudMonitor(it) }
         }
     }
 
@@ -393,41 +392,27 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         val account = checkNotNull(activeAccountId) { "Sign in to save your creation." }
         val session = cloud.session()
         require(session.user.id == account && activeAccountId == account) { "Your account changed. Sign in again." }
-        // A completed server job needs only its saved output asset, not another
-        // provider status check. Avoid racing the background downloader.
-        cloudJobMonitor?.cancel()
-        cloudJobMonitor = null
-        cloudMonitorGeneration++
-        try {
-            cloudPollLock.withLock {
-                if (projects.any { it.id == "cloud_$jobId" && File(it.path).isFile }) return@withLock
-                val job = cloudJobs.firstOrNull { it.id == jobId && it.isReady }
-                    ?: error("This result is not ready to save. Refresh My Projects to check its status.")
-                downloadFailures.remove(jobId)
-                try { downloadCloudJob(account, session, job) }
-                catch (e: Exception) {
-                    cloudJobs = cloudJobs.map { if (it.id == jobId) it.copy(state = "succeeded", progressPercent = 100) else it }
-                    throw e
-                }
-            }
-        } finally {
-            if (activeAccountId == account) startCloudMonitor(account)
+        if (projects.any { it.id == "cloud_$jobId" && File(it.path).isFile }) return@startWork
+        val job = cloudJobs.firstOrNull { it.id == jobId && it.isReady }
+            ?: error("This result is not ready to save. Refresh My Projects to check its status.")
+        try { downloadCloudJob(account, session, job) }
+        catch (e: Exception) {
+            if(activeAccountId == account) cloudJobs = cloudJobs.map { if (it.id == jobId) it.copy(state = "succeeded", progressPercent = 100) else it }
+            throw e
         }
     }
 
-    private fun startCloudMonitor(account: String, restart: Boolean = false, downloadReadyOnStart: Boolean = false, includeRecentOnStart: Boolean = false) {
+    private fun startCloudMonitor(account: String, restart: Boolean = false, includeRecentOnStart: Boolean = false) {
         if(cloudJobMonitor?.isActive == true && !restart) return
         cloudJobMonitor?.cancel()
         val generation = ++cloudMonitorGeneration
         cloudJobMonitor = viewModelScope.launch {
             var failures = 0
-            var downloadReady = downloadReadyOnStart
             var includeRecent = includeRecentOnStart
             try {
                 while(isActive && activeAccountId == account) {
                     val active = try {
-                        val result = pollCloudJobs(account, forceDownloads = downloadReady, includeRecent = includeRecent || downloadReady)
-                        downloadReady = false
+                        val result = pollCloudJobs(account, includeRecent = includeRecent)
                         includeRecent = false
                         failures = 0
                         result
@@ -445,22 +430,12 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private suspend fun pollCloudJobs(account: String, forceDownloads: Boolean = false, downloadOutputs: Boolean = true, includeRecent: Boolean = false): Boolean = cloudPollLock.withLock {
+    private suspend fun pollCloudJobs(account: String, includeRecent: Boolean = false): Boolean = cloudPollLock.withLock {
         val session = cloud.session()
         if(session.user.id != account || activeAccountId != account) return@withLock false
-        val rows = cloud.request("GET", "/jobs?scope=${if (includeRecent) "recent" else "active"}", session).getJSONArray("results")
-        if(activeAccountId != account) return@withLock false
         val pinned = withContext(Dispatchers.IO) { pendingCloudRequests(session) }
         val previews = pinned.mapNotNull { request -> request.optString("job_id").takeIf { it.isNotBlank() }?.let { it to request } }.toMap()
-        val recent = (0 until rows.length()).map { index ->
-            val row = rows.getJSONObject(index)
-            CloudJob.from(row).copy(previewPath = previews[row.getString("id")]?.optString("preview")?.ifBlank { null },
-                previewVideo = previews[row.getString("id")]?.optBoolean("preview_video") ?: false)
-        }
-        val latestById = recent.associateByTo(LinkedHashMap()) { it.id }
-        val knownIds = pinned.mapNotNull { request -> request.optString("job_id").takeIf { it.isNotBlank() } }.toSet() + observedActiveJobIds
-        for(rawId in knownIds) {
-            if(rawId.isBlank()) continue
+        val trackedIds = (previews.keys + observedActiveJobIds).mapNotNull { rawId ->
             val id = runCatching { UUID.fromString(rawId).toString() }.getOrNull()
             if(id == null || projects.any { it.id == "cloud_$id" && File(it.path).isFile }) {
                 pinned.firstOrNull { it.optString("job_id") == rawId }?.let { request ->
@@ -468,46 +443,51 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                     if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { withContext(Dispatchers.IO) { File(it).delete() } }
                 }
                 observedActiveJobIds.remove(rawId)
-                continue
-            }
-            if(id !in latestById) {
-                try { latestById[id] = CloudJob.from(cloud.request("GET", "/jobs/$id", session)).copy(
-                    previewPath = previews[id]?.optString("preview")?.ifBlank { null }, previewVideo = previews[id]?.optBoolean("preview_video") ?: false) }
-                catch(e: CloudException) {
-                    if(e.status == 404) {
-                        pinned.firstOrNull { it.optString("job_id") == id }?.let { request -> withContext(Dispatchers.IO) {
-                            updateCloudPending(session, null, pendingId(request))
-                            if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
-                        } }
-                        observedActiveJobIds.remove(id)
-                    }
-                    else throw e
-                }
+                null
+            } else id
+        }.distinct().take(12)
+        val path = "/jobs?scope=${if (includeRecent) "recent" else "active"}" +
+            if(trackedIds.isEmpty()) "" else "&tracked=${trackedIds.joinToString(",")}"
+        val response = cloud.request("GET", path, session)
+        val rows = response.getJSONArray("results")
+        if(activeAccountId != account) return@withLock false
+        val latest = (0 until rows.length()).map { index ->
+            val row = rows.getJSONObject(index)
+            val serverJob = CloudJob.from(row).copy(previewPath = previews[row.getString("id")]?.optString("preview")?.ifBlank { null },
+                previewVideo = previews[row.getString("id")]?.optBoolean("preview_video") ?: false)
+            cloudJobs.firstOrNull { it.id == serverJob.id && it.state == "downloading" && serverJob.isReady } ?: serverJob
+        }
+        val latestById = latest.associateBy { it.id }
+        for(id in trackedIds.filterNot { it in latestById }.takeIf { response.optBoolean("tracked_supported") }.orEmpty()) {
+            pinned.firstOrNull { it.optString("job_id") == id }?.let { request -> withContext(Dispatchers.IO) {
+                updateCloudPending(session, null, pendingId(request))
+                if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
+            } }
+            observedActiveJobIds.remove(id)
+        }
+        val previouslyActive = cloudJobs.filter { it.isGenerating }.map { it.id }.toSet() + observedActiveJobIds
+        observedActiveJobIds.addAll(latest.filter { it.isGenerating }.map { it.id })
+        cloudJobs = (latest + cloudJobs.filter { it.id !in latestById && (it.isReady || it.state in setOf("failed", "cancelled")) })
+            .distinctBy { it.id }
+            .filterNot { job -> projects.any { it.id == "cloud_${job.id}" && File(it.path).isFile } }
+            .take(40)
+        var terminalChanged = false
+        for(job in latest.filter { it.state in setOf("succeeded", "failed", "cancelled") && it.id in previouslyActive }) {
+            terminalChanged = true
+            if(job.state == "succeeded") {
+                val notice = CompletedJobNotice("cloud_${job.id}", job.title,
+                    if(job.kind == "image") MediaKind.IMAGE else MediaKind.VIDEO, job.chargedPaise)
+                if(completedJobNotice == null) completedJobNotice = notice else completionQueue.addLast(notice)
             }
         }
-        val latest = latestById.values.toList()
-        observedActiveJobIds.addAll(latest.filter { it.isActive }.map { it.id })
-        val newIds = latestById.keys
-        cloudJobs = (latest + cloudJobs.filter { it.isGenerating && it.id !in newIds })
-            .filterNot { job -> projects.any { it.id == "cloud_${job.id}" && File(it.path).isFile } }
         for(job in latest.filter { it.state == "failed" || it.state == "cancelled" }) {
-            observedActiveJobIds.remove(job.id)
             pinned.firstOrNull { it.optString("job_id") == job.id }?.let { request ->
                 withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
-                refreshWallet()
             }
             if(previews[job.id]?.optBoolean("preview_temp") == true) job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
         }
-        for(job in cloudJobs.filter { downloadOutputs && it.isReady && it.id !in downloadFailures && (forceDownloads || it.id in observedActiveJobIds) }) {
-            if(activeAccountId != account) break
-            try { downloadCloudJob(account, session, job) }
-            catch(e: CancellationException) { throw e }
-            catch(e: Exception) {
-                downloadFailures.add(job.id)
-                cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "succeeded", progressPercent = 100) else it }
-                message("${job.title}: ready on the server, but download failed. Tap Refresh projects to retry.")
-            }
-        }
+        observedActiveJobIds.removeAll(latest.filter { it.state in setOf("succeeded", "failed", "cancelled") }.map { it.id }.toSet())
+        if(terminalChanged) refreshWallet()
         cloudJobs.any { it.isGenerating }
     }
 
@@ -543,15 +523,12 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 aspect = job.aspect, mimeType = mime,
                 storyRoot = pending?.optString("story_root")?.ifBlank { null }, storyPart = pending?.optInt("story_part") ?: 0)
             persistProject(account, project)
-            val completion = CompletedJobNotice(project.id, project.title, project.kind, job.chargedPaise)
-            if(completedJobNotice == null) completedJobNotice = completion else completionQueue.addLast(completion)
             withContext(Dispatchers.IO) {
                 pendingCloudRequests(session).firstOrNull { it.optString("job_id") == job.id }?.let {
                     updateCloudPending(session, null, pendingId(it))
                 }
             }
             cloudJobs = cloudJobs.filterNot { it.id == job.id }
-            refreshWallet()
             if(pending?.optBoolean("preview_temp") == true) job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
             observedActiveJobIds.remove(job.id)
             autoSave(project)
@@ -563,7 +540,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         if (activeAccountId == accountId) return
         activeJob?.cancel()
         cloudJobMonitor?.cancel(); cloudJobMonitor = null; cloudMonitorGeneration++
-        cloudJobs = emptyList(); downloadFailures.clear(); observedActiveJobIds.clear()
+        cloudJobs = emptyList(); observedActiveJobIds.clear()
         projects = emptyList()
         completedJobNotice = null; completionQueue.clear()
         draftSave?.cancel(); imageDraftSave?.cancel()
@@ -604,9 +581,15 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         if (screen == destination) return
         history.add(screen)
         screen = destination
+        refreshProjectsOnEntry()
     }
-    fun tab(destination: Screen) { history.clear(); screen = destination }
-    fun back() { screen = if (history.isEmpty()) Screen.HOME else history.removeAt(history.lastIndex) }
+    fun tab(destination: Screen) { history.clear(); screen = destination; refreshProjectsOnEntry() }
+    fun back() { screen = if (history.isEmpty()) Screen.HOME else history.removeAt(history.lastIndex); refreshProjectsOnEntry() }
+    private fun refreshProjectsOnEntry() {
+        if(screen == Screen.PROJECTS && !cloudWork) activeAccountId?.let {
+            startCloudMonitor(it, restart = true, includeRecentOnStart = true)
+        }
+    }
     fun open(project: Project) {
         if(!ownsProject(project)) { failure = "This project does not belong to the signed-in account."; return }
         if (!MediaAccess.external(project.path) && !File(project.path).isFile) {
