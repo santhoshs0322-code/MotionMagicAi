@@ -138,7 +138,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 ensureCloudCatalog()
             } catch(e: CancellationException) { throw e }
-            catch(e: Exception) { cloudCatalogStatus = "Cannot check model availability. Reconnect and try Create again." }
+            catch(e: Exception) {
+                cloudRates = emptyList()
+                cloudCatalogStatus = "Cannot check model availability. Reconnect and retry."
+            }
         }
     }
 

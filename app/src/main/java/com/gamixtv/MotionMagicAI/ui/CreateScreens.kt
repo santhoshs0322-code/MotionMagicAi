@@ -80,7 +80,8 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
     LaunchedEffect(modes, settings, gallery, selectedTemplate) {
         if(modes || settings || gallery || selectedTemplate != null) focus.clearFocus()
     }
-    val ready = if(mode == CreationMode.IMAGE_TO_VIDEO) vm.photo != null || vm.referenceVideoPath != null else draft.prompt.isNotBlank()
+    val hasInput = if(mode == CreationMode.IMAGE_TO_VIDEO) vm.photo != null || vm.referenceVideoPath != null else draft.prompt.isNotBlank()
+    val ready = hasInput && estimatedCredits != null
     val create: () -> Unit = {
         focus.clearFocus()
         vm.prepareCloudGeneration()
@@ -137,7 +138,11 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                 }
             }
         }
-        Text(vm.cloudCatalogStatus, color = RefMuted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(vm.cloudCatalogStatus, color = RefMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+            if(vm.cloudRates.isEmpty() && !vm.cloudCatalogStatus.startsWith("Checking"))
+                TextButton(onClick = vm::refreshCloudCatalog) { Text("Retry", fontSize = 11.sp) }
+        }
         TextButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("View My Projects", fontSize = 12.sp) }
         ReferenceComposerBar(draft, still, modelName, ready, estimatedCredits, false, { settings = true }, update, create)
     }
@@ -295,28 +300,34 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
             IconButton(onClick = close, modifier = Modifier.size(25.dp)) { Icon(Icons.Rounded.KeyboardArrowDown, "Close settings", tint = RefMuted) }
         }
         Text(when {
-            activeRate == null -> "Checking model availability and credit price"
+            activeRate == null -> "This model or setting is unavailable on the server. Choose an available option."
             activeRate.priceFor(draft, still) == null -> "Choose a supported duration and aspect ratio"
             else -> "Estimated ${activeRate.priceFor(draft, still)} credits · exact price reviewed before generation"
         }, color = RefMuted, fontSize = 11.sp)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             if(still) items(ImageModelCatalog.models, key = { it.id }) { option ->
-                ModelSquare(option.title, option.id == image.id, false, "model-option-${option.title}") {
+                val available = rates.any { it.kind == "image" && it.modelId == option.id }
+                ModelSquare(option.title, option.id == image.id, available, "model-option-${option.title}") {
                     update(draft.copy(imageModelId = option.id, imageQuality = draft.imageQuality.takeIf { it in option.resolutions } ?: option.resolutions.first()))
                 }
             } else items(VideoModelCatalog.models, key = { it.id }) { option ->
-                ModelSquare(option.title, option.id == video.id, false, "model-option-${option.title}") { selectVideo(option) }
+                val available = rates.any { it.kind == "video" && it.modelId == option.id }
+                ModelSquare(option.title, option.id == video.id, available, "model-option-${option.title}") { selectVideo(option) }
             }
         }
         Text("Resolution", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             (if(still) image.resolutions else video.resolutions.toList()).forEach { resolution ->
                 val selected = resolution == if(still) draft.imageQuality else draft.resolution
+                val available = rates.any { it.kind == (if(still) "image" else "video") &&
+                    it.modelId == (if(still) image.id else video.id) && it.size == resolution }
                 Surface(onClick = { update(if(still) draft.copy(imageQuality = resolution) else draft.copy(resolution = resolution)) },
-                    color = if(selected) RefSelected else RefTile, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).testTag("resolution-$resolution")) {
+                    enabled = available, color = if(selected && available) RefSelected else RefTile,
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).testTag("resolution-$resolution")) {
                     Box(Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(resolution.uppercase(), fontSize = 12.sp, color = if(selected) Color.White else RefMuted)
+                            Text(if(available) resolution.uppercase() else "${resolution.uppercase()} · Off", fontSize = 12.sp,
+                                color = if(selected && available) Color.White else RefMuted)
                         }
                     }
                 }
@@ -334,15 +345,23 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
             Text("Duration", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 video.durations.sorted().forEach { seconds ->
-                    Surface(onClick = { update(draft.copy(duration = seconds)) }, color = if(draft.duration == seconds) RefSelected else RefTile,
+                    val available = rates.any { it.kind == "video" && it.modelId == video.id &&
+                        it.size == draft.resolution && it.audio == draft.generatedAudio && seconds in it.durations }
+                    Surface(onClick = { update(draft.copy(duration = seconds)) }, enabled = available,
+                        color = if(draft.duration == seconds && available) RefSelected else RefTile,
                         shape = RoundedCornerShape(11.dp), modifier = Modifier.weight(1f).testTag("duration-$seconds")) {
-                        Box(Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) { Text("${seconds}s", fontSize = 12.sp) }
+                        Box(Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                            Text(if(available) "${seconds}s" else "${seconds}s · Off", fontSize = 12.sp)
+                        }
                     }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if(video.id == "kling-o3-reference") "Keep reference audio" else "Generate Audio", fontSize = 14.sp, modifier = Modifier.weight(1f))
-                Switch(draft.generatedAudio, { update(draft.copy(generatedAudio = it)) }, enabled = video.supportsGeneratedAudio)
+                val audioAvailable = rates.any { it.kind == "video" && it.modelId == video.id &&
+                    it.size == draft.resolution && it.audio == true }
+                Switch(draft.generatedAudio, { update(draft.copy(generatedAudio = it)) },
+                    enabled = video.supportsGeneratedAudio && (draft.generatedAudio || audioAvailable))
             }
         }
         Spacer(Modifier.height(3.dp))
@@ -350,18 +369,20 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
 }
 
 @Composable
-private fun ModelSquare(title: String, selected: Boolean, paid: Boolean, tag: String, choose: () -> Unit) {
+private fun ModelSquare(title: String, selected: Boolean, available: Boolean, tag: String, choose: () -> Unit) {
     val tone = studioTone(title)
-    Column(Modifier.width(69.dp).clickable(onClick = choose).testTag(tag), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.width(69.dp).clickable(enabled = available, onClick = choose).testTag(tag), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(color = Color.Transparent, shape = RoundedCornerShape(15.dp), border = BorderStroke(if(selected) 2.dp else 1.dp, if(selected) Color.White else tone.accent.copy(alpha = .3f))) {
         Box(Modifier.size(66.dp).background(tone.gradient), contentAlignment = Alignment.Center) {
             Text(when { title.startsWith("Nano") -> "G"; title.startsWith("Gemini") -> "✦"; title.startsWith("Kling") -> "K"; title.startsWith("Seed") -> "|||"; title.startsWith("Qwen") -> "✧"; else -> "P" },
                 fontSize = 34.sp, fontWeight = FontWeight.Bold)
-            if(paid) Icon(Icons.Rounded.Star, null, tint = Color(0xFFDF78ED), modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(12.dp))
+            if(!available) Icon(Icons.Rounded.Block, "Unavailable", tint = Color.White,
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(13.dp))
         }
         }
         Text(title, color = Color(0xFFE5DCED), fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 2, lineHeight = 13.sp,
             textAlign = TextAlign.Center, modifier = Modifier.heightIn(min = 30.dp).padding(top = 4.dp))
+        if(!available) Text("Unavailable", color = RefMuted, fontSize = 9.sp)
     }
 }
 

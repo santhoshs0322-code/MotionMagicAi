@@ -44,6 +44,8 @@ class OwnerTests(TestCase):
             response=self.client.get(path)
             self.assertEqual(response.status_code,200,path)
             self.assertIn('no-store',response['Cache-Control'])
+            self.assertNotIn(b'{% extends', response.content, path)
+            self.assertNotIn(b'{% block', response.content, path)
         for kind in ['jobs','cash','ledger']:
             response=self.client.get('/owner/export/'+kind+'/')
             self.assertEqual(response.status_code,200)
