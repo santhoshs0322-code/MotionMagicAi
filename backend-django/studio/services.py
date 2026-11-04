@@ -194,9 +194,24 @@ def entry(wallet, kind, reference, balance_delta=0, held_delta=0,
     wallet.save(update_fields=["balance_paise", "held_paise", "monthly_balance_paise", "monthly_held_paise", "topup_balance_paise", "topup_held_paise"])
     Ledger.objects.create(account_id=wallet.account_id, kind=kind, reference=reference, balance_delta=balance_delta, held_delta=held_delta, balance_after=wallet.balance_paise, held_after=wallet.held_paise)
 
+def source_asset(account, asset_id, kind, config):
+    try:
+        asset = Asset.objects.get(pk=uuid.UUID(str(asset_id)), account=account, ready=True, deleted=False)
+    except (ValueError, Asset.DoesNotExist):
+        raise Problem("Source media is unavailable.", 404) from None
+    reference_video = bool(config.get("reference_video"))
+    if kind == "voice" or (asset.mime != "video/mp4" if reference_video else not asset.mime.startswith("image/")):
+        raise Problem("Choose an MP4 reference video for this model." if reference_video else "This generation only accepts image input.")
+    if not asset.key.startswith(f"accounts/{account.pk}/") or ".." in asset.key:
+        raise Problem("Source media ownership is invalid.", 503)
+    if asset.size > (200 * 1024**2 if reference_video else settings.GEMINI_MAX_INPUT_BYTES):
+        raise Problem("Reference video must be under 200 MB." if reference_video else "Source image is too large for this model. Choose a smaller photo.")
+    return asset
+
+
 def create_quote(account, data):
-    if not isinstance(data, dict) or set(data) - {"service", "prompt", "duration", "asset_id", "aspect_ratio", "generated_audio"}:
-        raise Problem("Use service, prompt, optional duration, asset_id, aspect_ratio and generated_audio only.")
+    if not isinstance(data, dict) or set(data) - {"service", "prompt", "duration", "asset_id", "input_kind", "aspect_ratio", "generated_audio"}:
+        raise Problem("Use service, prompt, optional duration, asset_id, input_kind, aspect_ratio and generated_audio only.")
     try:
         rate = enabled_rates().get(pk=data.get("service"))
     except Rate.DoesNotExist:
@@ -208,8 +223,10 @@ def create_quote(account, data):
     duration = data.get("duration", 5)
     rate_config = rate.config if isinstance(rate.config, dict) else {}
     supported_durations = rate_config.get("durations", [5, 10, 15])
-    if rate.kind == "video" and (type(duration) is not int or not isinstance(supported_durations, list) or duration not in supported_durations):
-        raise Problem("Choose a supported duration (5, 10 or 15 seconds).")
+    if rate.kind == "video" and (not isinstance(supported_durations, list) or not supported_durations):
+        raise Problem("This model's duration configuration is unavailable.", 503)
+    if rate.kind == "video" and (type(duration) is not int or duration not in supported_durations):
+        raise Problem("Choose a supported duration: " + ", ".join(str(value) for value in supported_durations) + " seconds.")
     units = duration if rate.kind == "video" else (len(prompt) + 999) // 1000 if rate.kind == "voice" else 1
     if units > rate.max_units:
         raise Problem("Requested generation exceeds this service's limit.")
@@ -233,28 +250,33 @@ def create_quote(account, data):
         payload["generated_audio"] = generated_audio
     elif "generated_audio" in data:
         raise Problem("Generated audio is available for video generation only.")
+    input_kind = data.get("input_kind")
+    if input_kind is not None:
+        if not isinstance(input_kind, str) or input_kind not in ("text", "image", "video") or rate.kind not in ("image", "video"):
+            raise Problem("Choose text, image or video input for this model.")
+        modes = rate_config.get("input_modes")
+        if modes and {"text": "text", "image": "image_and_text", "video": "video_and_text"}[input_kind] not in modes:
+            raise Problem("This model does not support that input type.")
+        if input_kind == "video" and not rate_config.get("reference_video"):
+            raise Problem("This model does not support reference video input.")
+        payload["input_kind"] = input_kind
     if data.get("asset_id"):
-        try:
-            asset = Asset.objects.get(pk=uuid.UUID(str(data["asset_id"])), account=account, ready=True, deleted=False)
-        except (ValueError, Asset.DoesNotExist):
-            raise Problem("Source media is unavailable.", 404) from None
-        reference_video = bool(rate_config.get("reference_video"))
-        if rate.kind == "voice" or (asset.mime != "video/mp4" if reference_video else not asset.mime.startswith("image/")):
-            raise Problem("Choose an MP4 reference video for this model." if reference_video else "This generation only accepts image input.")
-        if not asset.key.startswith(f"accounts/{account.pk}/") or ".." in asset.key:
-            raise Problem("Source media ownership is invalid.", 503)
-        if asset.size > (200 * 1024**2 if reference_video else settings.GEMINI_MAX_INPUT_BYTES):
-            raise Problem("Reference video must be under 200 MB." if reference_video else "Source image is too large for this model. Choose a smaller photo.")
+        asset = source_asset(account, data["asset_id"], rate.kind, rate_config)
+        actual_kind = "video" if asset.mime == "video/mp4" else "image"
+        if input_kind is not None and input_kind != actual_kind:
+            raise Problem("Source media differs from the quoted input type.")
+        payload["input_kind"] = actual_kind
         payload["input_key"] = asset.key
         payload["asset_id"] = str(asset.pk)
-    elif rate_config.get("reference_video"):
+    elif rate_config.get("reference_video") and input_kind != "video":
         raise Problem("Select a reference video for this model.")
     cost = rate.unit_cost_paise * units
     charge = price(cost + rate.overhead_paise)
-    return Quote.objects.create(account=account, rate=rate, payload=payload, payload_hash=digest(json.dumps(payload, sort_keys=True)), provider_cost_paise=cost, overhead_paise=rate.overhead_paise, markup_bps=settings.MARKUP_BPS, fee_bps=settings.STORE_FEE_BPS, charge_paise=charge, expires_at=timezone.now() + timedelta(minutes=5))
+    ttl_minutes = 15 if input_kind in ("image", "video") and not data.get("asset_id") else 5
+    return Quote.objects.create(account=account, rate=rate, payload=payload, payload_hash=digest(json.dumps(payload, sort_keys=True)), provider_cost_paise=cost, overhead_paise=rate.overhead_paise, markup_bps=settings.MARKUP_BPS, fee_bps=settings.STORE_FEE_BPS, charge_paise=charge, expires_at=timezone.now() + timedelta(minutes=ttl_minutes))
 
 @transaction.atomic
-def submit_job(account, quote_id, key):
+def submit_job(account, quote_id, key, asset_id=None):
     if not isinstance(key, str) or not 8 <= len(key) <= 128 or not all(c.isalnum() or c in "-_" for c in key):
         raise Problem("Send an Idempotency-Key of 8–128 letters, digits, hyphens or underscores.")
     wallet = wallet_for_update(account)
@@ -272,6 +294,22 @@ def submit_job(account, quote_id, key):
     require_rate_access(account, quote.rate)
     if Job.objects.filter(quote=quote).exists():
         raise Problem("This quote already has a job.", 409)
+    # Quotes price model/settings without an S3 upload. Bind the uploaded source
+    # once, under this account's wallet lock, before reserving any credits.
+    quoted_asset = quote.payload.get("asset_id")
+    if asset_id is not None and quoted_asset and str(asset_id) != quoted_asset:
+        raise Problem("Source media differs from the quoted source.", 409)
+    source_id = asset_id if asset_id is not None else quoted_asset
+    if source_id:
+        if not quoted_asset and quote.payload.get("input_kind") not in ("image", "video"):
+            raise Problem("This quote does not include reference media.", 409)
+        asset = source_asset(account, source_id, quote.payload["kind"], quote.payload["config"])
+        if not quoted_asset:
+            quote.payload = {**quote.payload, "input_key": asset.key, "asset_id": str(asset.pk)}
+            quote.payload_hash = digest(json.dumps(quote.payload, sort_keys=True))
+            quote.save(update_fields=["payload", "payload_hash"])
+    elif quote.payload.get("input_kind") in ("image", "video"):
+        raise Problem("Upload your reference media before starting this generation.", 409)
     if wallet.available_paise < quote.charge_paise:
         raise Problem("Insufficient credits.", 402)
     if Job.objects.filter(account=account, state__in=ACTIVE_STATES).count() >= settings.MAX_ACTIVE_JOBS:

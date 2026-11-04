@@ -153,7 +153,7 @@ class Capabilities(Public):
             "minimum_charge_paise": services.price(r.unit_cost_paise * (min(r.config.get("durations", [5])) if r.kind == "video" else 1) + r.overhead_paise),
             "credit_prices": {str(units): services.price(r.unit_cost_paise * units + r.overhead_paise)
                               for units in (r.config.get("durations", [5]) if r.kind == "video" else [1])},
-        } for r in rates], billing=settings.PLAY_ENABLED and bool(rates), subscriptions=settings.PLAY_ENABLED and settings.SUBSCRIPTIONS_ENABLED, currency="CREDITS", credit_value_usd_cents=0.5, markup_bps=settings.MARKUP_BPS)
+        } for r in rates], deferred_input_quotes=True, billing=settings.PLAY_ENABLED and bool(rates), subscriptions=settings.PLAY_ENABLED and settings.SUBSCRIPTIONS_ENABLED, currency="CREDITS", credit_value_usd_cents=0.5, markup_bps=settings.MARKUP_BPS)
 
 class WalletView(Private):
     def get(self, request):
@@ -174,8 +174,11 @@ class Quotes(Private):
     def post(self, request):
         authentication.rate_limit("quotes:" + str(request.user.pk), 20)
         quote = services.create_quote(request.user, request.data)
+        with transaction.atomic():
+            services.grant_welcome_credits(request.user)
+            wallet = services.wallet_for_update(request.user)
         return ok(id=str(quote.pk), currency="CREDITS", maximum_charge_paise=quote.charge_paise, maximum_credits=quote.charge_paise,
-                  expires_at=quote.expires_at, markup_bps=quote.markup_bps, title=quote.rate.title)
+                  available_credits=wallet.available_paise, expires_at=quote.expires_at, markup_bps=quote.markup_bps, title=quote.rate.title)
 
 def job_public(job):
     payload = job.quote.payload
@@ -210,8 +213,8 @@ class Jobs(Private):
             return ok(results=[job_public(row) for row in ordered], next=None, tracked_supported=True)
         return page(request, jobs, job_public)
     def post(self, request):
-        data = body(request, ("quote_id",))
-        job, created = services.submit_job(request.user, data.get("quote_id"), request.headers.get("Idempotency-Key"))
+        data = body(request, ("quote_id", "asset_id"))
+        job, created = services.submit_job(request.user, data.get("quote_id"), request.headers.get("Idempotency-Key"), data.get("asset_id"))
         return Response({"ok": True, **job_public(job)}, status=202 if created else 200)
 
 class JobDetail(Private):

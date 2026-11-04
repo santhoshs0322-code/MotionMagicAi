@@ -186,7 +186,9 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Maximum charge: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
                 Text("Available balance: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.availablePaise)}")
-                Text("After confirmation, your job appears in My Projects. You can run up to three generations at once. Credits are reserved until each job finishes or fails.", fontSize = 13.sp)
+                Text(if(quote.deferredInput && (quote.sourcePhoto || quote.sourceVideoPath != null))
+                    "After confirmation, your reference uploads with progress, then your generation appears in My Projects. Credits are reserved while it runs and charged only on success."
+                    else "After confirmation, your generation appears in My Projects. You can run up to three generations at once. Credits are reserved while it runs and charged only on success.", fontSize = 13.sp)
                 if(!enough) Text("Add ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise - quote.availablePaise)} to create this video or image.", color = Color(0xFFFFD267))
             } },
             confirmButton = { Button(onClick = { if(enough) vm.confirmCloudGeneration() else { vm.dismissCloudQuote(); vm.go(Screen.PLANS) } },

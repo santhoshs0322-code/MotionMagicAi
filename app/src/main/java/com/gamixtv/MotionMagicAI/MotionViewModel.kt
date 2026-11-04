@@ -284,7 +284,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         val request = if(image) imageDraft else draft
         val withVideo = !image && screen == Screen.IMAGE && request.modelId == "kling-o3-reference" && referenceVideoPath != null
         val withPhoto = !withVideo && screen != Screen.TEXT && screen != Screen.REELS && photo != null
-        startWork("Checking your creation", "Preparing a price. Generation starts only after you confirm.", replaceableOnCancel = true) {
+        val sourceVideo = if(withVideo) referenceVideoPath else null
+        val selectedPhotoRevision = photoRevision
+        startWork("Reviewing your price", "Getting your exact credit price. Your media uploads after confirmation.", replaceableOnCancel = true) {
             val account = checkNotNull(activeAccountId) { "Sign in before creating with AI." }
             val session = cloud.session()
             require(session.user.id == account && activeAccountId == account) { "Your account changed. Start this creation again." }
@@ -300,15 +302,24 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 .put("prompt", request.prompt.trim().ifBlank { "Animate this photo with gentle natural movement." })
             if(!image) payload.put("duration", request.duration).put("generated_audio", request.generatedAudio)
             coroutineScope {
-                val walletCheck = async { cloud.request("GET", "/wallet", session) }
-                if(withPhoto) payload.put("asset_id", cloud.uploadImage(selectedPhotoFile, session, if(image) "image" else "video"))
-                if(withVideo) payload.put("asset_id", cloud.uploadReferenceVideo(File(checkNotNull(referenceVideoPath)), session))
+                val deferred = cloud.deferredInputQuotes
+                // New servers quote the input type without transferring media.
+                // Keep compatibility with servers deployed before this protocol.
+                val walletCheck = if(deferred) null else async { cloud.request("GET", "/wallet", session) }
+                if(deferred) payload.put("input_kind", if(withVideo) "video" else if(withPhoto) "image" else "text")
+                else {
+                    if(withPhoto) payload.put("asset_id", cloud.uploadImage(selectedPhotoFile, session, if(image) "image" else "video"))
+                    if(withVideo) payload.put("asset_id", cloud.uploadReferenceVideo(File(checkNotNull(sourceVideo)), session))
+                }
                 val quote = cloud.request("POST", "/quotes", session, payload)
-                val wallet = walletCheck.await()
-                if(activeAccountId == account) walletCredits = wallet.getLong("available_credits")
-                cloudQuote = CloudQuote(quote.getString("id"), quote.getLong("maximum_charge_paise"), wallet.getLong("available_paise"),
+                val available = if(deferred) quote.getLong("available_credits") else checkNotNull(walletCheck).await().getLong("available_credits")
+                currentCoroutineContext().ensureActive()
+                if(activeAccountId != account) return@coroutineScope
+                walletCredits = available
+                cloudQuote = CloudQuote(quote.getString("id"), quote.getLong("maximum_charge_paise"), available,
                     quote.getString("title"), session, request.copy(outputCount = 1), image, withPhoto,
-                    if(withVideo) referenceVideoPath else null, if(withVideo) storyRoot else null, if(withVideo) storyPart else 0)
+                    sourceVideo, if(withVideo) storyRoot else null, if(withVideo) storyPart else 0,
+                    deferredInput = deferred, sourcePhotoRevision = selectedPhotoRevision)
             }
         }
     }
@@ -323,13 +334,28 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
         cloudQuote = null
         startWork("Starting your creation", "Your credits are reserved while the server generates your media.") {
-            cloudWork = true
             try {
                 val session = cloud.session()
-                require(session.user.id == quote.session.user.id) { "Your account changed. Request a new price." }
+                require(session.user.id == quote.session.user.id && activeAccountId == session.user.id) { "Your account changed. Request a new price." }
+                require(!quote.sourcePhoto || photoRevision == quote.sourcePhotoRevision) { "Your photo changed. Review the new creation price." }
+                var assetId: String? = null
+                if(quote.deferredInput && (quote.sourcePhoto || quote.sourceVideoPath != null)) {
+                    val title = if(quote.sourcePhoto) "Uploading your photo" else "Uploading your reference video"
+                    work.value = WorkState(title, detail = "Sending your reference securely. Generation starts after upload.")
+                    val progress: suspend (Long, Long) -> Unit = { sent, total -> withContext(Dispatchers.Main) {
+                        if(activeAccountId == session.user.id && work.value != null)
+                            work.value = WorkState(title, (sent.toFloat() / total).coerceIn(0f, 1f), "Sending your reference securely.")
+                    } }
+                    assetId = if(quote.sourcePhoto) cloud.uploadImage(selectedPhotoFile, session, if(quote.image) "image" else "video", progress)
+                        else cloud.uploadReferenceVideo(File(checkNotNull(quote.sourceVideoPath)), session, progress)
+                }
+                currentCoroutineContext().ensureActive()
+                require(activeAccountId == session.user.id) { "Your account changed. Request a new price." }
+                work.value = WorkState("Starting your creation", detail = "Reserving credits and adding your generation to My Projects.")
                 val pending = JSONObject().put("quote_id", quote.id).put("key", UUID.randomUUID().toString())
                     .put("title", quote.draft.prompt.take(55).ifBlank { quote.title }).put("image", quote.image)
                     .put("duration", if(quote.image) 0 else quote.draft.duration).put("aspect", quote.draft.aspect)
+                assetId?.let { pending.put("asset_id", it) }
                 if(quote.sourcePhoto && selectedPhotoFile.isFile) {
                     val preview = File(projectDir(session.user.id), "preview_${pending.getString("key")}.jpg")
                     val saved = withContext(Dispatchers.IO) { runCatching { createJobPreview(selectedPhotoFile, preview) }.isSuccess }
@@ -338,8 +364,11 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 quote.sourceVideoPath?.let { pending.put("preview", it).put("preview_video", true) }
                 quote.storyRoot?.let { pending.put("story_root", it).put("story_part", quote.storyPart) }
                 withContext(Dispatchers.IO) { updateCloudPending(session, pending, pending.getString("key")) }
+                cloudWork = true
                 val job = try {
-                    cloud.request("POST", "/jobs", session, JSONObject().put("quote_id", quote.id), pending.getString("key"))
+                    val submission = JSONObject().put("quote_id", quote.id)
+                    assetId?.let { submission.put("asset_id", it) }
+                    cloud.request("POST", "/jobs", session, submission, pending.getString("key"))
                 } catch(e: CloudException) {
                     if(e.status in listOf(400, 402, 403, 404, 409, 429)) withContext(Dispatchers.IO) {
                         updateCloudPending(session, null, pending.getString("key"))
@@ -372,11 +401,13 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 if(request.has("job_id")) continue
                 val id = pendingId(request)
                 try {
-                    val job = cloud.request("POST", "/jobs", session, JSONObject().put("quote_id", request.getString("quote_id")), request.getString("key"))
+                    val submission = JSONObject().put("quote_id", request.getString("quote_id"))
+                    request.optString("asset_id").takeIf { it.isNotBlank() }?.let { submission.put("asset_id", it) }
+                    val job = cloud.request("POST", "/jobs", session, submission, request.getString("key"))
                     request.put("job_id", job.getString("id"))
                     withContext(Dispatchers.IO) { updateCloudPending(session, request, id) }
                 } catch(e: CloudException) {
-                    if(e.status in listOf(400, 402, 404, 409, 429)) withContext(Dispatchers.IO) { updateCloudPending(session, null, id) }
+                    if(e.status in listOf(400, 402, 403, 404, 409, 429)) withContext(Dispatchers.IO) { updateCloudPending(session, null, id) }
                     else throw e
                 }
             }
@@ -683,12 +714,15 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
     fun selectVideoModel(model: VideoModelOption) {
         if(model.id != "kling-o3-reference") { referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0 }
+        val options = cloudRates.filter { it.kind == "video" && it.modelId == model.id }
+        val chosen = options.firstOrNull { it.size == draft.resolution && it.audio == draft.generatedAudio }
+            ?: options.firstOrNull { it.size == draft.resolution } ?: options.firstOrNull()
         updateDraft(draft.copy(
             modelId = model.id,
-            duration = draft.duration.takeIf { it in model.durations } ?: model.durations.min(),
-            resolution = draft.resolution.takeIf { it in model.resolutions } ?: model.resolutions.first(),
-            generatedAudio = draft.generatedAudio && model.supportsGeneratedAudio,
-            aspect = if(model.id == "gemini-omni-1.1-flash" && draft.aspect == "1:1") "9:16" else draft.aspect,
+            duration = draft.duration.takeIf { it in (chosen?.durations ?: model.durations) } ?: chosen?.durations?.firstOrNull() ?: model.durations.min(),
+            resolution = chosen?.size ?: draft.resolution.takeIf { it in model.resolutions } ?: model.resolutions.first(),
+            generatedAudio = chosen?.audio ?: (draft.generatedAudio && model.supportsGeneratedAudio),
+            aspect = draft.aspect.takeIf { chosen == null || it in chosen.ratios } ?: chosen?.ratios?.firstOrNull() ?: "9:16",
         ))
     }
 

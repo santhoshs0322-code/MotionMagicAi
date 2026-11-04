@@ -1,7 +1,7 @@
 """Pinned fal contracts. Clients can select a rate, never a provider endpoint.
 
 Schemas: https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>
-Reviewed 2026-10-30. Prices are deployment configuration, not provider guesses.
+Duration contracts reviewed 2026-11-04. Prices are deployment configuration, not provider guesses.
 """
 import math
 
@@ -33,7 +33,7 @@ def variants():
                 cost_env = "FAL_" + slug.replace("-", "_").upper() + ("_COST_PAISE_PER_SECOND" if video else "_COST_PAISE")
                 config = {"provider": "fal", "app_model_id": name, "aspect_ratios": RATIOS if not video else ["16:9", "9:16", "1:1"], "input_modes": ["text", "image_and_text"]}
                 if video:
-                    config.update(resolution=size, durations=[5, 10] if name == "kling-3-omni" else [5, 10, 15], generated_audio=sound, image_aspect_ratio="source")
+                    config.update(resolution=size, durations=list(range(1 if model["family"] == "pixverse" else 3, 16)), generated_audio=sound, image_aspect_ratio="source")
                     if model["family"] == "kling_reference":
                         config.update(input_modes=["video_and_text"], reference_video=True)
                 else:

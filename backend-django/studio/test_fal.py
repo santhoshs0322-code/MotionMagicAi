@@ -136,6 +136,16 @@ class FalFlowTests(TestCase):
         with self.assertRaisesMessage(Exception, "audio setting"):
             services.create_quote(self.account, {"service": "pixverse-v6-720p-silent", "prompt": "A beach", "generated_audio": True})
 
+    def test_each_model_prices_its_full_duration_range_and_rejects_outside_values(self):
+        for service, minimum in (("kling-3-omni-720p-silent", 3), ("pixverse-v6-720p-silent", 1)):
+            for duration in (minimum, 7, 15):
+                quote = services.create_quote(self.account, {"service": service, "prompt": "A lake", "duration": duration, "generated_audio": False})
+                self.assertEqual(quote.provider_cost_paise, 10 * duration)
+                self.assertEqual(quote.payload["units"], duration)
+            for duration in (minimum - 1, 16, 7.5, True):
+                with self.assertRaisesMessage(Exception, "supported duration"):
+                    services.create_quote(self.account, {"service": service, "prompt": "A lake", "duration": duration, "generated_audio": False})
+
     def test_other_accounts_and_oversized_photos_are_rejected_before_charging(self):
         other = Account.objects.create(google_sub="other", email="other@example.test", name="Other")
         asset = Asset.objects.create(account=other, key="other/image", mime="image/png", size=100, ready=True)
@@ -165,6 +175,66 @@ class FalFlowTests(TestCase):
         with self.assertRaisesMessage(Exception, "Source media is unavailable"):
             services.create_quote(other, {"service": service, "prompt": "Next scene", "duration": 10,
                                           "generated_audio": True, "asset_id": str(asset.pk)})
+
+    @patch("studio.storage.client")
+    def test_deferred_quote_returns_price_and_balance_without_upload_or_credit_hold(self, s3):
+        from rest_framework.test import APIClient
+        from .authentication import issue_token
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION="Bearer " + issue_token(self.account))
+        response = client.post("/api/v1/quotes", {"service": "kling-o3-reference-1080p-audio", "prompt": "Next scene",
+            "duration": 10, "generated_audio": True, "input_kind": "video"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        quote = self.account.quote_set.get(pk=response.json()["id"])
+        self.assertEqual(quote.payload["input_kind"], "video")
+        self.assertNotIn("asset_id", quote.payload)
+        self.assertGreater(response.json()["available_credits"], 0)
+        self.assertFalse(Asset.objects.exists())
+        self.assertFalse(Job.objects.exists())
+        self.assertFalse(Ledger.objects.filter(kind="reserve").exists())
+        s3.assert_not_called()
+
+    def test_deferred_source_is_validated_before_any_credit_reservation(self):
+        quote = services.create_quote(self.account, {"service": "kling-o3-reference-1080p-audio", "prompt": "Next scene",
+            "duration": 10, "generated_audio": True, "input_kind": "video"})
+        with self.assertRaisesMessage(Exception, "Upload your reference media"):
+            services.submit_job(self.account, quote.pk, "missing-source-key")
+        other = Account.objects.create(google_sub="deferred-other", email="deferred@example.test", name="Other")
+        asset = Asset.objects.create(account=other, key=f"accounts/{other.pk}/video/uploaded/ref",
+            mime="video/mp4", size=1000, ready=True)
+        with self.assertRaisesMessage(Exception, "Source media is unavailable"):
+            services.submit_job(self.account, quote.pk, "foreign-source-key", str(asset.pk))
+        asset.account = self.account; asset.key = f"accounts/{self.account.pk}/video/uploaded/ref"; asset.ready = False; asset.save()
+        with self.assertRaisesMessage(Exception, "Source media is unavailable"):
+            services.submit_job(self.account, quote.pk, "unfinished-source-key", str(asset.pk))
+        asset.ready = True; asset.mime = "image/png"; asset.save()
+        with self.assertRaisesMessage(Exception, "MP4 reference video"):
+            services.submit_job(self.account, quote.pk, "wrong-source-kind-key", str(asset.pk))
+        self.assertFalse(Job.objects.exists())
+        self.assertFalse(Ledger.objects.filter(kind="reserve").exists())
+        quote.refresh_from_db()
+        self.assertNotIn("asset_id", quote.payload)
+
+    def test_deferred_job_binds_owned_source_and_retry_does_not_double_charge(self):
+        from .authentication import digest
+        quote = services.create_quote(self.account, {"service": "qwen-image-720p", "prompt": "A lake", "input_kind": "image"})
+        asset = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/image/uploaded/source",
+            mime="image/png", size=1000, ready=True)
+        job, created = services.submit_job(self.account, quote.pk, "deferred-source-key", str(asset.pk))
+        self.assertTrue(created)
+        same, created = services.submit_job(self.account, quote.pk, "deferred-source-key", str(asset.pk))
+        self.assertFalse(created)
+        self.assertEqual(job.pk, same.pk)
+        quote.refresh_from_db()
+        self.assertEqual(quote.payload["asset_id"], str(asset.pk))
+        self.assertEqual(quote.payload["input_key"], asset.key)
+        self.assertEqual(quote.payload_hash, digest(json.dumps(quote.payload, sort_keys=True)))
+        self.assertEqual(Ledger.objects.filter(kind="reserve").count(), 1)
+        with self.assertRaisesMessage(Exception, "already has a job"):
+            services.submit_job(self.account, quote.pk, "another-source-key", str(asset.pk))
+        text_quote = services.create_quote(self.account, {"service": "qwen-image-720p", "prompt": "A lake", "input_kind": "text"})
+        with self.assertRaisesMessage(Exception, "does not include reference media"):
+            services.submit_job(self.account, text_quote.pk, "text-source-key", str(asset.pk))
 
     @patch("studio.fal.requests.post")
     @patch("studio.fal.storage.client")

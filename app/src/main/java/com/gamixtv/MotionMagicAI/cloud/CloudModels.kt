@@ -22,7 +22,8 @@ data class CloudRate(
 
 data class CloudQuote(val id: String, val chargePaise: Long, val availablePaise: Long, val title: String,
     val session: AuthSession, val draft: CreationDraft, val image: Boolean, val sourcePhoto: Boolean,
-    val sourceVideoPath: String? = null, val storyRoot: String? = null, val storyPart: Int = 0)
+    val sourceVideoPath: String? = null, val storyRoot: String? = null, val storyPart: Int = 0,
+    val deferredInput: Boolean = false, val sourcePhotoRevision: Int = 0)
 
 class CloudException(val status: Int, message: String) : Exception(message)
 

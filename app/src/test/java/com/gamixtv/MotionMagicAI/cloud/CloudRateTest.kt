@@ -31,4 +31,12 @@ class CloudRateTest {
         assertNull(silent.priceFor(draft.copy(generatedAudio = true), false))
         assertNull(silent.priceFor(draft.copy(aspect = "16:9"), false))
     }
+    @Test fun typedDurationUsesServerPriceAndCannotExceedModelRange() {
+        val rate = CloudRate("kling-silent", "Kling", "kling-3-omni", "video", "720p",
+            listOf("9:16"), (3..15).toList(), false, true, creditPrices = (3..15).associateWith { it * 28L })
+        val draft = CreationDraft(modelId = "kling-3-omni", duration = 7)
+        assertEquals(196L, rate.priceFor(draft, false))
+        assertNull(rate.priceFor(draft.copy(duration = 2), false))
+        assertNull(rate.priceFor(draft.copy(duration = 16), false))
+    }
 }

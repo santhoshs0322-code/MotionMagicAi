@@ -15,6 +15,10 @@ import java.net.URL
 import java.util.UUID
 import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -23,6 +27,7 @@ import org.json.JSONObject
 /** Authenticated Django API only. Provider credentials never enter the Android application. */
 class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fromBuildConfig()) {
     companion object { private val renewalLock = Mutex() }
+    var deferredInputQuotes: Boolean = false; private set
     private val sessions = EncryptedAuthSessionStore(context, config)
     suspend fun session(): AuthSession = renewalLock.withLock {
         val saved = sessions.read() ?: throw CloudException(401, "Sign in to create with AI.")
@@ -34,7 +39,9 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
     }
 
     suspend fun catalog(): List<CloudRate> {
-        val rows = request("GET", "/capabilities").getJSONArray("cloud")
+        val response = request("GET", "/capabilities")
+        deferredInputQuotes = response.optBoolean("deferred_input_quotes")
+        val rows = response.getJSONArray("cloud")
         return (0 until rows.length()).map { i ->
             val row = rows.getJSONObject(i); val settings = row.getJSONObject("config")
             val ratios = settings.optJSONArray("aspect_ratios")
@@ -62,6 +69,7 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
         config.validationError()?.let { throw CloudException(0, it) }
         require(path.startsWith("/") && !path.contains(".."))
         val connection = connection(config.normalizedBaseUrl + "/api/v1" + path)
+        withCancellableConnection(connection) {
         try {
             connection.requestMethod = method
             connection.setRequestProperty("Accept", "application/json")
@@ -87,19 +95,25 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
             val result = connection.inputStream.use { JSONObject(readBounded(it, 512 * 1024)) }
             if(!result.optBoolean("ok")) throw CloudException(0, "The server could not complete this request.")
             result
-        } catch(e: IOException) { throw CloudException(0, "Connection interrupted. Open My Projects and tap Refresh projects to recover a submitted job.") }
-        finally { connection.disconnect() }
+        } catch(e: IOException) {
+            currentCoroutineContext().ensureActive()
+            throw CloudException(0, "Connection interrupted. Open My Projects and tap Refresh projects to recover a submitted job.")
+        }
+        }
     }
 
-    suspend fun uploadImage(file: File, session: AuthSession, kind: String): String = uploadMedia(file, session, kind, "image/png")
+    suspend fun uploadImage(file: File, session: AuthSession, kind: String, onProgress: suspend (Long, Long) -> Unit = { _, _ -> }): String =
+        uploadMedia(file, session, kind, "image/png", onProgress)
 
-    suspend fun uploadReferenceVideo(file: File, session: AuthSession): String = uploadMedia(file, session, "video", "video/mp4")
+    suspend fun uploadReferenceVideo(file: File, session: AuthSession, onProgress: suspend (Long, Long) -> Unit = { _, _ -> }): String =
+        uploadMedia(file, session, "video", "video/mp4", onProgress)
 
-    private suspend fun uploadMedia(file: File, session: AuthSession, kind: String, mime: String): String {
+    private suspend fun uploadMedia(file: File, session: AuthSession, kind: String, mime: String, onProgress: suspend (Long, Long) -> Unit): String {
         val limit = if(mime == "video/mp4") 200L * 1024 * 1024 else 10L * 1024 * 1024
-        require(file.length() in 1..limit) { if(mime == "video/mp4") "Choose an MP4 video under 200 MB." else "Choose a photo smaller than 10 MB." }
+        val size = file.length()
+        require(size in 1..limit) { if(mime == "video/mp4") "Choose an MP4 video under 200 MB." else "Choose a photo smaller than 10 MB." }
         require(kind == "image" || kind == "video")
-        val prepared = request("POST", "/assets", session, JSONObject().put("mime", mime).put("size", file.length()).put("kind", kind))
+        val prepared = request("POST", "/assets", session, JSONObject().put("mime", mime).put("size", size).put("kind", kind))
         val id = prepared.getJSONObject("asset").getString("id")
         val upload = prepared.getJSONObject("upload")
         withContext(Dispatchers.IO) {
@@ -114,25 +128,32 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
             }.toByteArray(Charsets.UTF_8)
             val suffix = "\r\n--$boundary--\r\n".toByteArray()
             val connection = storageConnection(upload.getString("url"))
+            withCancellableConnection(connection) {
             try {
                 connection.requestMethod = "POST"; connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-                connection.setFixedLengthStreamingMode(prefix.size + file.length() + suffix.size)
+                connection.setFixedLengthStreamingMode(prefix.size + size + suffix.size)
                 connection.outputStream.use { output ->
                     output.write(prefix)
                     file.inputStream().use { input ->
-                        val buffer = ByteArray(64 * 1024)
+                        val buffer = ByteArray(64 * 1024); var sent = 0L; var reportedPercent = -1
                         while(true) {
                             currentCoroutineContext().ensureActive()
                             val count = input.read(buffer); if(count < 0) break
                             output.write(buffer, 0, count)
+                            sent += count
+                            val percent = (sent * 100 / size).toInt()
+                            if(percent != reportedPercent) { reportedPercent = percent; onProgress(sent, size) }
                         }
                     }
                     output.write(suffix)
                 }
                 if(connection.responseCode !in 200..299) throw CloudException(0, "Media upload failed. Try again.")
-            } catch(e: IOException) { throw CloudException(0, "Media upload was interrupted. Please retry.") }
-            finally { connection.disconnect() }
+            } catch(e: IOException) {
+                currentCoroutineContext().ensureActive()
+                throw CloudException(0, "Media upload was interrupted. Please retry.")
+            }
+            }
         }
         request("POST", "/assets/$id", session, JSONObject())
         return id
@@ -177,6 +198,14 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
         val host = URL(address).host.lowercase()
         require(host.endsWith(".amazonaws.com")) { "Unsupported media storage address." }
         return connection(address) // Never attach app or provider authorization to S3.
+    }
+    private suspend fun <T> withCancellableConnection(connection: HttpsURLConnection, block: suspend () -> T): T = coroutineScope {
+        // Closing the socket from a separate IO coroutine interrupts a blocking
+        // response/upload when the user cancels, instead of waiting for timeout.
+        val closer = launch(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
+            try { awaitCancellation() } finally { connection.disconnect() }
+        }
+        try { block() } finally { closer.cancel() }
     }
     private suspend fun readBounded(input: java.io.InputStream, limit: Int): String {
         val bytes = ByteArrayOutputStream(); val buffer = ByteArray(8192)
