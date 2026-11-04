@@ -168,12 +168,12 @@ fun TestNotice(text: String = "Free local tools · AI creation uses generation c
 fun SettingRow(icon: ImageVector, title: String, subtitle: String? = null,
                onClick: () -> Unit = {}, trailing: @Composable (() -> Unit)? = null,
                tint: Color = Color.White) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 15.dp, vertical = 16.dp),
+    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(21.dp), tint = tint)
         Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp, color = tint)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = tint)
             if (subtitle != null) Text(subtitle, fontSize = 11.sp, color = Muted)
         }
         if (trailing != null) trailing() else Icon(Icons.Rounded.ChevronRight, null, Modifier.size(18.dp), tint = Muted)

@@ -213,8 +213,9 @@ fun ProfileScreen(vm: MotionViewModel) {
 @Composable
 fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
     var ratioDialog by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Surface(color = Panel, shape = PanelShape) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Preferences", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Surface(color = Color(0xFF211E2A), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFF3B3547))) {
             Column {
                 SettingRow(Icons.Rounded.Language, "Language", "English", { vm.notice("Language", "The interface is available in English in this build. Device voice availability depends on installed speech data.") })
                 SettingRow(Icons.Rounded.HighQuality, "Video Quality", vm.settings.quality, { vm.notice("Video quality", "On-device photo animations use a 540-pixel short edge. AI video resolution is selected on the creation screen from the available provider options.") })
@@ -229,14 +230,14 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
                 })
             }
         }
-        Surface(color = Panel, shape = PanelShape) {
+        Text("Help and information", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 10.dp))
+        Surface(color = Color(0xFF211E2A), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFF3B3547))) {
             Column {
                 SettingRow(Icons.Rounded.SupportAgent, "Help & Support", onClick = { showHelp(vm) })
                 SettingRow(Icons.Rounded.PrivacyTip, "Privacy", onClick = { vm.notice("Your media and cloud generation", "Local projects are saved on your device. For AI creation, your chosen photo is uploaded to private cloud storage while preparing a quote. After you confirm generation, your prompt and reference photo are sent through the server to fal.ai and the selected model provider. Generated media is saved in cloud storage and downloaded to your device.\n\nGoogle sign-in shares your account ID, name, email and picture with the login server. Session tokens are encrypted with Android Keystore. Signing out clears the saved session but does not delete server records.\n\nDeleting a local project removes its local copy; cloud outputs, uploaded references and gallery copies remain. Sharing sends media to the app you choose. Device Voice uses the selected Android speech engine, whose processing depends on its installed voices and settings.") })
                 SettingRow(Icons.Rounded.Description, "About this build", onClick = { vm.notice("MotionMagic AI", "Version ${BuildConfig.VERSION_NAME}\n\nChoose an enabled AI model to create images or videos. Review the server price before confirming. Device Voice does not use AI generation credits. Use media you have permission to upload and publish.") })
             }
         }
-        TestNotice("AI creation uses generation credits after you confirm the price. Device Voice remains available without credits.")
     }
     if(ratioDialog) AlertDialog(onDismissRequest = { ratioDialog = false }, title = { Text("Default aspect ratio") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -286,11 +287,31 @@ fun PlansScreen(vm: MotionViewModel) {
                         if (mostPopular) Text("★ Most popular", color = Color(0xFFFFD052), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Text("One-time purchase · credits never expire", color = Color(0xFFCDB8E2), fontSize = 11.sp)
                     }
-                    TextButton(enabled = !vm.billingBusy, onClick = { if(activity == null) vm.message("Open the Android app to buy credits.") else vm.buy(activity, sku) }) { Text(if(vm.billingBusy) "Opening Play…" else "Buy") }
+                    TextButton(enabled = vm.billingReady && !vm.billingBusy, onClick = { if(activity == null) vm.message("Open the Android app to buy credits.") else vm.buy(activity, sku) }) { Text(if(vm.buyingProductId == sku) "Opening Play…" else "Buy") }
                 }
             }
         }
-        if(vm.creditProducts.isEmpty()) Text("Credit packs are being prepared in Google Play.", color = Muted, fontSize = 12.sp)
+        if(vm.billingLoading && vm.creditProducts.isEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFFC1A6E8))
+                Text("Loading credit packs…", color = Muted, fontSize = 12.sp)
+            }
+            repeat(4) {
+                Surface(color = Color(0xFF211C2B), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(88.dp)) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.width(130.dp).height(14.dp).background(Color(0xFF3A3149), RoundedCornerShape(5.dp)))
+                        Box(Modifier.width(200.dp).height(10.dp).background(Color(0xFF30293D), RoundedCornerShape(5.dp)))
+                    }
+                }
+            }
+        }
+        vm.billingError?.let { error ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(error, color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { vm.refreshBilling(force = true) }) { Text("Retry") }
+            }
+        }
+        if(vm.billingReady && vm.creditProducts.isEmpty()) Text("Credit packs are currently unavailable.", color = Muted, fontSize = 12.sp)
         Text("Available AI models", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         if(vm.cloudRates.isEmpty()) Text(vm.cloudCatalogStatus, color = Muted, fontSize = 12.sp)
         vm.cloudRates.groupBy { it.modelId }.values.forEach { variants ->

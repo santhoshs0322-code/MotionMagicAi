@@ -18,6 +18,7 @@ import androidx.lifecycle.viewModelScope
 import com.gamixtv.MotionMagicAI.data.*
 import com.gamixtv.MotionMagicAI.cloud.*
 import com.gamixtv.MotionMagicAI.billing.PlayBilling
+import com.gamixtv.MotionMagicAI.billing.playAccountId
 import com.gamixtv.MotionMagicAI.auth.AuthSession
 import com.gamixtv.MotionMagicAI.auth.AuthConfig
 import org.json.JSONArray
@@ -47,7 +48,7 @@ enum class Screen(val title: String) {
     HOME("MotionMagic AI"), IMAGE("Image to Video"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
     REELS("AI Reels Maker"), VOICE("AI Voice Generator"), TEMPLATES("Templates"),
     PROJECTS("My Projects"), RESULT("Video Result"),
-    PROFILE("My Account"), SETTINGS("Settings"), PLANS("Plans & pricing")
+    PROFILE("My Account"), SETTINGS("Settings"), PLANS("Add credits")
 }
 
 data class WorkState(val title: String, val progress: Float = 0f, val detail: String = "")
@@ -125,7 +126,14 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var cloudQuote by mutableStateOf<CloudQuote?>(null); private set
     var billingReady by mutableStateOf(false); private set
     var billingBusy by mutableStateOf(false); private set
+    var buyingProductId by mutableStateOf<String?>(null); private set
+    var billingLoading by mutableStateOf(false); private set
+    var billingError by mutableStateOf<String?>(null); private set
     private var billingAccountId: String? = null
+    private var billingRefreshJob: Job? = null
+    private var walletRefreshJob: Job? = null
+    private var billingCheckedAt = 0L
+    private var walletCheckedAt = 0L
     var creditProducts by mutableStateOf<List<Pair<String, Long>>>(emptyList()); private set
     var walletCredits by mutableStateOf<Long?>(null); private set
     var monthlyCredits by mutableStateOf<Long?>(null); private set
@@ -186,34 +194,42 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         cloudCatalogStatus = if(cloudRates.isEmpty()) "Cloud models are not enabled on the server yet." else "Generation credits · review the price before you create"
     }
 
-    fun refreshBilling(recoverPurchases: Boolean = true) {
-        viewModelScope.launch {
-            val account = activeAccountId ?: return@launch
+    fun refreshBilling(recoverPurchases: Boolean = true, force: Boolean = false) {
+        val account = activeAccountId ?: return
+        // Pack availability and wallet balance are independent requests. Start
+        // both without making the pack list wait for the wallet response.
+        refreshWallet(force = force)
+        if(billingRefreshJob?.isActive == true || (!force && billingReady &&
+                android.os.SystemClock.elapsedRealtime() - billingCheckedAt < 5 * 60_000)) return
+        billingLoading = true
+        billingError = null
+        billingRefreshJob = viewModelScope.launch {
             try {
                 val session = cloud.session()
                 if (session.user.id != account || activeAccountId != account) return@launch
-                val wallet = cloud.request("GET", "/wallet", session)
-                if (activeAccountId != account) return@launch
-                billingAccountId = wallet.getString("billing_account_id")
-                walletCredits = wallet.getLong("available_credits")
-                monthlyCredits = wallet.optLong("monthly_credits", 0)
-                topupCredits = wallet.optLong("topup_credits", 0)
-                freeCredits = wallet.optLong("free_credits", 0)
                 val products = cloud.request("GET", "/billing/products", session).getJSONArray("products")
                 if (activeAccountId != account) return@launch
                 creditProducts = (0 until products.length()).map { index ->
                     products.getJSONObject(index).getString("sku") to products.getJSONObject(index).getLong("credits")
                 }
                 billingReady = true
+                billingCheckedAt = android.os.SystemClock.elapsedRealtime()
                 if (recoverPurchases) playBilling.recover()
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { if (activeAccountId == account) billingReady = false }
+            catch (_: Exception) { if (activeAccountId == account) {
+                billingReady = false
+                billingError = "Could not load credit packs. Check your connection and retry."
+            } }
+            finally { if(activeAccountId == account) billingLoading = false }
         }
     }
 
-    fun refreshWallet() {
-        viewModelScope.launch {
-            val account = activeAccountId ?: return@launch
+    fun refreshWallet(force: Boolean = true) {
+        val account = activeAccountId ?: return
+        if((!force && walletRefreshJob?.isActive == true) || (!force && walletCredits != null &&
+                android.os.SystemClock.elapsedRealtime() - walletCheckedAt < 15_000)) return
+        if(force) walletRefreshJob?.cancel()
+        walletRefreshJob = viewModelScope.launch {
             try {
                 val session = cloud.session()
                 if(session.user.id != account || activeAccountId != account) return@launch
@@ -224,25 +240,35 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 monthlyCredits = wallet.optLong("monthly_credits", 0)
                 topupCredits = wallet.optLong("topup_credits", 0)
                 freeCredits = wallet.optLong("free_credits", 0)
+                walletCheckedAt = android.os.SystemClock.elapsedRealtime()
+            } catch(e: CancellationException) { throw e
             } catch (_: Exception) { /* Keep the last known balance; Create checks the server again. */ }
         }
     }
 
     fun buy(activity: Activity, productId: String) {
         if (billingBusy) return
+        val account = activeAccountId ?: run { message("Sign in before purchasing."); return }
         billingBusy = true
+        buyingProductId = productId
         viewModelScope.launch {
             try {
-                val account = checkNotNull(activeAccountId) { "Sign in before purchasing." }
                 val session = cloud.session()
                 require(session.user.id == account) { "Your account changed. Sign in again." }
-                val accountId = billingAccountId ?: cloud.request("GET", "/wallet", session).getString("billing_account_id")
-                if(activeAccountId != account) { billingBusy = false; return@launch }
+                require(creditProducts.any { it.first == productId }) { "This credit pack is unavailable. Refresh the pack list." }
+                // This is the same deterministic SHA-256 identity verified by
+                // Django. It does not require a wallet request before checkout.
+                val accountId = billingAccountId ?: playAccountId(account)
+                if(activeAccountId != account) return@launch
                 billingAccountId = accountId
-                playBilling.buy(activity, productId, accountId) { billingBusy = false }
+                playBilling.buy(activity, productId, accountId) {
+                    if(activeAccountId == account) { billingBusy = false; buyingProductId = null }
+                }
             } catch (e: Exception) {
-                billingBusy = false
-                message(e.message ?: "Sign in and reconnect before purchasing.")
+                if(activeAccountId == account) {
+                    billingBusy = false; buyingProductId = null
+                    message(e.message ?: "Sign in and reconnect before purchasing.")
+                }
             }
         }
     }
@@ -256,7 +282,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 require(productId in setOf(PlayBilling.TOPUP_500, PlayBilling.PACK_2500, PlayBilling.PACK_5000, PlayBilling.PACK_10000)) { "This credit pack is unavailable." }
                 cloud.request("POST", "/billing/verify", session, JSONObject().put("sku", productId).put("purchase_token", token))
                 if(activeAccountId == account) message("Credits added to your wallet.")
-                if(activeAccountId == account) refreshBilling(recoverPurchases = false)
+                if(activeAccountId == account) refreshBilling(recoverPurchases = false, force = true)
             } catch (e: Exception) { message(e.message ?: "Google Play payment completed. Tap Restore purchases after reconnecting.") }
         }
     }
@@ -573,6 +599,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun activateAccount(accountId: String?) {
         if (activeAccountId == accountId) return
         activeJob?.cancel()
+        billingRefreshJob?.cancel(); walletRefreshJob?.cancel()
+        billingRefreshJob = null; walletRefreshJob = null
         cloudJobMonitor?.cancel(); cloudJobMonitor = null; cloudMonitorGeneration++
         cloudJobs = emptyList(); observedActiveJobIds.clear()
         projects = emptyList()
@@ -583,6 +611,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         photo = null; photoName = ""; referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0; cloudQuote = null
         selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
         currentPlan = PlanTier.FREE; billingReady = false; billingBusy = false; billingAccountId = null; creditProducts = emptyList()
+        buyingProductId = null; billingLoading = false; billingError = null; billingCheckedAt = 0L; walletCheckedAt = 0L
         walletCredits = null; monthlyCredits = null; topupCredits = null; freeCredits = null
         history.clear(); screen = Screen.HOME
         draft = accountId?.let { store.draft("video", it) } ?: CreationDraft()
@@ -590,7 +619,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         voiceText = accountId?.let { store.draft("voice", it).prompt }.orEmpty()
         if (accountId != null) {
             refreshCloudCatalog()
-            refreshWallet()
+            refreshBilling(recoverPurchases = false)
             playBilling.recover()
             viewModelScope.launch {
                 val (saved, warning) = withContext(Dispatchers.IO) { store.projects(accountId) to store.lastReadWarning }

@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gamixtv.MotionMagicAI.MotionViewModel
@@ -49,12 +50,13 @@ import com.gamixtv.MotionMagicAI.data.*
 import kotlin.math.roundToInt
 
 val ReferenceGradient = Brush.horizontalGradient(listOf(Color(0xFFFF964A), Color(0xFFF34CBC), Color(0xFF793EFF)))
-private val RefField = Color(0xFF151022)
-private val RefTile = Color(0xFF241A38)
-private val RefSelected = Color(0xFF6936B4)
-private val RefMuted = Color(0xFFB6ACC9)
-private val CreatorGradient = Brush.horizontalGradient(listOf(Color(0xFFD73BFF), Color(0xFF894BFF), Color(0xFF268DFF)))
-private val CreatorBorder = Color(0xFF5D377F)
+private val RefField = Color(0xFF17151D)
+private val RefTile = Color(0xFF211E2A)
+private val RefSelected = Color(0xFF39304D)
+private val RefMuted = Color(0xFFAAA5B5)
+private val CreatorAccent = Color(0xFFC1A6E8)
+private val CreatorGradient = Brush.horizontalGradient(listOf(Color(0xFF9760D7), Color(0xFF7474D9)))
+private val CreatorBorder = Color(0xFF3B3547)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,11 +97,11 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
     }
     LaunchedEffect(Unit) { vm.refreshCloudCatalog() }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
-        Row(Modifier.fillMaxWidth().height(74.dp).background(Brush.horizontalGradient(listOf(Color(0xFF221035), Color(0xFF101428)))).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(74.dp).background(RefField).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = vm::back) { Icon(Icons.Rounded.Close, "Back", Modifier.size(25.dp)) }
             Row(Modifier.weight(1f).clickable { modes = true }.testTag("creation-mode-selector"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("MOTIONMAGIC STUDIO", color = Color(0xFFDCA5FF), fontSize = 9.sp, letterSpacing = 1.6.sp, fontWeight = FontWeight.Bold)
+                    Text("MOTIONMAGIC STUDIO", color = CreatorAccent, fontSize = 9.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Medium)
                     Text(mode.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 3.dp))
                 }
                 Icon(Icons.Rounded.ExpandMore, null, Modifier.size(20.dp), tint = RefMuted)
@@ -111,7 +113,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                 ReferencePhotoInput(vm, still, onPickPhoto, onPickVideo)
             }
             Surface(color = Color.Transparent, shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, CreatorBorder), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF251333), Color(0xFF141429)))).padding(12.dp)) {
+                Column(Modifier.fillMaxWidth().background(RefTile).padding(12.dp)) {
                     Row(Modifier.padding(horizontal = 5.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp), tint = Color(0xFFECA7FF))
                         Text("Your prompt", Modifier.weight(1f).padding(start = 8.dp), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -152,12 +154,8 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         vm.switchCreationMode(chosen); modes = false
     }
     if(settings) ModalBottomSheet(onDismissRequest = { settings = false }, containerColor = RefField, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        val maxHeight = (LocalConfiguration.current.screenHeightDp * .87f).dp
-        Column(Modifier.fillMaxWidth().heightIn(max = maxHeight).imePadding()) {
-            ReferenceSettings(draft, still, video, image, update, vm::selectVideoModel, { settings = false },
-                vm.cloudRates, mode == CreationMode.IMAGE_TO_VIDEO && vm.referenceVideoPath == null, Modifier.weight(1f, fill = false))
-            ReferenceComposerBar(draft, still, modelName, ready, estimatedCredits, true, audioAvailable, { settings = false }, update, { settings = false; create() })
-        }
+        CreationSettingsPanel(draft, still, vm.cloudRates, mode == CreationMode.IMAGE_TO_VIDEO && vm.referenceVideoPath == null,
+            ready, update, vm::selectVideoModel, { settings = false }, { settings = false; create() })
     }
     if(gallery) ModalBottomSheet(onDismissRequest = { gallery = false }, containerColor = Ink, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         val galleryTemplates = vm.showcaseTemplates.filter { it.mode == mode }.ifEmpty { templates }
@@ -197,7 +195,7 @@ private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, onPick: () 
     val reference = if(still) null else vm.referenceVideoPath
     val referenceAvailable = vm.cloudRates.any { it.modelId == "kling-o3-reference" }
     val shape = RoundedCornerShape(23.dp)
-    Column(Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(listOf(Color(0xFF31133F), Color(0xFF191933), Color(0xFF112841))))
+    Column(Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(listOf(Color(0xFF27202F), Color(0xFF1D2330))))
         .drawBehind { drawRoundRect(CreatorBorder, cornerRadius = CornerRadius(23.dp.toPx()), style = Stroke(1.dp.toPx())) }) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(if(reference != null) Icons.Rounded.VideoLibrary else Icons.Rounded.AddPhotoAlternate, null, Modifier.size(18.dp), tint = Color(0xFFF2AEFF))
@@ -244,8 +242,8 @@ private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, onPick: () 
 
 @Composable
 private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: String, ready: Boolean, estimatedCredits: Long?, expanded: Boolean, audioAvailable: Boolean, settings: () -> Unit, update: (CreationDraft) -> Unit, create: () -> Unit) {
-    Surface(color = Color(0xFF160F24), shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), border = BorderStroke(1.dp, Color(0xFF432957))) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(top = 12.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Surface(color = RefField, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), border = BorderStroke(1.dp, CreatorBorder)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if(!expanded) Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     ComposerPill(model.replace("Gemini ", "").replace("PixVerse ", ""), Modifier.testTag("model-selector"), settings)
@@ -278,8 +276,8 @@ private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: St
 
 @Composable
 private fun ComposerPill(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = Color(0xFF2B1A41), shape = RoundedCornerShape(11.dp), border = BorderStroke(1.dp, Color(0xFF603C7A)), modifier = modifier) {
-        Text(text, fontSize = 11.sp, color = Color(0xFFEEDAFF), modifier = Modifier.padding(horizontal = 11.dp, vertical = 11.dp), maxLines = 1)
+    Surface(onClick = onClick, color = RefTile, shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, CreatorBorder), modifier = modifier) {
+        Text(text, fontSize = 11.sp, color = Color(0xFFE3DFEA), modifier = Modifier.padding(horizontal = 11.dp, vertical = 11.dp), maxLines = 1)
     }
 }
 
@@ -317,96 +315,133 @@ private fun ModeTile(title: String, icon: ImageVector, selected: Boolean, modifi
 }
 
 @Composable
-private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: VideoModelOption, image: PremiumWorkflowOption, update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit, close: () -> Unit,
-    rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, sourceRatio: Boolean, modifier: Modifier = Modifier) {
-    val modelRates = rates.filter { it.modelId == if(still) image.id else video.id }
-    val activeRate = modelRates.firstOrNull { it.matches(draft, still) }
-    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Tune, null, Modifier.size(23.dp), tint = Color(0xFFE1A1FF))
-            Text("Studio settings", fontWeight = FontWeight.SemiBold, fontSize = 21.sp, modifier = Modifier.weight(1f).padding(start = 10.dp))
-            IconButton(onClick = close, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.Close, "Close settings", tint = RefMuted) }
-        }
-        Text(when {
-            activeRate == null -> "This model or setting is unavailable on the server. Choose an available option."
-            activeRate.priceFor(draft, still) == null -> "Choose a supported duration and aspect ratio"
-            else -> "${activeRate.priceFor(draft, still)} credits · review before creating"
-        }, color = Color(0xFFE6BBFF), fontSize = 12.sp)
-        Text("Model", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            if(still) items(ImageModelCatalog.models, key = { it.id }) { option ->
-                val available = rates.any { it.kind == "image" && it.modelId == option.id }
-                ModelSquare(option.title, option.id == image.id, available, "model-option-${option.title}") {
-                    val options = rates.filter { it.kind == "image" && it.modelId == option.id }
-                    val chosen = options.firstOrNull { it.size == draft.imageQuality } ?: options.first()
-                    update(draft.copy(imageModelId = option.id, imageQuality = chosen.size,
-                        aspect = draft.aspect.takeIf { it in chosen.ratios } ?: chosen.ratios.first()))
+internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>,
+    sourceRatio: Boolean, ready: Boolean, update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
+    close: () -> Unit, create: () -> Unit) {
+    val video = VideoModelCatalog.find(draft.modelId)
+    val image = ImageModelCatalog.find(draft.imageModelId)
+    val activeRate = rates.firstOrNull { it.matches(draft, still) }
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * .87f).dp
+    Surface(color = RefField, contentColor = Color(0xFFF0EDF4)) {
+        Column(Modifier.fillMaxWidth().heightIn(max = maxHeight).imePadding()) {
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Creation settings", fontWeight = FontWeight.SemiBold, fontSize = 21.sp)
+                    Text(if(still) "Model, quality and frame shape" else "Model, audio and clip length", color = RefMuted, fontSize = 12.sp)
                 }
-            } else items(VideoModelCatalog.models, key = { it.id }) { option ->
-                val available = rates.any { it.kind == "video" && it.modelId == option.id }
-                ModelSquare(option.title, option.id == video.id, available, "model-option-${option.title}") { selectVideo(option) }
+                IconButton(onClick = close) { Icon(Icons.Rounded.Close, "Close settings", Modifier.size(22.dp), tint = RefMuted) }
+            }
+            HorizontalDivider(color = CreatorBorder)
+            ReferenceSettings(draft, still, video, image, update, selectVideo, rates, sourceRatio, Modifier.weight(1f, fill = false))
+            ReferenceComposerBar(draft, still, if(still) image.title else video.title, ready, activeRate?.priceFor(draft, still), true,
+                rates.any { it.modelId == video.id && it.size == draft.resolution && it.audio == true }, close, update, create)
+        }
+    }
+}
+
+@Composable
+private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: VideoModelOption, image: PremiumWorkflowOption,
+    update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
+    rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, sourceRatio: Boolean, modifier: Modifier = Modifier) {
+    val modelRates = rates.filter { it.modelId == (if(still) image.id else video.id) }
+    val activeRate = modelRates.firstOrNull { it.matches(draft, still) }
+    var choosingModel by remember { mutableStateOf(false) }
+    val menuWidth = (LocalConfiguration.current.screenWidthDp - 40).dp
+    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+        Box {
+            Surface(onClick = { choosingModel = true }, color = RefTile, shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, CreatorBorder), modifier = Modifier.fillMaxWidth().testTag("model-picker")) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if(still) Icons.Rounded.Image else Icons.Rounded.Movie, null, Modifier.size(23.dp), tint = CreatorAccent)
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Model", fontSize = 11.sp, color = RefMuted)
+                        Text(if(still) image.title else video.title, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    Icon(Icons.Rounded.ExpandMore, "Choose model", Modifier.size(20.dp), tint = RefMuted)
+                }
+            }
+            DropdownMenu(expanded = choosingModel, onDismissRequest = { choosingModel = false }, containerColor = RefTile,
+                shape = RoundedCornerShape(14.dp), modifier = Modifier.width(menuWidth).heightIn(max = 370.dp)) {
+                val options = if(still) ImageModelCatalog.models.map { it.id to it.title } else VideoModelCatalog.models.map { it.id to it.title }
+                options.forEach { (id, title) ->
+                    val available = rates.filter { it.modelId == id && it.kind == (if(still) "image" else "video") }
+                    val selected = id == (if(still) image.id else video.id)
+                    DropdownMenuItem(enabled = available.isNotEmpty(), modifier = Modifier.heightIn(min = 62.dp).testTag("model-option-$title"),
+                        text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(title, fontSize = 13.sp, fontWeight = if(selected) FontWeight.SemiBold else FontWeight.Normal)
+                            Text(if(available.isEmpty()) "Unavailable" else available.map { it.size.uppercase() }.distinct().joinToString(" · "), color = RefMuted, fontSize = 11.sp)
+                        } }, trailingIcon = { if(selected) Icon(Icons.Rounded.Check, "Selected", Modifier.size(19.dp), tint = CreatorAccent) },
+                        onClick = {
+                            if(still) {
+                                val chosen = available.firstOrNull { it.size == draft.imageQuality } ?: available.first()
+                                update(draft.copy(imageModelId = id, imageQuality = chosen.size, aspect = draft.aspect.takeIf { it in chosen.ratios } ?: chosen.ratios.first()))
+                            } else selectVideo(VideoModelCatalog.find(id))
+                            choosingModel = false
+                        })
+                }
             }
         }
-        Text("Resolution", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            (if(still) image.resolutions else video.resolutions.toList()).forEach { resolution ->
-                val selected = resolution == if(still) draft.imageQuality else draft.resolution
-                val available = rates.any { it.kind == (if(still) "image" else "video") &&
-                    it.modelId == (if(still) image.id else video.id) && it.size == resolution }
-                Surface(onClick = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Resolution", fontWeight = FontWeight.Medium, fontSize = 13.sp, color = RefMuted)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                (if(still) image.resolutions else video.resolutions.toList()).forEach { resolution ->
                     val choices = modelRates.filter { it.size == resolution }
-                    val chosen = choices.firstOrNull { still || it.audio == draft.generatedAudio } ?: choices.first()
-                    update(if(still) draft.copy(imageQuality = resolution) else draft.copy(resolution = resolution,
-                        generatedAudio = chosen.audio ?: false, duration = draft.duration.takeIf { it in chosen.durations } ?: chosen.durations.first()))
-                },
-                    enabled = available, color = if(selected && available) RefSelected else RefTile,
-                    border = BorderStroke(1.dp, if(selected && available) Color(0xFFC877FF) else Color(0xFF513460)),
-                    shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).testTag("resolution-$resolution")) {
-                    Box(Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(if(available) resolution.uppercase() else "${resolution.uppercase()} · Unavailable", fontSize = 11.sp,
-                                color = if(selected && available) Color.White else RefMuted)
+                    val selected = resolution == (if(still) draft.imageQuality else draft.resolution)
+                    Surface(onClick = {
+                        val chosen = choices.firstOrNull { still || it.audio == draft.generatedAudio } ?: choices.first()
+                        update(if(still) draft.copy(imageQuality = resolution) else draft.copy(resolution = resolution,
+                            generatedAudio = chosen.audio ?: false, duration = draft.duration.takeIf { it in chosen.durations } ?: chosen.durations.first()))
+                    }, enabled = choices.isNotEmpty(), color = if(selected && choices.isNotEmpty()) RefSelected else RefTile,
+                        border = BorderStroke(1.dp, if(selected && choices.isNotEmpty()) CreatorAccent else CreatorBorder),
+                        shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).height(56.dp).testTag("resolution-$resolution")) {
+                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            Text(resolution.uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if(choices.isNotEmpty()) Color.White else RefMuted)
+                            if(choices.isEmpty()) Text("Unavailable", fontSize = 10.sp, color = RefMuted)
                         }
                     }
                 }
             }
         }
         if(!still) {
-            val audioAvailable = modelRates.any { it.size == draft.resolution && it.audio == true }
-            AudioChoice(draft, audioAvailable) { sound ->
+            AudioChoice(draft, modelRates.any { it.size == draft.resolution && it.audio == true }) { sound ->
                 val variant = modelRates.firstOrNull { it.size == draft.resolution && it.audio == sound }
                 update(draft.copy(generatedAudio = sound, duration = draft.duration.takeIf { variant == null || it in variant.durations }
                     ?: checkNotNull(variant).durations.first()))
             }
             ModelDurationPicker(activeRate?.durations.orEmpty(), draft.duration) { update(draft.copy(duration = it)) }
         }
-        Text(if(sourceRatio) "Aspect ratio follows your photo" else "Aspect Ratio", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-        if(!sourceRatio) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            items(activeRate?.ratios ?: if(still) ImageModelCatalog.aspects else listOf("16:9", "1:1", "9:16")) { ratio ->
-                RatioSquare(ratio, ratio == draft.aspect) { update(draft.copy(aspect = ratio)) }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Aspect ratio", fontWeight = FontWeight.Medium, fontSize = 13.sp, color = RefMuted)
+            if(sourceRatio) Text("Matches your reference photo", color = Color(0xFFDED9E6), fontSize = 13.sp)
+            else {
+                val ratios = activeRate?.ratios ?: if(still) ImageModelCatalog.aspects else listOf("16:9", "1:1", "9:16")
+                val columns = if(still) 4 else 3
+                ratios.chunked(columns).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { ratio -> RatioSquare(ratio, ratio == draft.aspect, Modifier.weight(1f)) { update(draft.copy(aspect = ratio)) } }
+                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
             }
         }
-        }
-        Spacer(Modifier.height(3.dp))
+        if(activeRate == null) Text("This model and setting are currently unavailable.", color = RefMuted, fontSize = 12.sp)
     }
 }
 
 @Composable
 private fun AudioChoice(draft: CreationDraft, available: Boolean, compact: Boolean = false, change: (Boolean) -> Unit) {
-    Surface(color = Color.Transparent, shape = RoundedCornerShape(17.dp), border = BorderStroke(1.dp, Color(0xFF78449C))) {
-        Row(Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(Color(0xFF381B50), Color(0xFF18284A))))
-            .padding(start = 12.dp, end = 6.dp, top = if(compact) 0.dp else 6.dp, bottom = if(compact) 0.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.GraphicEq, null, Modifier.size(if(compact) 22.dp else 27.dp), tint = Color(0xFFF1ACFF))
-            Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(if(draft.modelId == "kling-o3-reference") "Keep reference audio" else "Generate Audio", fontSize = if(compact) 12.sp else 14.sp, fontWeight = FontWeight.SemiBold)
-                if(!compact) Text(if(available) "Create sound with your scene" else "Unavailable with this model and resolution", fontSize = 11.sp, color = RefMuted)
+    Surface(color = RefTile, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CreatorBorder)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = if(compact) 50.dp else 68.dp)
+            .padding(start = 14.dp, end = 8.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.GraphicEq, null, Modifier.size(22.dp), tint = CreatorAccent)
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(if(draft.modelId == "kling-o3-reference") "Keep reference audio" else "Generate Audio", fontSize = if(compact) 12.sp else 14.sp, fontWeight = FontWeight.Medium)
+                if(!compact) Text(if(available) "Sound with your video" else "Not available at this resolution", fontSize = 11.sp, color = RefMuted)
             }
-            Text(if(draft.generatedAudio) "ON" else "OFF", fontSize = 10.sp, color = Color(0xFFECC6FF), fontWeight = FontWeight.Bold)
             Switch(draft.generatedAudio, change, enabled = draft.generatedAudio || available,
                 modifier = Modifier.testTag("generated-audio-toggle"),
-                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF9A45E8),
-                    uncheckedThumbColor = Color(0xFFD7C5E8), uncheckedTrackColor = Color(0xFF332A49), uncheckedBorderColor = Color(0xFF8F6DAA)))
+                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF8D6BB9),
+                    uncheckedThumbColor = Color(0xFFC5BECE), uncheckedTrackColor = Color(0xFF302A3C), uncheckedBorderColor = Color(0xFF62596F)))
         }
     }
 }
@@ -419,30 +454,31 @@ private fun ModelDurationPicker(options: List<Int>, selected: Int, choose: (Int)
     var entering by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Duration", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text("Duration", fontWeight = FontWeight.Medium, fontSize = 13.sp, color = RefMuted, modifier = Modifier.weight(1f))
             Surface(onClick = { entering = true }, enabled = durations.isNotEmpty(), color = RefTile, shape = RoundedCornerShape(11.dp), border = BorderStroke(1.dp, CreatorBorder)) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("${selected}s", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Icon(Icons.Rounded.Edit, "Type duration", Modifier.size(16.dp), tint = Color(0xFFE5A7FF))
+                    Icon(Icons.Rounded.Edit, "Type duration", Modifier.size(16.dp), tint = CreatorAccent)
                 }
             }
         }
         if(durations.size > 1) Slider(value = durations.indexOf(selected).coerceAtLeast(0).toFloat(),
             onValueChange = { value -> durations[value.roundToInt().coerceIn(durations.indices)].takeIf { it != selected }?.let(choose) },
             valueRange = 0f..durations.lastIndex.toFloat(), steps = (durations.size - 2).coerceAtLeast(0),
-            colors = SliderDefaults.colors(thumbColor = Color(0xFFF0B4FF), activeTrackColor = Color(0xFFBD55F4), inactiveTrackColor = Color(0xFF3B284D)),
+            colors = SliderDefaults.colors(thumbColor = CreatorAccent, activeTrackColor = Color(0xFF9476BB), inactiveTrackColor = Color(0xFF37303F),
+                activeTickColor = Color(0xFFD5C8E5), inactiveTickColor = Color(0xFF777081)),
             modifier = Modifier.fillMaxWidth().testTag("duration-slider"))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(durations) { seconds ->
                 Surface(onClick = { choose(seconds) }, color = if(selected == seconds) RefSelected else RefTile,
-                    shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, if(selected == seconds) Color(0xFFC877FF) else CreatorBorder),
-                    modifier = Modifier.testTag("duration-$seconds")) {
-                    Text("${seconds}s", Modifier.padding(horizontal = 22.dp, vertical = 10.dp), fontSize = 13.sp)
+                    shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, if(selected == seconds) CreatorAccent else CreatorBorder),
+                    modifier = Modifier.width(52.dp).height(38.dp).testTag("duration-$seconds")) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("${seconds}s", fontSize = 12.sp) }
                 }
             }
         }
         Text(if(durations.isEmpty()) "Choose an available model and audio setting to see durations."
-            else "Swipe to adjust, or tap the number to type. Supported: ${supported}s.", color = RefMuted, fontSize = 11.sp)
+            else "${supported}s · swipe or tap the number to enter", color = RefMuted, fontSize = 11.sp)
     }
     if(entering) {
         var text by remember(selected) { mutableStateOf(selected.toString()) }
@@ -453,38 +489,22 @@ private fun ModelDurationPicker(options: List<Int>, selected: Int, choose: (Int)
             text = { OutlinedTextField(text, { text = it.filter(Char::isDigit).take(3) }, label = { Text("Seconds") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, isError = !valid,
                 supportingText = { Text("This model supports $supported seconds.") }, modifier = Modifier.testTag("duration-input")) },
-            confirmButton = { TextButton(onClick = { choose(checkNotNull(number)); entering = false }, enabled = valid) { Text("Apply", color = Color(0xFFE8A6FF)) } },
+            confirmButton = { TextButton(onClick = { choose(checkNotNull(number)); entering = false }, enabled = valid) { Text("Apply", color = CreatorAccent) } },
             dismissButton = { TextButton(onClick = { entering = false }) { Text("Cancel", color = RefMuted) } })
     }
 }
 
 @Composable
-private fun ModelSquare(title: String, selected: Boolean, available: Boolean, tag: String, choose: () -> Unit) {
-    val tone = studioTone(title)
-    Column(Modifier.width(85.dp).clickable(enabled = available, onClick = choose).testTag(tag), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(color = Color.Transparent, shape = RoundedCornerShape(19.dp), border = BorderStroke(if(selected) 2.dp else 1.dp, if(selected) Color(0xFFE2A1FF) else tone.accent.copy(alpha = .4f))) {
-        Box(Modifier.size(78.dp).background(tone.gradient), contentAlignment = Alignment.Center) {
-            Text(when { title.startsWith("GPT") -> "GPT"; title.startsWith("Kling") -> "K"; title.startsWith("Seed") -> "S"; title.startsWith("Qwen") -> "Q"; else -> "P" },
-                fontSize = if(title.startsWith("GPT")) 23.sp else 34.sp, fontWeight = FontWeight.Bold)
-            if(!available) Icon(Icons.Rounded.Block, "Unavailable", tint = Color.White,
-                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(13.dp))
-        }
-        }
-        Text(title, color = Color(0xFFE5DCED), fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 2, lineHeight = 13.sp,
-            textAlign = TextAlign.Center, modifier = Modifier.heightIn(min = 30.dp).padding(top = 4.dp))
-        if(!available) Text("Unavailable", color = RefMuted, fontSize = 9.sp)
-    }
-}
-
-@Composable
-private fun RatioSquare(ratio: String, selected: Boolean, choose: () -> Unit) {
+private fun RatioSquare(ratio: String, selected: Boolean, modifier: Modifier = Modifier, choose: () -> Unit) {
     val values = ratio.split(":").map(String::toFloat)
     val factor = values[0] / values[1]
-    Surface(onClick = choose, color = if(selected) RefSelected else Color.Transparent, shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.width(55.dp).height(67.dp).testTag("ratio-$ratio")) {
-        Column(Modifier.fillMaxSize().padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Box(Modifier.size(if(factor >= 1) 22.dp else (22 * factor).dp, if(factor <= 1) 22.dp else (22 / factor).dp)
-                .drawBehind { drawRoundRect(Color.White, cornerRadius = CornerRadius(2.dp.toPx()), style = Stroke(1.5.dp.toPx())) })
+    Surface(onClick = choose, color = if(selected) RefSelected else RefTile, shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if(selected) CreatorAccent else CreatorBorder), modifier = modifier.height(76.dp).testTag("ratio-$ratio")) {
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp, Alignment.CenterVertically)) {
+            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(if(factor >= 1) 22.dp else (22 * factor).dp, if(factor <= 1) 22.dp else (22 / factor).dp)
+                    .drawBehind { drawRoundRect(Color.White, cornerRadius = CornerRadius(2.dp.toPx()), style = Stroke(1.5.dp.toPx())) })
+            }
             Text(ratio, fontSize = 9.sp, color = Color(0xFFC2C5CF))
         }
     }
