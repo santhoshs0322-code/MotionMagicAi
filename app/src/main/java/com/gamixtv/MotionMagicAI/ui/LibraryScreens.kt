@@ -132,8 +132,6 @@ fun ProjectsScreen(vm: MotionViewModel) {
                     }
                     if(project.kind == MediaKind.VIDEO) Row(Modifier.fillMaxWidth().padding(start = 78.dp, end = 12.dp, bottom = 7.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick = { vm.continueStory(project) }) { Text("Continue story", color = Color(0xFFFFBDE4), fontSize = 11.sp) }
-                        if(vm.projects.count { it.id == (project.storyRoot ?: project.id) || it.storyRoot == (project.storyRoot ?: project.id) } >= 2)
-                            TextButton(onClick = { vm.exportStory(project) }) { Text("Export story", color = Color(0xFF75DFFF), fontSize = 11.sp) }
                     }
                     }
                 }

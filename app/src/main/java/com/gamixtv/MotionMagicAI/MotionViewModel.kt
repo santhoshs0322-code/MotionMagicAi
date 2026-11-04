@@ -26,7 +26,6 @@ import org.json.JSONObject
 import com.gamixtv.MotionMagicAI.media.DeviceVoiceEngine
 import com.gamixtv.MotionMagicAI.media.LocalMediaEngine
 import com.gamixtv.MotionMagicAI.media.MediaAccess
-import com.gamixtv.MotionMagicAI.media.StoryExporter
 import com.gamixtv.MotionMagicAI.ui.ArtRepository
 import com.gamixtv.MotionMagicAI.ui.Artwork
 import com.gamixtv.MotionMagicAI.ui.Template
@@ -761,29 +760,6 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 if(hasAudio == false && draft.modelId == "kling-o3-reference") updateDraft(draft.copy(generatedAudio = false))
             }
         }
-    }
-    fun exportStory(project: Project) = startWork("Exporting your story", "Combining scenes into a shareable video on this device.") {
-        require(ownsProject(project) && project.kind == MediaKind.VIDEO) { "Choose one of your saved story scenes." }
-        val account = checkNotNull(activeAccountId)
-        val root = project.storyRoot ?: project.id
-        val clips = projects.filter { it.id == root || it.storyRoot == root }.sortedBy { it.storyPart }
-        require(clips.size in 2..6 && clips.all { ownsProject(it) && File(it.path).isFile }) { "Finish at least two saved scenes before exporting a story." }
-        val duration = clips.sumOf { it.duration }
-        require(duration <= 60) { "Stories can be up to one minute long." }
-        val output = File(projectDir(account), "story_${UUID.randomUUID()}.mp4")
-        val requiredSpace = clips.sumOf { File(it.path).length() } + 32L * 1024 * 1024
-        require(android.os.StatFs(output.parentFile!!.path).availableBytes > requiredSpace) {
-            "Free some device storage before exporting this story. Your scenes are safe in My Projects."
-        }
-        pendingOutputs.add(output)
-        try {
-            StoryExporter.export(app, clips.map { File(it.path) }, output)
-            require(activeAccountId == account) { "Your account changed. Export was stopped." }
-            persistProject(account, Project(title = "${duration}s story", path = output.path, kind = MediaKind.VIDEO,
-                duration = duration, durationMs = duration * 1000L, aspect = clips.first().aspect))
-            pendingOutputs.remove(output)
-            message("Your ${duration}s story is ready in My Projects.")
-        } finally { if(output in pendingOutputs) output.delete() }
     }
     private fun ownsProject(project: Project): Boolean {
         val account = activeAccountId ?: return false
