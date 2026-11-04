@@ -11,5 +11,13 @@
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher</item>
         <item name="android:colorAccent">@color/brand_purple</item>
     </style>
+    <style name="Theme.MotionMagic.Light" parent="Theme.MotionMagic.Light.Base">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:statusBarColor">#F2F3FA</item>
+        <item name="android:navigationBarColor">#F2F3FA</item>
+        <item name="android:windowBackground">#F2F3FA</item>
+        <item name="android:windowSplashScreenBackground">#F2F3FA</item>
+    </style>
 </resources>
 

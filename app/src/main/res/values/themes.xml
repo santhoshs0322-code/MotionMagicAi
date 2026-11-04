@@ -8,5 +8,12 @@
         <item name="android:windowBackground">@color/brand_background</item>
         <item name="android:colorAccent">@color/brand_purple</item>
     </style>
+    <style name="Theme.MotionMagic.Light.Base" parent="Theme.MotionMagic">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F2F3FA</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowBackground">#F2F3FA</item>
+    </style>
+    <style name="Theme.MotionMagic.Light" parent="Theme.MotionMagic.Light.Base" />
 </resources>
 

@@ -16,6 +16,13 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.gamixtv.MotionMagicAI.cloud.CloudRate
 import com.gamixtv.MotionMagicAI.data.CreationDraft
+import com.gamixtv.MotionMagicAI.data.ThemeMode
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import android.content.res.Configuration
 import com.gamixtv.MotionMagicAI.ui.CreationSettingsPanel
 import com.gamixtv.MotionMagicAI.ui.MotionTheme
 import java.io.File
@@ -38,43 +45,55 @@ class CreationSettingsUiTest {
             creditPrices = mapOf(1 to 25L))
     }
 
-    private fun show(still: Boolean, reference: Boolean = false, referenceHasAudio: Boolean? = null) {
+    private fun show(still: Boolean, reference: Boolean = false, referenceHasAudio: Boolean? = null, theme: ThemeMode = ThemeMode.DARK, fontScale: Float = 1f) {
         ui.setContent {
             var draft by remember { mutableStateOf(CreationDraft(modelId = if(reference) "kling-o3-reference" else "kling-3-omni",
                 resolution = if(reference) "1080p" else "720p", generatedAudio = reference, imageModelId = "gpt-image-2-5-s", imageQuality = "1K")) }
             latest = draft
-            MotionTheme {
-                Box(Modifier.fillMaxSize().background(Color(0xFF08090B))) {
-                    ModalBottomSheet(onDismissRequest = {}, containerColor = Color(0xFF180E29), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            val configuration = Configuration(LocalConfiguration.current).apply { this.fontScale = fontScale }
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale), LocalConfiguration provides configuration) {
+            MotionTheme(theme) {
+                Box(Modifier.fillMaxSize().testTag("capture-root")) {
+                    run {
                         val choices = if(reference) listOf(false, true).map { sound ->
                             CloudRate("reference-$sound", "Kling O3 Story Reference", "kling-o3-reference", "video", "1080p",
-                                listOf("9:16"), (3..15).toList(), sound, false, creditPrices = (3..15).associateWith { 53L * it })
+                                listOf("16:9", "9:16", "1:1"), (3..15).toList(), sound, false, creditPrices = (3..15).associateWith { 53L * it })
                         } else rates
-                        CreationSettingsPanel(draft, still, choices, false, true, { draft = it }, { draft = draft.copy(modelId = it.id) }, {}, {}, referenceHasAudio)
+                        CreationSettingsPanel(draft, still, choices, false, { draft = it }, { draft = draft.copy(modelId = it.id) }, {}, referenceHasAudio)
                     }
                 }
+            }
             }
         }
     }
 
+    @Test fun largeTextKeepsBackAndCostVisibleWhileSettingsScroll() {
+        show(false, theme = ThemeMode.LIGHT, fontScale = 1.5f)
+        ui.onNodeWithText("Video Settings").assertIsDisplayed()
+        ui.onNodeWithTag("audio-generate").performScrollTo().assertIsDisplayed().performClick()
+        ui.onNodeWithText("Estimated cost").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Close settings").assertIsDisplayed()
+        screenshot("settings-large-text.png")
+    }
+
     @Test fun silentReferenceCannotEnableAudioAndExplainsWhy() {
         show(false, reference = true, referenceHasAudio = false)
-        ui.onNodeWithTag("generated-audio-toggle").assertIsDisplayed().assertIsNotEnabled().assertIsOff()
-        ui.onNodeWithText("Use reference audio").assertIsDisplayed()
-        ui.onNodeWithText("Your reference has no audio track. This model cannot generate new sound.").assertIsDisplayed()
+        ui.onNodeWithTag("audio-keep").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+        ui.onNodeWithTag("audio-generate").assertDoesNotExist()
+        ui.onNodeWithText("Your reference has no audio track. This model cannot generate new sound.").performScrollTo().assertIsDisplayed()
         screenshot("settings-silent-reference.png")
     }
 
     @Test fun audibleReferenceCanKeepItsExistingAudioOrTurnItOff() {
         show(false, reference = true, referenceHasAudio = true)
-        ui.onNodeWithText("Keeps existing sound only. Silent video stays silent.").assertIsDisplayed()
-        ui.onNodeWithTag("generated-audio-toggle").assertIsEnabled().assertIsOn().performClick()
+        ui.onNodeWithText("Keeps existing sound only. Silent video stays silent.").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithTag("audio-mute").performScrollTo().assertIsEnabled().performClick()
         ui.runOnIdle { assertEquals(false, latest.generatedAudio) }
     }
 
     private fun screenshot(name: String) {
         ui.waitForIdle()
-        InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+        ui.onNodeWithTag("capture-root").captureToImage().asAndroidBitmap().let { bitmap ->
             val file = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, name)
             file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
@@ -83,8 +102,8 @@ class CreationSettingsUiTest {
 
     @Test fun videoControlsKeepHeaderVisibleAndValidateTypedDuration() {
         show(false)
-        ui.onNodeWithText("Creation settings").assertIsDisplayed()
-        ui.onNodeWithTag("generated-audio-toggle").assertIsDisplayed().performClick()
+        ui.onNodeWithText("Video Settings").assertIsDisplayed()
+        ui.onNodeWithTag("audio-generate").performScrollTo().assertIsDisplayed().performClick()
         ui.runOnIdle { assertEquals(true, latest.generatedAudio) }
         ui.onNodeWithContentDescription("Type duration").performScrollTo().performClick()
         ui.onNodeWithTag("duration-input").performTextClearance()
@@ -101,9 +120,9 @@ class CreationSettingsUiTest {
     }
 
     @Test fun longModelNameAndImageRatiosFitTheSettingsPanel() {
-        show(true)
+        show(true, theme = ThemeMode.LIGHT)
         ui.onNodeWithTag("model-picker").assertIsDisplayed().performClick()
-        ui.onNodeWithTag("model-option-Seedream 5.0 Lite").assertIsNotEnabled()
+        ui.onNodeWithTag("model-option-Seedream 5.0 Lite").assertDoesNotExist()
         screenshot("settings-models.png")
         ui.onNodeWithTag("model-option-GPT Image 2.5 Sunburst").performClick()
         ui.onNodeWithTag("resolution-1K").assertIsDisplayed()
@@ -113,5 +132,14 @@ class CreationSettingsUiTest {
         assertEquals(ui.onNodeWithText("1:1").fetchSemanticsNode().boundsInRoot.top,
             ui.onNodeWithText("3:2").fetchSemanticsNode().boundsInRoot.top, 1f)
         screenshot("settings-image.png")
+    }
+
+    @Test fun referenceAudioAndCreditEstimateRemainCorrectInLightMode() {
+        show(false, reference = true, referenceHasAudio = true, theme = ThemeMode.LIGHT)
+        ui.onNodeWithTag("audio-generate").assertDoesNotExist()
+        ui.onNodeWithTag("audio-mute").performScrollTo().performClick()
+        ui.runOnIdle { assertEquals(false, latest.generatedAudio) }
+        ui.onNodeWithText("530 Credits").assertIsDisplayed()
+        screenshot("settings-reference-light.png")
     }
 }

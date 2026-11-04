@@ -48,7 +48,7 @@ enum class Screen(val title: String) {
     HOME("MotionMagic AI"), IMAGE("Image to Video"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
     REELS("AI Reels Maker"), VOICE("AI Voice Generator"), TEMPLATES("Templates"),
     PROJECTS("My Projects"), RESULT("Video Result"),
-    PROFILE("My Account"), SETTINGS("Settings"), PLANS("Add credits")
+    PROFILE("My Account"), SETTINGS("Settings"), CREATION_SETTINGS("Video Settings"), PLANS("Add credits")
 }
 
 data class WorkState(val title: String, val progress: Float = 0f, val detail: String = "")
@@ -61,6 +61,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var screen by mutableStateOf(Screen.HOME); private set
     var projects by mutableStateOf<List<Project>>(emptyList()); private set
     var settings by mutableStateOf(store.settings()); private set
+    private val settingsWriteLock = Mutex()
+    private var settingsRevision = 0L
+    private var lastSavedSettings = settings
+    var creationSettingsMode by mutableStateOf(CreationMode.IMAGE_TO_VIDEO); private set
     var draft by mutableStateOf(CreationDraft()); private set
     var imageDraft by mutableStateOf(CreationDraft()); private set
     private var imageDraftSave: Job? = null
@@ -890,10 +894,27 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         if(screen !in listOf(Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE)) go(target) else switchCreationMode(mode)
     }
     fun saveSettings(value: AppSettings) {
+        val revision = ++settingsRevision
+        settings = value
         viewModelScope.launch {
-            try { withContext(Dispatchers.IO) { store.saveSettings(value) }; settings = value }
-            catch(e: Exception) { failure = e.message ?: "Settings could not be saved." }
+            settingsWriteLock.withLock {
+                try {
+                    withContext(Dispatchers.IO) { store.saveSettings(value) }
+                    lastSavedSettings = value
+                } catch(e: CancellationException) { throw e }
+                catch(e: Exception) {
+                    if(settingsRevision == revision) settings = lastSavedSettings
+                    message("Your preference could not be saved. Please try again.")
+                }
+            }
         }
+    }
+
+    fun toggleTheme() = saveSettings(settings.copy(themeMode = if(settings.themeMode == ThemeMode.DARK) ThemeMode.LIGHT else ThemeMode.DARK))
+
+    fun openCreationSettings(mode: CreationMode) {
+        creationSettingsMode = mode
+        go(Screen.CREATION_SETTINGS)
     }
 
     fun importPhoto(uri: Uri) = startWork("Opening photo") {

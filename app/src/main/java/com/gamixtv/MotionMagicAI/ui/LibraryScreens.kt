@@ -126,12 +126,12 @@ fun ProjectsScreen(vm: MotionViewModel) {
                             Text(project.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                             Text(if(!com.gamixtv.MotionMagicAI.media.MediaAccess.external(project.path) && !File(project.path).isFile) "File missing" else "${when(project.kind) { MediaKind.VIDEO -> "${project.duration}s · ${project.aspect}"; MediaKind.IMAGE -> "Image"; else -> "Voice sample" }} · ${SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(project.createdAt))}",
                                 color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 5.dp))
-                            if(project.storyPart > 0) Text("Story scene ${project.storyPart + 1}", color = Color(0xFFFFBDE4), fontSize = 11.sp)
+                            if(project.storyPart > 0) Text("Story scene ${project.storyPart + 1}", color = StudioColors.primary, fontSize = 11.sp)
                         }
                         IconButton(onClick = { deletion = project }) { Icon(Icons.Rounded.DeleteOutline, "Delete ${project.title}", tint = Muted, modifier = Modifier.size(21.dp)) }
                     }
                     if(project.kind == MediaKind.VIDEO) Row(Modifier.fillMaxWidth().padding(start = 78.dp, end = 12.dp, bottom = 7.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TextButton(onClick = { vm.continueStory(project) }) { Text("Continue story", color = Color(0xFFFFBDE4), fontSize = 11.sp) }
+                        TextButton(onClick = { vm.continueStory(project) }) { Text("Continue story", color = StudioColors.primary, fontSize = 11.sp) }
                     }
                     }
                 }
@@ -143,13 +143,13 @@ fun ProjectsScreen(vm: MotionViewModel) {
                     CircularProgressIndicator(Modifier.size(24.dp), color = Violet, strokeWidth = 2.dp)
                     Text("Loading projects…", color = Muted, fontSize = 12.sp)
                 }
-                vm.projectPageError?.let { Text(it, color = Color(0xFFFFB7CE), fontSize = 12.sp) }
+                vm.projectPageError?.let { Text(it, color = StudioColors.error, fontSize = 12.sp) }
                 if(vm.projectHasMore || localLimit < allSaved.size || vm.projectPageError != null) {
                     OutlinedButton(onClick = {
                         localLimit += 30
                         vm.loadMoreProjects()
                     }, enabled = !vm.projectPageLoading, modifier = Modifier.fillMaxWidth(),
-                        border = BorderStroke(1.dp, Violet), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE7C7FF))) {
+                        border = BorderStroke(1.dp, Violet), colors = ButtonDefaults.outlinedButtonColors(contentColor = StudioColors.primary)) {
                         Text(if(vm.projectPageError != null) "Retry loading projects" else "Load more projects")
                     }
                     Text("30 cloud creations per page", color = Muted, fontSize = 11.sp)
@@ -164,7 +164,7 @@ fun ProjectsScreen(vm: MotionViewModel) {
 
 @Composable
 private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit, onDownload: () -> Unit) {
-    Surface(color = Panel, shape = PanelShape, border = BorderStroke(1.dp, Color(0xFF6942A5))) {
+    Surface(color = Panel, shape = PanelShape, border = BorderStroke(1.dp, StudioColors.border)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ProjectThumbnail(job.previewPath, job.previewVideo, 72.dp)
@@ -175,9 +175,9 @@ private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit, onDownload: () ->
                         else if(job.kind == "image") "AI image" else "AI video", color = Violet, fontSize = 11.sp)
                 }
             }
-            Text(job.statusLabel, color = Color(0xFFDAC8F2), fontSize = 12.sp)
+            Text(job.statusLabel, color = StudioColors.text, fontSize = 12.sp)
             if(job.isActive || job.isReady) {
-                LinearProgressIndicator(progress = { job.progressPercent / 100f }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Color(0xFF322645))
+                LinearProgressIndicator(progress = { job.progressPercent / 100f }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = StudioColors.field)
                 Text(when {
                     job.state == "downloading" -> "${job.progressPercent}% · downloading the saved result"
                     job.isReady -> "100% · generation completed"
@@ -194,9 +194,9 @@ private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit, onDownload: () ->
 fun DeleteDialog(title: String, onDismiss: () -> Unit, onDelete: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Delete project?") },
         text = { Text("“$title” will be removed from this app. Copies already saved to your gallery will remain.") },
-        confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = Color(0xFFFF8190)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Keep project", color = Color(0xFFDCA8FF)) } },
-        shape = RoundedCornerShape(24.dp), containerColor = Color(0xFF1D112D))
+        confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = StudioColors.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Keep project", color = StudioColors.primary) } },
+        shape = RoundedCornerShape(24.dp), containerColor = Panel)
 }
 
 @Composable
@@ -213,9 +213,9 @@ fun ProfileScreen(vm: MotionViewModel) {
             }
         }
         Column(Modifier.fillMaxWidth().clip(PanelShape).background(Brush.horizontalGradient(listOf(Color(0xFF641B88), Color(0xFF2723A6)))).padding(18.dp)) {
-            Text("CURRENT WORKSPACE", fontSize = 10.sp, letterSpacing = 1.sp)
+            Text("CURRENT WORKSPACE", color = Color.White, fontSize = 10.sp, letterSpacing = 1.sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column { Text("Local Studio", fontWeight = FontWeight.Bold, fontSize = 22.sp); Text("Only available tools are listed", fontSize = 11.sp, color = Color(0xFFDBCEEF)) }
+                Column { Text("Local Studio", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp); Text("Only available tools are listed", fontSize = 11.sp, color = Color(0xFFDBCEEF)) }
                 TextButton(onClick = { vm.go(Screen.PLANS) }) { Text("Services", color = Color.White) }
             }
             Text("${vm.walletCredits?.toString() ?: "…"} credits available", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -250,6 +250,10 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
         Text("Preferences", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, preferenceTone.accent.copy(alpha = .6f))) {
             Column(Modifier.background(Brush.linearGradient(listOf(preferenceTone.start.copy(alpha = .55f), preferenceTone.end.copy(alpha = .5f))))) {
+                SettingRow(Icons.Rounded.DarkMode, "Dark appearance", if(vm.settings.themeMode == com.gamixtv.MotionMagicAI.data.ThemeMode.DARK) "Dark" else "Light",
+                    onClick = vm::toggleTheme, trailing = {
+                        Switch(vm.settings.themeMode == com.gamixtv.MotionMagicAI.data.ThemeMode.DARK, { vm.toggleTheme() })
+                    })
                 SettingRow(Icons.Rounded.Language, "Language", "English", { vm.notice("Language", "The interface is available in English in this build. Device voice availability depends on installed speech data.") })
                 SettingRow(Icons.Rounded.HighQuality, "Video Quality", vm.settings.quality, { vm.notice("Video quality", "On-device photo animations use a 540-pixel short edge. AI video resolution is selected on the creation screen from the available provider options.") })
                 SettingRow(Icons.Rounded.AspectRatio, "Default Aspect Ratio", vm.settings.defaultAspect, { ratioDialog = true })
@@ -278,47 +282,47 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
                 vm.saveSettings(vm.settings.copy(defaultAspect = ratio)); vm.updateDraft(vm.draft.copy(aspect = ratio)); ratioDialog = false
             } }
         }
-    }, confirmButton = { TextButton(onClick = { ratioDialog = false }) { Text("Close", color = Color(0xFFDCA8FF)) } },
-        shape = RoundedCornerShape(24.dp), containerColor = Color(0xFF1D112D))
+    }, confirmButton = { TextButton(onClick = { ratioDialog = false }) { Text("Close", color = StudioColors.primary) } },
+        shape = RoundedCornerShape(24.dp), containerColor = Panel)
 }
 
 @Composable
 fun PlansScreen(vm: MotionViewModel) {
-    val activity = LocalContext.current as? Activity
-    val accents = listOf(Color(0xFF86EDC9), Color(0xFFD8ACFF))
+    val activity = androidx.activity.compose.LocalActivity.current
+    val accents = listOf(StudioColors.primary, StudioColors.primary)
     LaunchedEffect(Unit) { vm.refreshCloudCatalog(); vm.refreshBilling() }
-    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B102B), Ink, Ink)))
+    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(StudioColors.background, Ink, Ink)))
         .verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             Box(Modifier.size(32.dp).background(MagicGradient, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp), tint = Color.White)
             }
-            Text("MOTIONMAGIC STUDIO", color = Color(0xFFD5B4F7), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            Text("MOTIONMAGIC STUDIO", color = StudioColors.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
         }
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text("Create your way", fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp)
-            Text("Free tools. Pay for each AI creation.", color = Color(0xFFCCBCD9), fontSize = 14.sp)
+            Text("Free tools. Pay for each AI creation.", color = Muted, fontSize = 14.sp)
         }
-        Surface(color = Color(0xFF241238), shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, Color(0xFFAD42E4))) {
+        Surface(color = StudioColors.selected, shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, StudioColors.border)) {
             Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFD052), modifier = Modifier.size(30.dp))
+                Icon(Icons.Rounded.Bolt, null, tint = StudioColors.warning, modifier = Modifier.size(30.dp))
                 Column(Modifier.padding(start = 12.dp)) {
-                    Text("${vm.walletCredits?.toString() ?: "…"} credits", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("200 free credits on your first sign-in · purchased credits never expire", color = Color(0xFFD7BCEB), fontSize = 11.sp)
+                    Text("${vm.walletCredits?.toString() ?: "…"} credits", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = StudioColors.text)
+                    Text("200 free credits on your first sign-in · purchased credits never expire", color = Muted, fontSize = 11.sp)
                 }
             }
         }
-        Text("Credit packs", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("Credit packs", color = StudioColors.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text("Choose any enabled model. The exact credit price appears before generation. Google Play shows the pack price before payment.", color = Muted, fontSize = 12.sp)
         vm.creditProducts.forEach { (sku, amount) ->
             val mostPopular = sku == com.gamixtv.MotionMagicAI.billing.PlayBilling.TOPUP_500
-            Surface(color = if (mostPopular) Color(0xFF391452) else Color(0xFF2A1740), shape = RoundedCornerShape(18.dp), border = BorderStroke(if (mostPopular) 2.dp else 1.dp, if (mostPopular) Color(0xFFF454D7) else Color(0xFFA840D9))) {
+            Surface(color = if (mostPopular) StudioColors.selected else Panel, shape = RoundedCornerShape(18.dp), border = BorderStroke(if (mostPopular) 2.dp else 1.dp, if (mostPopular) StudioColors.primary else StudioColors.border)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFD052))
+                    Icon(Icons.Rounded.Bolt, null, tint = StudioColors.warning)
                     Column(Modifier.weight(1f).padding(start = 10.dp)) {
                         Text("${"%,d".format(amount)} credits", fontWeight = FontWeight.Bold)
-                        if (mostPopular) Text("★ Most popular", color = Color(0xFFFFD052), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("One-time purchase · credits never expire", color = Color(0xFFCDB8E2), fontSize = 11.sp)
+                        if (mostPopular) Text("★ Most popular", color = StudioColors.warning, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("One-time purchase · credits never expire", color = Muted, fontSize = 11.sp)
                     }
                     TextButton(enabled = vm.billingReady && !vm.billingBusy, onClick = { if(activity == null) vm.message("Open the Android app to buy credits.") else vm.buy(activity, sku) }) { Text(if(vm.buyingProductId == sku) "Opening Play…" else "Buy") }
                 }
@@ -330,10 +334,10 @@ fun PlansScreen(vm: MotionViewModel) {
                 Text("Loading credit packs…", color = Muted, fontSize = 12.sp)
             }
             repeat(4) {
-                Surface(color = Color(0xFF211C2B), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(88.dp)) {
+                Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(88.dp)) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(Modifier.width(130.dp).height(14.dp).background(Color(0xFF3A3149), RoundedCornerShape(5.dp)))
-                        Box(Modifier.width(200.dp).height(10.dp).background(Color(0xFF30293D), RoundedCornerShape(5.dp)))
+                        Box(Modifier.width(130.dp).height(14.dp).background(StudioColors.border, RoundedCornerShape(5.dp)))
+                        Box(Modifier.width(200.dp).height(10.dp).background(StudioColors.field, RoundedCornerShape(5.dp)))
                     }
                 }
             }
@@ -345,29 +349,29 @@ fun PlansScreen(vm: MotionViewModel) {
             }
         }
         if(vm.billingReady && vm.creditProducts.isEmpty()) Text("Credit packs are currently unavailable.", color = Muted, fontSize = 12.sp)
-        Text("Available AI models", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("Available AI models", color = StudioColors.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         if(vm.cloudRates.isEmpty()) Text(vm.cloudCatalogStatus, color = Muted, fontSize = 12.sp)
         vm.cloudRates.groupBy { it.modelId }.values.forEach { variants ->
             val cheapest = variants.minBy { it.minimumPricePaise }
-            Surface(color = Color(0xFF20122F), shape = PanelShape) {
+            Surface(color = Panel, shape = PanelShape) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(if(cheapest.kind == "image") ImageModelCatalog.find(cheapest.modelId).title else VideoModelCatalog.find(cheapest.modelId).title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(variants.map { it.size.uppercase() }.distinct().joinToString(" · "), color = Muted, fontSize = 11.sp)
-                        Text("Available with enough credits", color = Color(0xFFFFCA67), fontSize = 10.sp)
+                        Text("Available with enough credits", color = StudioColors.primary, fontSize = 10.sp)
                     }
                     Text("From ${com.gamixtv.MotionMagicAI.cloud.credits(cheapest.minimumPricePaise)}\n${if(cheapest.kind == "image") "per image" else "per ${cheapest.minimumUnits}s video"}", color = accents[1], fontSize = 12.sp, textAlign = TextAlign.End)
                 }
             }
         }
-        Text("The final quote depends on the model, resolution, duration and generated sound. Review it before confirming. Play verifies every payment on the server.", color = Color(0xFFBAA6CC), fontSize = 12.sp, lineHeight = 19.sp)
+        Text("The final quote depends on the model, resolution, duration and generated sound. Review it before confirming. Play verifies every payment on the server.", color = Muted, fontSize = 12.sp, lineHeight = 19.sp)
         GradientButton("Back to studio", { vm.tab(Screen.HOME) }, icon = Icons.Rounded.Home)
     }
 }
 
 @Composable
 private fun PlanPurchaseCard(title: String, price: String, credits: String, color: Color, current: Boolean, modifier: Modifier, buy: () -> Unit) {
-    Surface(modifier, color = Color(0xFF1B112B), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, color.copy(alpha = .5f))) {
+    Surface(modifier, color = Panel, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, color.copy(alpha = .5f))) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Icon(Icons.Rounded.Star, null, tint = color, modifier = Modifier.size(20.dp))
             Text(title, fontWeight = FontWeight.Bold)

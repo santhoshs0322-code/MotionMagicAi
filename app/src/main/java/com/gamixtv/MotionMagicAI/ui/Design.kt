@@ -29,26 +29,34 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gamixtv.MotionMagicAI.R
+import com.gamixtv.MotionMagicAI.data.ThemeMode
+import androidx.compose.ui.graphics.lerp
 
-val Ink = Color(0xFF08090B)
-val Panel = Color(0xFF1D1E22)
-val Muted = Color(0xFF969AA5)
+val Ink: Color @Composable get() = StudioColors.background
+val Panel: Color @Composable get() = StudioColors.surface
+val Muted: Color @Composable get() = StudioColors.muted
 val Violet = Color(0xFFB83BFF)
 val Pink = Color(0xFFFF36AF)
 val Blue = Color(0xFF198DFF)
-val MagicGradient = Brush.horizontalGradient(listOf(Color(0xFFCF2AF5), Color(0xFF702AFF), Blue))
+val MagicGradient = Brush.horizontalGradient(listOf(Color(0xFFA139DC), Color(0xFF7430CF)))
 val PanelShape = RoundedCornerShape(18.dp)
 
 data class StudioTone(val start: Color, val end: Color, val accent: Color) {
     val gradient: Brush get() = Brush.linearGradient(listOf(start, end))
 }
 
-fun studioTone(title: String): StudioTone = when {
+@Composable
+fun studioTone(title: String): StudioTone {
+    val original = when {
     title.contains("Image to Video") || title.contains("Kling") -> StudioTone(Color(0xFFC52F95), Color(0xFF6428C4), Color(0xFFFFB3E6))
     title.contains("Create Image") || title.contains("Nano") -> StudioTone(Color(0xFF7A37E8), Color(0xFF3332AD), Color(0xFFD8C1FF))
     title.contains("Text to Video") || title.contains("Gemini") -> StudioTone(Color(0xFF245FD5), Color(0xFF3E26A7), Color(0xFFABDFFF))
     title.contains("Voice", true) || title.contains("Audio") -> StudioTone(Color(0xFF087D91), Color(0xFF2442A0), Color(0xFF99F4EC))
     else -> StudioTone(Color(0xFF8B39C6), Color(0xFF472799), Color(0xFFE8BDFF))
+    }
+    val colors = StudioColors
+    return StudioTone(lerp(colors.surface, original.start, if(colors.dark) .12f else .035f),
+        lerp(colors.field, original.end, if(colors.dark) .1f else .025f), colors.primary)
 }
 
 // Bundled static weights keep the same typography offline on every supported Android version.
@@ -78,13 +86,21 @@ private val StudioTypography = Typography(
 )
 
 @Composable
-fun MotionTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = darkColorScheme(
-        primary = Violet, onPrimary = Color.White, secondary = Blue,
-        background = Ink, surface = Ink, surfaceVariant = Panel,
-        onBackground = Color.White, onSurface = Color.White,
-        outline = Color(0xFF303744), error = Color(0xFFFF8190)
-    ), typography = StudioTypography, content = content)
+fun MotionTheme(themeMode: ThemeMode = ThemeMode.DARK, content: @Composable () -> Unit) {
+    val colors = if(themeMode == ThemeMode.DARK) DarkMotionColors else LightMotionColors
+    val scheme = if(colors.dark) darkColorScheme() else lightColorScheme()
+    CompositionLocalProvider(LocalMotionColors provides colors) {
+        MaterialTheme(colorScheme = scheme.copy(
+            primary = colors.primary, onPrimary = if(colors.dark) Color(0xFF241039) else Color.White,
+            primaryContainer = colors.selected, onPrimaryContainer = colors.text,
+            secondary = colors.primary, background = colors.background, surface = colors.surface,
+            surfaceVariant = colors.field, surfaceContainer = colors.surface,
+            onBackground = colors.text, onSurface = colors.text, onSurfaceVariant = colors.muted,
+            outline = colors.border, outlineVariant = colors.border, error = colors.error,
+        ), typography = StudioTypography) {
+            CompositionLocalProvider(LocalContentColor provides colors.text, content = content)
+        }
+    }
 }
 
 enum class Artwork(val x: Int, val y: Int, val width: Int, val height: Int) {
@@ -124,7 +140,8 @@ fun GradientButton(text: String, onClick: () -> Unit, modifier: Modifier = Modif
         modifier = modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp))
             .background(if (enabled) MagicGradient else Brush.horizontalGradient(listOf(Panel, Panel))),
         shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent,
+            contentColor = Color.White, disabledContentColor = Color.White.copy(alpha = .5f)),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 15.dp)) {
         Icon(icon, null, Modifier.size(22.dp))
         Spacer(Modifier.width(10.dp))
@@ -138,7 +155,7 @@ fun SectionTitle(title: String, action: String? = null, onAction: () -> Unit = {
         horizontalArrangement = Arrangement.SpaceBetween) {
         Text(title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
         if (action != null) TextButton(onClick = onAction, contentPadding = PaddingValues(horizontal = 4.dp)) {
-            Text(action, color = Color(0xFFC8ACFF), fontSize = 12.sp)
+            Text(action, color = StudioColors.primary, fontSize = 12.sp)
         }
     }
 }
@@ -146,8 +163,8 @@ fun SectionTitle(title: String, action: String? = null, onAction: () -> Unit = {
 @Composable
 fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(onClick = onClick, modifier = modifier.heightIn(min = 46.dp), shape = RoundedCornerShape(13.dp),
-        color = if (selected) Color(0xFF211B36) else Panel,
-        border = BorderStroke(1.dp, if (selected) Violet else Color(0xFF242C37))) {
+        color = if (selected) StudioColors.selected else Panel,
+        border = BorderStroke(1.dp, if (selected) StudioColors.primary else StudioColors.border)) {
         Box(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
             Text(label, fontSize = 13.sp, fontWeight = if(selected) FontWeight.SemiBold else FontWeight.Normal)
         }
@@ -156,18 +173,18 @@ fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier = Modifier, 
 
 @Composable
 fun TestNotice(text: String = "Free local tools · AI creation uses generation credits", modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF1B1530))
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(StudioColors.selected)
         .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Rounded.Science, null, Modifier.size(18.dp), tint = Color(0xFFD393FF))
+        Icon(Icons.Rounded.Science, null, Modifier.size(18.dp), tint = StudioColors.primary)
         Spacer(Modifier.width(9.dp))
-        Text(text, color = Color(0xFFD6C3F1), fontSize = 12.sp, lineHeight = 17.sp)
+        Text(text, color = StudioColors.text, fontSize = 12.sp, lineHeight = 17.sp)
     }
 }
 
 @Composable
 fun SettingRow(icon: ImageVector, title: String, subtitle: String? = null,
                onClick: () -> Unit = {}, trailing: @Composable (() -> Unit)? = null,
-               tint: Color = Color.White) {
+               tint: Color = StudioColors.text) {
     Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(21.dp), tint = tint)
@@ -184,7 +201,7 @@ fun SettingRow(icon: ImageVector, title: String, subtitle: String? = null,
 fun EmptyState(icon: ImageVector, title: String, body: String, action: String, onAction: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(15.dp)) {
-        Box(Modifier.size(86.dp).clip(RoundedCornerShape(25.dp)).background(Color(0xFF20132F)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(86.dp).clip(RoundedCornerShape(25.dp)).background(StudioColors.selected), contentAlignment = Alignment.Center) {
             Icon(icon, null, Modifier.size(39.dp), tint = Violet)
         }
         Text(title, fontSize = 21.sp, fontWeight = FontWeight.Bold)

@@ -31,6 +31,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gamixtv.MotionMagicAI.ui.StudioColors
+import com.gamixtv.MotionMagicAI.ui.Panel
 import com.gamixtv.MotionMagicAI.ui.Ink
 import com.gamixtv.MotionMagicAI.ui.MagicGradient
 import com.gamixtv.MotionMagicAI.ui.MagicLogo
@@ -58,13 +60,13 @@ fun LoginGate(auth: AuthViewModel = viewModel(), onExit: () -> Unit = {}, conten
 @Composable
 private fun LoginScreen(state: AuthUiState, signIn: (Activity) -> Unit, retry: () -> Unit, dismiss: () -> Unit) {
     val context = LocalContext.current
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF07080D), Ink, Color(0xFF100422)))).semantics { testTag = "login-screen" }) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Ink, StudioColors.field))).semantics { testTag = "login-screen" }) {
         MagicLoginBackdrop(Modifier.fillMaxSize())
         Column(Modifier.fillMaxSize().padding(horizontal = 26.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = Color(0x241C9DFF), shape = CircleShape, border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x553CBBFF))) {
-                        Icon(Icons.Rounded.AutoAwesome, null, Modifier.padding(9.dp).size(17.dp), tint = Color(0xFFE0C4FF))
+                        Icon(Icons.Rounded.AutoAwesome, null, Modifier.padding(9.dp).size(17.dp), tint = StudioColors.primary)
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(buildAnnotatedString { append("MotionMagic "); withStyle(SpanStyle(color = Violet)) { append("AI") } }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -75,16 +77,16 @@ private fun LoginScreen(state: AuthUiState, signIn: (Activity) -> Unit, retry: (
                 MagicLogo(Modifier.size(92.dp))
             }
             Spacer(Modifier.height(24.dp))
-            Text("Your ideas,\nmade magical.", color = Color.White, style = MaterialTheme.typography.displaySmall, lineHeight = 40.sp)
+            Text("Your ideas,\nmade magical.", color = StudioColors.text, style = MaterialTheme.typography.displaySmall, lineHeight = 40.sp)
             Spacer(Modifier.height(10.dp))
             Text("Sign in to create, save and share\nyour next AI masterpiece.", color = Muted, fontSize = 14.sp, lineHeight = 21.sp)
             Spacer(Modifier.height(34.dp))
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(25.dp), colors = CardDefaults.cardColors(containerColor = Color(0xE6161720)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF30253F))) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(25.dp), colors = CardDefaults.cardColors(containerColor = Panel),
+                border = androidx.compose.foundation.BorderStroke(1.dp, StudioColors.border)) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = Color(0xFF251537), shape = RoundedCornerShape(12.dp)) {
-                            Icon(Icons.Rounded.Lock, null, Modifier.padding(9.dp).size(18.dp), tint = Color(0xFFDFAAFF))
+                        Surface(color = StudioColors.selected, shape = RoundedCornerShape(12.dp)) {
+                            Icon(Icons.Rounded.Lock, null, Modifier.padding(9.dp).size(18.dp), tint = StudioColors.primary)
                         }
                         Spacer(Modifier.width(11.dp))
                         Column {
@@ -92,7 +94,7 @@ private fun LoginScreen(state: AuthUiState, signIn: (Activity) -> Unit, retry: (
                             Text("Sign in securely with Google", color = Muted, fontSize = 12.sp)
                         }
                     }
-                    if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Pink, trackColor = Color(0xFF30253F))
+                    if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Pink, trackColor = StudioColors.border)
                     Surface(onClick = { context.activity()?.let(signIn) }, enabled = !state.busy && state.configured,
                         modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), color = Color(0xFFF9F8FC),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE7E2EF))) {
@@ -101,19 +103,19 @@ private fun LoginScreen(state: AuthUiState, signIn: (Activity) -> Unit, retry: (
                             Spacer(Modifier.width(11.dp)); Text("Continue with Google", color = Color(0xFF201B29), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
-                    if (!state.configured) Text("Sign-in is being configured. Please try again shortly.", color = Color(0xFFFFC13C), fontSize = 12.sp)
+                    if (!state.configured) Text("Sign-in is being configured. Please try again shortly.", color = StudioColors.warning, fontSize = 12.sp)
                     if (state.status == AuthStatus.RESTORING) Text("Checking your saved sign-in…", color = Muted, fontSize = 12.sp)
                     state.message?.let { message ->
-                        Text(message, color = Color(0xFFFFA6B0), fontSize = 13.sp)
+                        Text(message, color = StudioColors.error, fontSize = 13.sp)
                         TextButton(onClick = dismiss) { Text("Dismiss") }
                     }
-                    if (!state.busy && state.status != AuthStatus.GUEST) TextButton(onClick = retry, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Try again", color = Color(0xFFDEA5FF)) }
+                    if (!state.busy && state.status != AuthStatus.GUEST) TextButton(onClick = retry, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Try again", color = StudioColors.primary) }
                 }
             }
             Spacer(Modifier.height(18.dp))
             Text("Private by design · Your account keeps creations and credits secure", color = Muted, fontSize = 10.sp)
             Spacer(Modifier.height(4.dp))
-            Text("By continuing, you agree to use media you have permission to upload.", color = Color(0xFF737784), fontSize = 10.sp)
+            Text("By continuing, you agree to use media you have permission to upload.", color = Muted, fontSize = 10.sp)
         }
     }
 }

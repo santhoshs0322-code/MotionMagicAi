@@ -76,6 +76,7 @@ private fun fetchPoster(address: String): Bitmap? {
 }
 
 /** Exactly one player exists, only while its preview is on screen. */
+@androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
 @Composable
 fun ShowcaseVideo(template: Template, modifier: Modifier = Modifier) {
     val url = template.videoUrl ?: return

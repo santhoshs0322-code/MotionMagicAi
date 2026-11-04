@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.MotionMagic.Light" parent="Theme.MotionMagic.Light.Base">
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:navigationBarColor">#F2F3FA</item>
+    </style>
+</resources>

@@ -64,6 +64,7 @@ class MotionStore(context: Context) {
             quality = json.optString("quality", fallback.quality).ifBlank { fallback.quality },
             notifications = json.optBoolean("notifications", fallback.notifications),
             autoSave = json.optBoolean("autoSave", fallback.autoSave),
+            themeMode = runCatching { ThemeMode.valueOf(json.optString("themeMode", fallback.themeMode.name)) }.getOrDefault(fallback.themeMode),
         )
     }
 
@@ -76,6 +77,7 @@ class MotionStore(context: Context) {
             .put("quality", value.quality)
             .put("notifications", value.notifications)
             .put("autoSave", value.autoSave)
+            .put("themeMode", value.themeMode.name)
         commit(preferences.edit().putString(SETTINGS, json.toString()))
     }
 

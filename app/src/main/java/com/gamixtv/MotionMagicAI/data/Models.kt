@@ -139,11 +139,14 @@ data class Project(
     val storyPart: Int = 0,
 )
 
+enum class ThemeMode { DARK, LIGHT }
+
 data class AppSettings(
     val defaultAspect: String = "9:16",
     val quality: String = "Preview (540p)",
     val notifications: Boolean = false,
     val autoSave: Boolean = false,
+    val themeMode: ThemeMode = ThemeMode.DARK,
 )
 
 data class CreationDraft(
