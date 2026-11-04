@@ -221,10 +221,12 @@ fun ProfileScreen(vm: MotionViewModel) {
 @Composable
 fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
     var ratioDialog by remember { mutableStateOf(false) }
+    val preferenceTone = studioTone("Create Image")
+    val supportTone = studioTone("Text to Video")
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Preferences", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        Surface(color = Color(0xFF211E2A), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFF3B3547))) {
-            Column {
+        Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, preferenceTone.accent.copy(alpha = .6f))) {
+            Column(Modifier.background(Brush.linearGradient(listOf(preferenceTone.start.copy(alpha = .55f), preferenceTone.end.copy(alpha = .5f))))) {
                 SettingRow(Icons.Rounded.Language, "Language", "English", { vm.notice("Language", "The interface is available in English in this build. Device voice availability depends on installed speech data.") })
                 SettingRow(Icons.Rounded.HighQuality, "Video Quality", vm.settings.quality, { vm.notice("Video quality", "On-device photo animations use a 540-pixel short edge. AI video resolution is selected on the creation screen from the available provider options.") })
                 SettingRow(Icons.Rounded.AspectRatio, "Default Aspect Ratio", vm.settings.defaultAspect, { ratioDialog = true })
@@ -239,8 +241,8 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
             }
         }
         Text("Help and information", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 10.dp))
-        Surface(color = Color(0xFF211E2A), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFF3B3547))) {
-            Column {
+        Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, supportTone.accent.copy(alpha = .6f))) {
+            Column(Modifier.background(Brush.linearGradient(listOf(supportTone.start.copy(alpha = .55f), supportTone.end.copy(alpha = .5f))))) {
                 SettingRow(Icons.Rounded.SupportAgent, "Help & Support", onClick = { showHelp(vm) })
                 SettingRow(Icons.Rounded.PrivacyTip, "Privacy", onClick = { vm.notice("Your media and cloud generation", "Local projects are saved on your device. For AI creation, your chosen photo is uploaded to private cloud storage while preparing a quote. After you confirm generation, your prompt and reference photo are sent through the server to fal.ai and the selected model provider. Generated media is saved in cloud storage and downloaded to your device.\n\nGoogle sign-in shares your account ID, name, email and picture with the login server. Session tokens are encrypted with Android Keystore. Signing out clears the saved session but does not delete server records.\n\nDeleting a local project removes its local copy; cloud outputs, uploaded references and gallery copies remain. Sharing sends media to the app you choose. Device Voice uses the selected Android speech engine, whose processing depends on its installed voices and settings.") })
                 SettingRow(Icons.Rounded.Description, "About this build", onClick = { vm.notice("MotionMagic AI", "Version ${BuildConfig.VERSION_NAME}\n\nChoose an enabled AI model to create images or videos. Review the server price before confirming. Device Voice does not use AI generation credits. Use media you have permission to upload and publish.") })

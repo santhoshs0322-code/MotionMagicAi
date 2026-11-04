@@ -50,13 +50,14 @@ import com.gamixtv.MotionMagicAI.data.*
 import kotlin.math.roundToInt
 
 val ReferenceGradient = Brush.horizontalGradient(listOf(Color(0xFFFF964A), Color(0xFFF34CBC), Color(0xFF793EFF)))
-private val RefField = Color(0xFF17151D)
-private val RefTile = Color(0xFF211E2A)
-private val RefSelected = Color(0xFF39304D)
-private val RefMuted = Color(0xFFAAA5B5)
-private val CreatorAccent = Color(0xFFC1A6E8)
-private val CreatorGradient = Brush.horizontalGradient(listOf(Color(0xFF9760D7), Color(0xFF7474D9)))
-private val CreatorBorder = Color(0xFF3B3547)
+private val RefField = Color(0xFF180E29)
+private val RefTile = Color(0xFF2D1949)
+private val RefMuted = Color(0xFFC5B6DB)
+private val CreatorAccent = Color(0xFFF1BDFF)
+private val CreatorGradient = MagicGradient
+private val CreatorBorder = Color(0xFF7947AC)
+private val CreatorTileGradient = Brush.horizontalGradient(listOf(Color(0xFF3E205C), Color(0xFF242A59)))
+private val CreatorSelectionGradient = studioTone("Image to Video").gradient
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,11 +98,11 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
     }
     LaunchedEffect(Unit) { vm.refreshCloudCatalog() }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
-        Row(Modifier.fillMaxWidth().height(74.dp).background(RefField).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(74.dp).background(studioTone(mode.title).gradient).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = vm::back) { Icon(Icons.Rounded.Close, "Back", Modifier.size(25.dp)) }
             Row(Modifier.weight(1f).clickable { modes = true }.testTag("creation-mode-selector"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("MOTIONMAGIC STUDIO", color = CreatorAccent, fontSize = 9.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Medium)
+                    Text("MOTIONMAGIC STUDIO", color = Color.White.copy(alpha = .88f), fontSize = 9.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Medium)
                     Text(mode.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 3.dp))
                 }
                 Icon(Icons.Rounded.ExpandMore, null, Modifier.size(20.dp), tint = RefMuted)
@@ -113,7 +114,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                 ReferencePhotoInput(vm, still, onPickPhoto, onPickVideo)
             }
             Surface(color = Color.Transparent, shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, CreatorBorder), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().background(RefTile).padding(12.dp)) {
+                Column(Modifier.fillMaxWidth().background(CreatorTileGradient).padding(12.dp)) {
                     Row(Modifier.padding(horizontal = 5.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp), tint = Color(0xFFECA7FF))
                         Text("Your prompt", Modifier.weight(1f).padding(start = 8.dp), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -195,7 +196,7 @@ private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, onPick: () 
     val reference = if(still) null else vm.referenceVideoPath
     val referenceAvailable = vm.cloudRates.any { it.modelId == "kling-o3-reference" }
     val shape = RoundedCornerShape(23.dp)
-    Column(Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(listOf(Color(0xFF27202F), Color(0xFF1D2330))))
+    Column(Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(listOf(Color(0xFF57205E), Color(0xFF292A68))))
         .drawBehind { drawRoundRect(CreatorBorder, cornerRadius = CornerRadius(23.dp.toPx()), style = Stroke(1.dp.toPx())) }) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(if(reference != null) Icons.Rounded.VideoLibrary else Icons.Rounded.AddPhotoAlternate, null, Modifier.size(18.dp), tint = Color(0xFFF2AEFF))
@@ -276,8 +277,8 @@ private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: St
 
 @Composable
 private fun ComposerPill(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = RefTile, shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, CreatorBorder), modifier = modifier) {
-        Text(text, fontSize = 11.sp, color = Color(0xFFE3DFEA), modifier = Modifier.padding(horizontal = 11.dp, vertical = 11.dp), maxLines = 1)
+    Surface(onClick = onClick, color = Color.Transparent, shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, CreatorBorder), modifier = modifier) {
+        Text(text, fontSize = 11.sp, color = Color(0xFFF1E4FF), modifier = Modifier.background(CreatorTileGradient).padding(horizontal = 11.dp, vertical = 11.dp), maxLines = 1)
     }
 }
 
@@ -322,12 +323,13 @@ internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: 
     val image = ImageModelCatalog.find(draft.imageModelId)
     val activeRate = rates.firstOrNull { it.matches(draft, still) }
     val maxHeight = (LocalConfiguration.current.screenHeightDp * .87f).dp
+    val tone = studioTone(if(still) "Create Image" else "Image to Video")
     Surface(color = RefField, contentColor = Color(0xFFF0EDF4)) {
-        Column(Modifier.fillMaxWidth().heightIn(max = maxHeight).imePadding()) {
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.fillMaxWidth().heightIn(max = maxHeight).imePadding().background(Brush.verticalGradient(listOf(RefField, Color(0xFF161B39))))) {
+            Row(Modifier.fillMaxWidth().background(tone.gradient).padding(start = 20.dp, end = 12.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Creation settings", fontWeight = FontWeight.SemiBold, fontSize = 21.sp)
-                    Text(if(still) "Model, quality and frame shape" else "Model, audio and clip length", color = RefMuted, fontSize = 12.sp)
+                    Text(if(still) "Model, quality and frame shape" else "Model, audio and clip length", color = Color.White.copy(alpha = .86f), fontSize = 12.sp)
                 }
                 IconButton(onClick = close) { Icon(Icons.Rounded.Close, "Close settings", Modifier.size(22.dp), tint = RefMuted) }
             }
@@ -351,7 +353,7 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
         Box {
             Surface(onClick = { choosingModel = true }, color = RefTile, shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(1.dp, CreatorBorder), modifier = Modifier.fillMaxWidth().testTag("model-picker")) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.background(CreatorTileGradient).padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(if(still) Icons.Rounded.Image else Icons.Rounded.Movie, null, Modifier.size(23.dp), tint = CreatorAccent)
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Model", fontSize = 11.sp, color = RefMuted)
@@ -391,10 +393,10 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
                         val chosen = choices.firstOrNull { still || it.audio == draft.generatedAudio } ?: choices.first()
                         update(if(still) draft.copy(imageQuality = resolution) else draft.copy(resolution = resolution,
                             generatedAudio = chosen.audio ?: false, duration = draft.duration.takeIf { it in chosen.durations } ?: chosen.durations.first()))
-                    }, enabled = choices.isNotEmpty(), color = if(selected && choices.isNotEmpty()) RefSelected else RefTile,
+                    }, enabled = choices.isNotEmpty(), color = Color.Transparent,
                         border = BorderStroke(1.dp, if(selected && choices.isNotEmpty()) CreatorAccent else CreatorBorder),
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).height(56.dp).testTag("resolution-$resolution")) {
-                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Column(Modifier.fillMaxSize().background(if(selected && choices.isNotEmpty()) CreatorSelectionGradient else CreatorTileGradient), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             Text(resolution.uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if(choices.isNotEmpty()) Color.White else RefMuted)
                             if(choices.isEmpty()) Text("Unavailable", fontSize = 10.sp, color = RefMuted)
                         }
@@ -430,18 +432,19 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
 
 @Composable
 private fun AudioChoice(draft: CreationDraft, available: Boolean, compact: Boolean = false, change: (Boolean) -> Unit) {
-    Surface(color = RefTile, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, CreatorBorder)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = if(compact) 50.dp else 68.dp)
+    val tone = studioTone("Audio")
+    Surface(color = Color.Transparent, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, tone.accent.copy(alpha = .65f))) {
+        Row(Modifier.fillMaxWidth().background(tone.gradient).heightIn(min = if(compact) 50.dp else 68.dp)
             .padding(start = 14.dp, end = 8.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.GraphicEq, null, Modifier.size(22.dp), tint = CreatorAccent)
+            Icon(Icons.Rounded.GraphicEq, null, Modifier.size(22.dp), tint = tone.accent)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(if(draft.modelId == "kling-o3-reference") "Keep reference audio" else "Generate Audio", fontSize = if(compact) 12.sp else 14.sp, fontWeight = FontWeight.Medium)
-                if(!compact) Text(if(available) "Sound with your video" else "Not available at this resolution", fontSize = 11.sp, color = RefMuted)
+                if(!compact) Text(if(available) "Sound with your video" else "Not available at this resolution", fontSize = 11.sp, color = Color(0xFFD8F1FF))
             }
             Switch(draft.generatedAudio, change, enabled = draft.generatedAudio || available,
                 modifier = Modifier.testTag("generated-audio-toggle"),
-                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF8D6BB9),
-                    uncheckedThumbColor = Color(0xFFC5BECE), uncheckedTrackColor = Color(0xFF302A3C), uncheckedBorderColor = Color(0xFF62596F)))
+                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF178CDA),
+                    uncheckedThumbColor = Color(0xFFE1DBF7), uncheckedTrackColor = Color(0xFF253B68), uncheckedBorderColor = Color(0xFF92C9F2)))
         }
     }
 }
@@ -465,15 +468,15 @@ private fun ModelDurationPicker(options: List<Int>, selected: Int, choose: (Int)
         if(durations.size > 1) Slider(value = durations.indexOf(selected).coerceAtLeast(0).toFloat(),
             onValueChange = { value -> durations[value.roundToInt().coerceIn(durations.indices)].takeIf { it != selected }?.let(choose) },
             valueRange = 0f..durations.lastIndex.toFloat(), steps = (durations.size - 2).coerceAtLeast(0),
-            colors = SliderDefaults.colors(thumbColor = CreatorAccent, activeTrackColor = Color(0xFF9476BB), inactiveTrackColor = Color(0xFF37303F),
-                activeTickColor = Color(0xFFD5C8E5), inactiveTickColor = Color(0xFF777081)),
+            colors = SliderDefaults.colors(thumbColor = CreatorAccent, activeTrackColor = Color(0xFFB83BFF), inactiveTrackColor = Color(0xFF3C285B),
+                activeTickColor = Color(0xFFFFD2FA), inactiveTickColor = Color(0xFFAD89D0)),
             modifier = Modifier.fillMaxWidth().testTag("duration-slider"))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(durations) { seconds ->
-                Surface(onClick = { choose(seconds) }, color = if(selected == seconds) RefSelected else RefTile,
+                Surface(onClick = { choose(seconds) }, color = Color.Transparent,
                     shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, if(selected == seconds) CreatorAccent else CreatorBorder),
                     modifier = Modifier.width(52.dp).height(38.dp).testTag("duration-$seconds")) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("${seconds}s", fontSize = 12.sp) }
+                    Box(Modifier.fillMaxSize().background(if(selected == seconds) CreatorSelectionGradient else CreatorTileGradient), contentAlignment = Alignment.Center) { Text("${seconds}s", fontSize = 12.sp) }
                 }
             }
         }
@@ -498,14 +501,14 @@ private fun ModelDurationPicker(options: List<Int>, selected: Int, choose: (Int)
 private fun RatioSquare(ratio: String, selected: Boolean, modifier: Modifier = Modifier, choose: () -> Unit) {
     val values = ratio.split(":").map(String::toFloat)
     val factor = values[0] / values[1]
-    Surface(onClick = choose, color = if(selected) RefSelected else RefTile, shape = RoundedCornerShape(12.dp),
+    Surface(onClick = choose, color = Color.Transparent, shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, if(selected) CreatorAccent else CreatorBorder), modifier = modifier.height(76.dp).testTag("ratio-$ratio")) {
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp, Alignment.CenterVertically)) {
+        Column(Modifier.fillMaxSize().background(if(selected) CreatorSelectionGradient else CreatorTileGradient), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp, Alignment.CenterVertically)) {
             Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.size(if(factor >= 1) 22.dp else (22 * factor).dp, if(factor <= 1) 22.dp else (22 / factor).dp)
                     .drawBehind { drawRoundRect(Color.White, cornerRadius = CornerRadius(2.dp.toPx()), style = Stroke(1.5.dp.toPx())) })
             }
-            Text(ratio, fontSize = 9.sp, color = Color(0xFFC2C5CF))
+            Text(ratio, fontSize = 9.sp, color = Color(0xFFEADAF8))
         }
     }
 }

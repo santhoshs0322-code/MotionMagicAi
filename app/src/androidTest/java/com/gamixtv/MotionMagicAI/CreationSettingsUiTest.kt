@@ -44,7 +44,7 @@ class CreationSettingsUiTest {
             latest = draft
             MotionTheme {
                 Box(Modifier.fillMaxSize().background(Color(0xFF08090B))) {
-                    ModalBottomSheet(onDismissRequest = {}, containerColor = Color(0xFF17151D), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+                    ModalBottomSheet(onDismissRequest = {}, containerColor = Color(0xFF180E29), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
                         CreationSettingsPanel(draft, still, rates, false, true, { draft = it }, { draft = draft.copy(modelId = it.id) }, {}, {})
                     }
                 }
