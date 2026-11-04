@@ -1,5 +1,6 @@
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 RUN addgroup --system motion && adduser --system --ingroup motion motion
 WORKDIR /app
 COPY requirements.lock ./

@@ -181,17 +181,34 @@ class Quotes(Private):
         return ok(id=str(quote.pk), currency="CREDITS", maximum_charge_paise=quote.charge_paise, maximum_credits=quote.charge_paise,
                   available_credits=wallet.available_paise, expires_at=quote.expires_at, markup_bps=quote.markup_bps, title=quote.rate.title)
 
-def job_public(job):
+def job_public(job, thumbnail_s3=None):
     payload = job.quote.payload
+    thumbnail = None
+    if thumbnail_s3 is not None and job.output_id and job.output.account_id == job.account_id and not job.output.deleted:
+        try:
+            thumbnail = storage.thumbnail_url(job.output, thumbnail_s3)
+        except Exception:
+            pass  # Preview availability must not make history unavailable.
     return {"id": str(job.pk), "state": job.state, "maximum_charge_paise": job.quote.charge_paise, "charged_paise": job.charged_paise, "output_asset_id": str(job.output_id) if job.output_id else None, "error_code": job.error_code, "created_at": job.created_at, "poll_after_seconds": 30 if job.state not in services.TERMINAL else None,
+            "thumbnail_url": thumbnail, "thumbnail_state": job.output.thumbnail_state if job.output_id and job.output.account_id == job.account_id and not job.output.deleted else "none",
             "title": payload.get("prompt", "AI creation")[:55], "kind": payload.get("kind"), "aspect_ratio": payload.get("aspect_ratio"), "duration": payload.get("units", 0) if payload.get("kind") == "video" else 0}
+
+
+def job_rows_public(rows):
+    s3 = None
+    if any(row.output_id and row.output.account_id == row.account_id and not row.output.deleted and row.output.thumbnail_state == "ready" for row in rows):
+        try:
+            s3 = storage.client()  # One signer per page; no S3 HEAD/GET or provider polling here.
+        except Exception:
+            logger.warning("project_thumbnail_signing_unavailable")
+    return [job_public(row, s3) for row in rows]
 
 class Jobs(Private):
     def get(self, request):
         scope = request.query_params.get("scope", "recent")
         if scope not in ("recent", "active"):
             raise Problem("Unknown job list scope.")
-        jobs = Job.objects.filter(account=request.user).select_related("quote")
+        jobs = Job.objects.filter(account=request.user).select_related("quote", "output")
         if scope == "active":
             jobs = jobs.filter(state__in=services.ACTIVE_STATES)
         tracked = request.query_params.get("tracked", "")
@@ -208,11 +225,11 @@ class Jobs(Private):
         if identifiers:
             # Tracked recovery records must not change the history page boundary.
             # Both queries are account-scoped; browsing never contacts a provider.
-            saved = Job.objects.filter(account=request.user, pk__in=identifiers).select_related("quote")
+            saved = Job.objects.filter(account=request.user, pk__in=identifiers).select_related("quote", "output")
             combined = {row.pk: row for row in current}
             combined.update({row.pk: row for row in saved})
             current = sorted(combined.values(), key=lambda row: (row.created_at, row.pk), reverse=True)
-        return ok(results=[job_public(row) for row in current], next=next_url, next_cursor=next_cursor,
+        return ok(results=job_rows_public(current), next=next_url, next_cursor=next_cursor,
                   has_more=bool(next_cursor), tracked_supported=True)
     def post(self, request):
         data = body(request, ("quote_id", "asset_id"))
@@ -222,15 +239,15 @@ class Jobs(Private):
 class JobDetail(Private):
     def get(self, request, identifier):
         try:
-            job = Job.objects.select_related("quote").get(pk=identifier, account=request.user)
+            job = Job.objects.select_related("quote", "output").get(pk=identifier, account=request.user)
         except Job.DoesNotExist:
             raise Problem("Job not found.", 404) from None
-        return ok(**job_public(job))
+        return ok(**job_rows_public([job])[0])
     def delete(self, request, identifier):
         return ok(**job_public(services.cancel_job(request.user, identifier)))
 
 def asset_public(asset):
-    return {"id": str(asset.pk), "mime": asset.mime, "size": asset.size, "ready": asset.ready, "created_at": asset.created_at}
+    return {"id": str(asset.pk), "mime": asset.mime, "size": asset.size, "ready": asset.ready, "created_at": asset.created_at, "thumbnail_state": asset.thumbnail_state}
 
 class Assets(Private):
     def get(self, request):
@@ -261,10 +278,23 @@ class AssetDetail(Private):
         if Job.objects.filter(account=request.user, quote__payload__asset_id=str(identifier)).exclude(state__in=services.TERMINAL).exists():
             raise Problem("Media is used by an active job.", 409)
         # Delete S3 first; retry is safe, and a failed delete never reports success.
+        if asset.thumbnail_key:
+            if asset.thumbnail_key != asset.key + ".thumbnail.jpg":
+                raise Problem("Preview ownership is invalid.", 503)
+            storage.client().delete_object(Bucket=settings.S3_BUCKET, Key=asset.thumbnail_key)
         storage.client().delete_object(Bucket=settings.S3_BUCKET, Key=asset.key)
         asset.deleted = True
         asset.save(update_fields=["deleted"])
         return ok()
+
+
+class AssetThumbnail(Private):
+    def get(self, request, identifier):
+        try:
+            asset = Asset.objects.get(pk=identifier, account=request.user, deleted=False, ready=True)
+        except Asset.DoesNotExist:
+            raise Problem("Media not found.", 404) from None
+        return ok(url=storage.thumbnail_url(asset), expires_in=300, size=asset.thumbnail_size, mime="image/jpeg")
 
 class Products(Private):
     def get(self, request):

@@ -119,9 +119,16 @@ class Asset(models.Model):
     size = models.PositiveBigIntegerField()
     ready = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
+    thumbnail_key = models.CharField(max_length=340, blank=True, default="", db_default="")
+    thumbnail_size = models.PositiveIntegerField(default=0, db_default=0)
+    thumbnail_state = models.CharField(max_length=12, default="none", db_default="none", choices=[(value, value) for value in ("none", "pending", "processing", "ready", "failed")])
+    thumbnail_lease_until = models.DateTimeField(null=True)
+    thumbnail_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
-        indexes = [models.Index(fields=["account", "-created_at"])]
+        indexes = [models.Index(fields=["account", "-created_at"]),
+                   models.Index(fields=["thumbnail_state", "created_at", "id"], name="asset_thumbnail_queue_idx",
+                                condition=Q(thumbnail_state__in=("pending", "processing")))]
 
 class Quote(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

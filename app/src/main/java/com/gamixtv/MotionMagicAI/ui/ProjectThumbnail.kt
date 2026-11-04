@@ -27,26 +27,39 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
+import androidx.compose.ui.platform.LocalContext
+import com.gamixtv.MotionMagicAI.cloud.CloudThumbnailSource
+import com.gamixtv.MotionMagicAI.cloud.ProjectThumbnailRepository
 
 private val thumbnailCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
+private val localPreviewDecoders = Semaphore(2)
 
 /** Decode one small thumbnail only while its lazy-list card is visible. */
 @Composable
-internal fun ProjectThumbnail(path: String?, video: Boolean, size: Dp = 64.dp) {
-    val bitmap = produceState<Bitmap?>(null, path, video) {
-        value = withContext(Dispatchers.IO) { runCatching { decodeThumbnail(path, video) }.getOrNull() }
+internal fun ProjectThumbnail(path: String?, video: Boolean, size: Dp = 64.dp, modifier: Modifier = Modifier.size(size), remote: CloudThumbnailSource? = null) {
+    val context = LocalContext.current
+    val bitmap = produceState<Bitmap?>(null, path, video, remote) {
+        value = null
+        value = try {
+            if(remote != null) ProjectThumbnailRepository.load(context, remote)
+            else withContext(Dispatchers.IO) { localPreviewDecoders.withPermit { decodeThumbnail(path, video) } }
+        } catch(error: CancellationException) { throw error }
+        catch(_: Exception) { null }
     }.value
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(13.dp))
+        modifier.clip(RoundedCornerShape(13.dp))
             .background(Brush.linearGradient(listOf(Color(0xFFB522DF), Color(0xFF5444FF), Color(0xFF13B9F0)))),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Icon(if (video) Icons.Rounded.PlayCircle else Icons.Rounded.AutoAwesome, null,
+        if(video || bitmap == null) Icon(if (video) Icons.Rounded.PlayCircle else Icons.Rounded.AutoAwesome, null,
             tint = Color.White, modifier = Modifier.size(if (bitmap == null) 30.dp else 25.dp))
     }
 }

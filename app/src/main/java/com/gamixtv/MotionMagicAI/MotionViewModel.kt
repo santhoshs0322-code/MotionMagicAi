@@ -88,10 +88,15 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     val work = MutableStateFlow<WorkState?>(null)
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages = _messages.asSharedFlow()
-    private var activeJob: Job? = null
-    private var activeWorkReplaceable = false
     private var draftSave: Job? = null
     private val pendingOutputs = ConcurrentHashMap.newKeySet<File>()
+    private data class DownloadAttempt(val account: String, val jobId: String, val token: String = UUID.randomUUID().toString())
+    private var activeDownload: DownloadAttempt? = null
+    private val foreground = com.gamixtv.MotionMagicAI.work.ForegroundWorkController(
+        viewModelScope, work,
+        cleanup = { withContext(Dispatchers.IO) { pendingOutputs.forEach { it.delete() }; pendingOutputs.clear() } },
+        onError = { failure = if(it is TimeoutCancellationException) "This operation took too long. Please retry." else friendlyError(it) },
+    )
     private fun accountHash(accountId: String): String {
         require(accountId.isNotBlank()) { "Sign in before accessing saved media." }
         return MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -463,18 +468,23 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun downloadCloudResult(jobId: String) = startWork("Downloading your creation", "Your result is already saved to your account. Copying it to this device.") {
+    fun downloadCloudResult(jobId: String) = startWork("Downloading your creation",
+        "Your result is saved to your account. Copying it to this device.", replaceableOnCancel = true) {
         val account = checkNotNull(activeAccountId) { "Sign in to save your creation." }
-        val session = cloud.session()
-        require(session.user.id == account && activeAccountId == account) { "Your account changed. Sign in again." }
-        if (projects.any { it.id == "cloud_$jobId" && File(it.path).isFile }) return@startWork
-        val job = cloudJobs.firstOrNull { it.id == jobId && it.isReady }
-            ?: error("This result is not ready to download. Refresh My Projects to check its status.")
-        try { downloadCloudJob(account, session, job) }
-        catch (e: Exception) {
-            if(activeAccountId == account) cloudJobs = cloudJobs.map { if (it.id == jobId) it.copy(state = "succeeded", progressPercent = 100) else it }
-            throw e
-        }
+        if(projects.any { it.id == "cloud_$jobId" && File(it.path).isFile }) return@startWork
+        val job = cloudJobs.firstOrNull { it.id == jobId && it.isReady } ?: error("This result is not ready to download.")
+        val attempt = DownloadAttempt(account, jobId)
+        activeDownload = attempt
+        try {
+            val session = cloud.session()
+            require(session.user.id == account && activeAccountId == account) { "Your account changed. Sign in again." }
+            downloadCloudJob(account, session, job, attempt)
+        } catch(error: Exception) {
+            if(activeAccountId == account && activeDownload === attempt) cloudJobs = cloudJobs.map {
+                if(it.id == jobId) it.copy(state = "succeeded", progressPercent = 100) else it
+            }
+            throw error
+        } finally { if(activeDownload === attempt) activeDownload = null }
     }
 
     private fun startCloudMonitor(account: String, restart: Boolean = false, includeRecentOnStart: Boolean = false) {
@@ -616,22 +626,23 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private suspend fun downloadCloudJob(account: String, session: AuthSession, job: CloudJob) {
+    private suspend fun downloadCloudJob(account: String, session: AuthSession, job: CloudJob, attempt: DownloadAttempt) {
         val id = "cloud_${job.id}"
         val output = File(projectDir(account), "$id.media")
-        val temporary = File(projectDir(account), "$id.part")
+        val temporary = File(projectDir(account), "$id.${attempt.token}.part")
         cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "downloading", progressPercent = 0) else it }
         try {
             withContext(Dispatchers.IO) { temporary.delete() }
             val mime = cloud.download(checkNotNull(job.outputAssetId), session, temporary) { transferred, total ->
                 withContext(Dispatchers.Main.immediate) {
-                    if(activeAccountId == account) cloudJobs = cloudJobs.map {
+                    if(activeAccountId == account && activeDownload === attempt) cloudJobs = cloudJobs.map {
                         if(it.id == job.id) it.copy(progressPercent = (transferred * 100 / total).toInt().coerceIn(0, 100)) else it
                     }
+                    if(activeAccountId == account && activeDownload === attempt) work.value = work.value?.copy(progress = (transferred.toFloat() / total).coerceIn(0f, 1f))
                 }
             }
             currentCoroutineContext().ensureActive()
-            require(activeAccountId == account) { "Your account changed. Download was stopped." }
+            require(activeAccountId == account && activeDownload === attempt) { "Download was stopped." }
             val image = mime.startsWith("image/")
             val duration = if(image) 0L else withContext(Dispatchers.IO) {
                 val retriever = MediaMetadataRetriever()
@@ -663,7 +674,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun activateAccount(accountId: String?) {
         if (activeAccountId == accountId) return
-        activeJob?.cancel()
+        foreground.cancel()
+        activeDownload = null
         billingRefreshJob?.cancel(); walletRefreshJob?.cancel()
         billingRefreshJob = null; walletRefreshJob = null
         cloudJobMonitor?.cancel(); cloudJobMonitor = null; cloudMonitorGeneration++
@@ -1143,45 +1155,22 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cancelWork() {
-        if (work.value == null) return
+        if(work.value == null) return
         val submitted = cloudWork
-        val cancelledJob = activeJob
-        if (activeWorkReplaceable) {
-            // A price check has not submitted a job. Let a new check start now;
-            // the old coroutine may still be waiting for a socket to close.
-            activeJob = null
-            activeWorkReplaceable = false
-            cloudQuote = null
+        activeDownload?.let { attempt ->
+            if(activeAccountId == attempt.account) cloudJobs = cloudJobs.map {
+                if(it.id == attempt.jobId) it.copy(state = "succeeded", progressPercent = 100) else it
+            }
+            activeDownload = null
         }
-        // A blocking network call can take time to observe coroutine cancellation.
-        // Close the progress dialog immediately; the job still cleans up in finally.
-        work.value = null
-        cancelledJob?.cancel()
-        message(if(submitted) "Progress closed. Submitted generations continue on the server; open My Projects and refresh later." else "Operation cancelled.")
+        if(foreground.cancel()) cloudQuote = null
+        message(if(submitted) "Progress closed. Submitted generations continue on the server." else "Operation cancelled.")
     }
 
     private fun startWork(title: String, detail: String = "", replaceableOnCancel: Boolean = false, action: suspend () -> Unit) {
-        if (activeJob != null) {
-            if (work.value == null) message("Finishing cancellation. Please try again in a moment.")
-            return
+        if(!foreground.start(WorkState(title, detail = detail), replaceableOnCancel, action)) {
+            message("Please wait for the current operation to finish.")
         }
-        activeWorkReplaceable = replaceableOnCancel
-        work.value = WorkState(title, detail = detail)
-        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
-            val thisJob = currentCoroutineContext().job
-            try { action() }
-            catch(e: TimeoutCancellationException) { if(activeJob === thisJob) failure = "This operation took too long. Try a shorter clip or remove some effects, then retry." }
-            catch(e: CancellationException) { throw e }
-            catch(e: Exception) { if(activeJob === thisJob) failure = friendlyError(e) }
-            finally {
-                if(activeJob === thisJob) {
-                    withContext(NonCancellable + Dispatchers.IO) { pendingOutputs.forEach { it.delete() }; pendingOutputs.clear() }
-                    work.value = null; activeJob = null; activeWorkReplaceable = false
-                }
-            }
-        }
-        activeJob = job
-        job.start()
     }
 
     private fun friendlyError(error: Exception): String = when(error) {

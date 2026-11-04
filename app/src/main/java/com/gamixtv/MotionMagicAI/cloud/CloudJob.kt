@@ -18,6 +18,8 @@ data class CloudJob(
     val previewPath: String? = null,
     val previewVideo: Boolean = false,
     val createdAt: Long = 0,
+    val thumbnailUrl: String? = null,
+    val thumbnailState: String = "none",
 ) {
     val isGenerating: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain")
     val isActive: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain", "downloading")
@@ -56,6 +58,8 @@ data class CloudJob(
             chargedPaise = json.optLong("charged_paise"),
             errorCode = json.optString("error_code"),
             createdAt = runCatching { OffsetDateTime.parse(json.optString("created_at")).toInstant().toEpochMilli() }.getOrDefault(0),
+            thumbnailUrl = json.optString("thumbnail_url").takeUnless { it.isBlank() || it == "null" },
+            thumbnailState = json.optString("thumbnail_state", "none"),
         )
     }
 }

@@ -65,10 +65,21 @@ def provider_output(job, data):
     info = client().head_object(Bucket=settings.S3_BUCKET, Key=key)
     if info["ContentLength"] != size or info.get("ContentType") != mime:
         raise Problem("Provider output is not ready.", 503)
-    asset, _ = Asset.objects.get_or_create(key=key, defaults={"account_id": job.account_id, "mime": mime, "size": size, "ready": True})
+    asset, _ = Asset.objects.get_or_create(key=key, defaults={"account_id": job.account_id, "mime": mime, "size": size, "ready": True, "thumbnail_state": "pending"})
     if str(asset.account_id) != str(job.account_id) or asset.deleted or not asset.ready:
         raise Problem("Provider output does not belong to this account.", 503)
+    if asset.thumbnail_state == "none":
+        # Recover previews for output records created before this deployment,
+        # including generations that were still running during the migration.
+        Asset.objects.filter(pk=asset.pk, thumbnail_state="none").update(thumbnail_state="pending")
     return asset
+
+
+def thumbnail_url(asset, s3=None):
+    require_owner_key(asset)
+    if asset.thumbnail_state != "ready" or asset.thumbnail_key != asset.key + ".thumbnail.jpg" or not 0 < asset.thumbnail_size <= 256 * 1024:
+        raise Problem("Preview is not ready.", 409)
+    return (s3 or client()).generate_presigned_url("get_object", Params={"Bucket": settings.S3_BUCKET, "Key": asset.thumbnail_key}, ExpiresIn=300)
 
 def output_prefix(job):
     payload = job.quote.payload

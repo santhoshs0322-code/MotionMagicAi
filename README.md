@@ -36,6 +36,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 - A three-mode creation studio: Image to Video, Text to Video and Create Image, with a mode dropdown, full-screen model settings, reference/prompt cards and a persistent Create action showing estimated credits.
 - Light and dark appearances across the app, including sign-in, purchases and dialogs. Use the sun/moon button beside the Home credit badge or the appearance switch in Settings. The device remembers the last selection; older installations default to Dark.
+- My Projects uses a mixed image/video grid with All, Images, Videos and Voice filters. Completed cloud tiles show small private previews of their generated outputs, cached by account; device copies replace their cloud tiles without duplication. Open a cloud tile to download, or use a device tile's options to continue a saved video or delete a local copy.
 - Photo import through Android's photo picker, image validation, EXIF orientation handling, replace/remove controls and a restored selected photo.
 - Model tiles, resolution segments, aspect-ratio tiles, video duration and generated sound. One job creates one output. Image creation keeps a separate prompt, model, quality and ratio draft.
 - Model selection backed by live server availability, price confirmation, authenticated photo upload, credit reservation, job polling/recovery, bounded downloads and image/video result previews. All catalog models have adapters; unavailable or unpriced variants cannot run.

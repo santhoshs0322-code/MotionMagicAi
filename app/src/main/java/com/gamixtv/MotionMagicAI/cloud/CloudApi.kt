@@ -167,6 +167,7 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
         withContext(Dispatchers.IO) {
             require(destination.parentFile!!.usableSpace > size + 20 * 1024 * 1024) { "Free some storage before downloading your creation." }
             val connection = storageConnection(result.getString("url"))
+            withCancellableConnection(connection) {
             try {
                 if(connection.responseCode != 200) throw CloudException(0, "Download expired. Check your cloud generation to try again.")
                 connection.inputStream.use { input -> destination.outputStream().use { output ->
@@ -181,8 +182,12 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
                     }
                     require(total == size) { "Download was incomplete. Check your cloud generation to retry." }
                 } }
-            } catch(e: IOException) { throw CloudException(0, "Download interrupted. Your creation is saved on the server; check it again to download.") }
+            } catch(e: IOException) {
+                currentCoroutineContext().ensureActive()
+                throw CloudException(0, "Download interrupted. Your creation is saved on the server; check it again to download.")
+            }
             finally { connection.disconnect() }
+            }
         }
         return mime
     }
@@ -194,18 +199,45 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
             connectTimeout = 15_000; readTimeout = 60_000; instanceFollowRedirects = false; useCaches = false
         }
     }
+
+    suspend fun thumbnail(assetId: String, accountId: String, hint: String?): ByteArray {
+        val id = UUID.fromString(assetId).toString()
+        suspend fun freshUrl(): String {
+            val session = session()
+            require(session.user.id == accountId) { "Account changed." }
+            return request("GET", "/assets/$id/thumbnail", session).getString("url")
+        }
+        var address = hint ?: freshUrl()
+        repeat(2) { attempt ->
+            val bytes = withContext(Dispatchers.IO) {
+                val socket = storageConnection(address).apply { readTimeout = 15_000; connectTimeout = 8_000 }
+                withCancellableConnection(socket) {
+                    try {
+                        if(socket.responseCode == 403 && hint != null && attempt == 0) return@withCancellableConnection null
+                        require(socket.responseCode == 200) { "Preview is unavailable." }
+                        val result = ByteArrayOutputStream()
+                        socket.inputStream.use { input ->
+                            val buffer = ByteArray(8192)
+                            while(true) {
+                                currentCoroutineContext().ensureActive()
+                                val count = input.read(buffer); if(count < 0) break
+                                require(result.size() + count <= 256 * 1024) { "Preview exceeded its limit." }
+                                result.write(buffer, 0, count)
+                            }
+                        }
+                        result.toByteArray()
+                    } finally { socket.disconnect() }
+                }
+            }
+            if(bytes != null) return bytes
+            address = freshUrl()
+        }
+        throw CloudException(0, "Preview is unavailable.")
+    }
     private fun storageConnection(address: String): HttpsURLConnection {
         val host = URL(address).host.lowercase()
         require(host.endsWith(".amazonaws.com")) { "Unsupported media storage address." }
         return connection(address) // Never attach app or provider authorization to S3.
-    }
-    private suspend fun <T> withCancellableConnection(connection: HttpsURLConnection, block: suspend () -> T): T = coroutineScope {
-        // Closing the socket from a separate IO coroutine interrupts a blocking
-        // response/upload when the user cancels, instead of waiting for timeout.
-        val closer = launch(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
-            try { awaitCancellation() } finally { connection.disconnect() }
-        }
-        try { block() } finally { closer.cancel() }
     }
     private suspend fun readBounded(input: java.io.InputStream, limit: Int): String {
         val bytes = ByteArrayOutputStream(); val buffer = ByteArray(8192)

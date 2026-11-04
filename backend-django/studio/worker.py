@@ -5,7 +5,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-from . import provider, storage
+from . import provider, storage, thumbnails
 from .models import Job
 from .services import ACTIVE_STATES, finish_job, TERMINAL
 
@@ -31,7 +31,7 @@ def claim():
 def run_one():
     claimed = claim()
     if claimed is None:
-        return False
+        return thumbnails.generate()
     job_id, lease, fresh = claimed
     job = Job.objects.select_related("quote").get(pk=job_id)
     try:
@@ -46,6 +46,8 @@ def run_one():
             if type(cost) is not int or not 0 <= cost <= job.quote.provider_cost_paise or result.get("currency") != "INR":
                 raise ValueError("Invalid cost")
             asset = storage.provider_output(job, result.get("output", {})) if result["state"] == "succeeded" else None
+            if asset is not None:
+                thumbnails.generate(asset.pk)
             finish_job(job.pk, result["state"], cost, asset, "provider_failed" if result["state"] == "failed" else "", lease)
             log.info("generation_job_terminal job_id=%s state=%s attempts=%s", job.pk, result["state"], job.attempts)
         else:

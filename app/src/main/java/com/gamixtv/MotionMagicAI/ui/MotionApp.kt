@@ -207,6 +207,11 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             dismissButton = { TextButton(onClick = vm::dismissCloudQuote) { Text("Keep editing") } })
     }
     if(work == null && vm.cloudQuote == null && vm.failure == null && vm.info == null) vm.completedJobNotice?.let { notice ->
+        val savedProject = vm.projects.firstOrNull { it.id == notice.projectId }
+        val cloudResult = vm.cloudJobs.firstOrNull { "cloud_${it.id}" == notice.projectId }
+        val preview = cloudResult?.outputAssetId?.let { output -> vm.activeAccountId?.let { account ->
+            com.gamixtv.MotionMagicAI.cloud.CloudThumbnailSource(output, account, cloudResult.thumbnailUrl, cloudResult.thumbnailState)
+        } }
         AlertDialog(
             onDismissRequest = vm::dismissCompletedJobNotice,
             icon = {
@@ -217,6 +222,8 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             title = { Text("Your ${if(notice.kind == MediaKind.IMAGE) "image" else "video"} is ready", fontSize = 21.sp, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ProjectThumbnail(savedProject?.path, notice.kind == MediaKind.VIDEO,
+                        modifier = Modifier.fillMaxWidth().height(170.dp), remote = preview)
                     Text(notice.title, color = StudioColors.text, fontWeight = FontWeight.SemiBold, maxLines = 2)
                     Text("${if(vm.projects.any { it.id == notice.projectId }) "Saved on this device" else "Saved to your account"} · ${notice.chargedCredits} credits used", color = Muted, fontSize = 13.sp)
                 }
