@@ -186,6 +186,10 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Maximum charge: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
                 Text("Available balance: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.availablePaise)}")
+                if(quote.draft.modelId == "kling-o3-reference" && !quote.image) Text(
+                    if(quote.draft.generatedAudio) "Audio: keeps the reference's existing sound. A silent reference stays silent; this model does not generate new audio."
+                    else "Audio: off. This model does not generate new sound. Use Kling O3 with a photo or text prompt for generated audio.",
+                    color = Color(0xFFFFD6A0), fontSize = 12.sp)
                 Text(if(quote.deferredInput && (quote.sourcePhoto || quote.sourceVideoPath != null))
                     "After confirmation, your reference uploads with progress, then your generation appears in My Projects. Credits are reserved while it runs and charged only on success."
                     else "After confirmation, your generation appears in My Projects. You can run up to three generations at once. Credits are reserved while it runs and charged only on success.", fontSize = 13.sp)

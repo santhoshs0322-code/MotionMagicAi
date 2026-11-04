@@ -17,6 +17,7 @@ from google.oauth2 import id_token as google_id_token
 from . import authentication, services, storage, billing
 from .models import Account, Wallet, Ledger, Revocation, RefreshSession, Job, Asset, Product, Purchase, Subscription
 from .errors import Problem
+from .job_pagination import job_page
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,7 @@ class Jobs(Private):
         if scope == "active":
             jobs = jobs.filter(state__in=services.ACTIVE_STATES)
         tracked = request.query_params.get("tracked", "")
+        identifiers = set()
         if tracked:
             raw_ids = tracked.split(",")
             if len(raw_ids) > 12:
@@ -202,16 +204,16 @@ class Jobs(Private):
                 identifiers = {uuid.UUID(value) for value in raw_ids}
             except ValueError:
                 raise Problem("Invalid tracked generation job.") from None
-            # One account-scoped database request for the visible page, plus one
-            # bounded lookup for older jobs saved on this device. Never ask the
-            # provider for status while browsing My Projects.
-            current = list(jobs.order_by("-created_at", "-pk")[:30])
+        current, next_cursor, next_url = job_page(request, jobs, scope)
+        if identifiers:
+            # Tracked recovery records must not change the history page boundary.
+            # Both queries are account-scoped; browsing never contacts a provider.
             saved = Job.objects.filter(account=request.user, pk__in=identifiers).select_related("quote")
             combined = {row.pk: row for row in current}
             combined.update({row.pk: row for row in saved})
-            ordered = sorted(combined.values(), key=lambda row: (row.created_at, row.pk), reverse=True)
-            return ok(results=[job_public(row) for row in ordered], next=None, tracked_supported=True)
-        return page(request, jobs, job_public)
+            current = sorted(combined.values(), key=lambda row: (row.created_at, row.pk), reverse=True)
+        return ok(results=[job_public(row) for row in current], next=next_url, next_cursor=next_cursor,
+                  has_more=bool(next_cursor), tracked_supported=True)
     def post(self, request):
         data = body(request, ("quote_id", "asset_id"))
         job, created = services.submit_job(request.user, data.get("quote_id"), request.headers.get("Idempotency-Key"), data.get("asset_id"))

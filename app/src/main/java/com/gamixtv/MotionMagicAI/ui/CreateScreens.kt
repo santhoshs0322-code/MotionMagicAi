@@ -149,14 +149,14 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                     TextButton(onClick = vm::refreshCloudCatalog) { Text("Retry", fontSize = 12.sp) }
             }
         }
-        ReferenceComposerBar(draft, still, modelName, ready, estimatedCredits, false, audioAvailable, { settings = true }, update, create)
+        ReferenceComposerBar(draft, still, modelName, ready, estimatedCredits, false, audioAvailable, { settings = true }, update, create, vm.referenceVideoHasAudio)
     }
     if(modes) CreationModeSheet(mode, { modes = false }) { chosen ->
         vm.switchCreationMode(chosen); modes = false
     }
     if(settings) ModalBottomSheet(onDismissRequest = { settings = false }, containerColor = RefField, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         CreationSettingsPanel(draft, still, vm.cloudRates, mode == CreationMode.IMAGE_TO_VIDEO && vm.referenceVideoPath == null,
-            ready, update, vm::selectVideoModel, { settings = false }, { settings = false; create() })
+            ready, update, vm::selectVideoModel, { settings = false }, { settings = false; create() }, vm.referenceVideoHasAudio)
     }
     if(gallery) ModalBottomSheet(onDismissRequest = { gallery = false }, containerColor = Ink, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         val galleryTemplates = vm.showcaseTemplates.filter { it.mode == mode }.ifEmpty { templates }
@@ -242,7 +242,7 @@ private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, onPick: () 
 }
 
 @Composable
-private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: String, ready: Boolean, estimatedCredits: Long?, expanded: Boolean, audioAvailable: Boolean, settings: () -> Unit, update: (CreationDraft) -> Unit, create: () -> Unit) {
+private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: String, ready: Boolean, estimatedCredits: Long?, expanded: Boolean, audioAvailable: Boolean, settings: () -> Unit, update: (CreationDraft) -> Unit, create: () -> Unit, referenceHasAudio: Boolean? = null) {
     Surface(color = RefField, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), border = BorderStroke(1.dp, CreatorBorder)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if(!expanded) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -256,7 +256,7 @@ private fun ReferenceComposerBar(draft: CreationDraft, still: Boolean, model: St
                     Icon(Icons.Rounded.KeyboardArrowUp, "Settings", tint = RefMuted)
                 }
             }
-            if(!still && !expanded) AudioChoice(draft, audioAvailable, compact = true) { update(draft.copy(generatedAudio = it)) }
+            if(!still && !expanded) AudioChoice(draft, audioAvailable, compact = true, referenceHasAudio = referenceHasAudio) { update(draft.copy(generatedAudio = it)) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = create, enabled = ready, shape = RoundedCornerShape(13.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent),
@@ -318,7 +318,7 @@ private fun ModeTile(title: String, icon: ImageVector, selected: Boolean, modifi
 @Composable
 internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>,
     sourceRatio: Boolean, ready: Boolean, update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
-    close: () -> Unit, create: () -> Unit) {
+    close: () -> Unit, create: () -> Unit, referenceHasAudio: Boolean? = null) {
     val video = VideoModelCatalog.find(draft.modelId)
     val image = ImageModelCatalog.find(draft.imageModelId)
     val activeRate = rates.firstOrNull { it.matches(draft, still) }
@@ -334,7 +334,7 @@ internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: 
                 IconButton(onClick = close) { Icon(Icons.Rounded.Close, "Close settings", Modifier.size(22.dp), tint = RefMuted) }
             }
             HorizontalDivider(color = CreatorBorder)
-            ReferenceSettings(draft, still, video, image, update, selectVideo, rates, sourceRatio, Modifier.weight(1f, fill = false))
+            ReferenceSettings(draft, still, video, image, update, selectVideo, rates, sourceRatio, Modifier.weight(1f, fill = false), referenceHasAudio)
             ReferenceComposerBar(draft, still, if(still) image.title else video.title, ready, activeRate?.priceFor(draft, still), true,
                 rates.any { it.modelId == video.id && it.size == draft.resolution && it.audio == true }, close, update, create)
         }
@@ -344,7 +344,7 @@ internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: 
 @Composable
 private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: VideoModelOption, image: PremiumWorkflowOption,
     update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
-    rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, sourceRatio: Boolean, modifier: Modifier = Modifier) {
+    rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, sourceRatio: Boolean, modifier: Modifier = Modifier, referenceHasAudio: Boolean? = null) {
     val modelRates = rates.filter { it.modelId == (if(still) image.id else video.id) }
     val activeRate = modelRates.firstOrNull { it.matches(draft, still) }
     var choosingModel by remember { mutableStateOf(false) }
@@ -405,7 +405,7 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
             }
         }
         if(!still) {
-            AudioChoice(draft, modelRates.any { it.size == draft.resolution && it.audio == true }) { sound ->
+            AudioChoice(draft, modelRates.any { it.size == draft.resolution && it.audio == true }, referenceHasAudio = referenceHasAudio) { sound ->
                 val variant = modelRates.firstOrNull { it.size == draft.resolution && it.audio == sound }
                 update(draft.copy(generatedAudio = sound, duration = draft.duration.takeIf { variant == null || it in variant.durations }
                     ?: checkNotNull(variant).durations.first()))
@@ -431,17 +431,24 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, video: Video
 }
 
 @Composable
-private fun AudioChoice(draft: CreationDraft, available: Boolean, compact: Boolean = false, change: (Boolean) -> Unit) {
+private fun AudioChoice(draft: CreationDraft, available: Boolean, compact: Boolean = false, referenceHasAudio: Boolean? = null, change: (Boolean) -> Unit) {
     val tone = studioTone("Audio")
+    val reference = draft.modelId == "kling-o3-reference"
+    val silentReference = reference && referenceHasAudio == false
     Surface(color = Color.Transparent, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, tone.accent.copy(alpha = .65f))) {
         Row(Modifier.fillMaxWidth().background(tone.gradient).heightIn(min = if(compact) 50.dp else 68.dp)
             .padding(start = 14.dp, end = 8.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.GraphicEq, null, Modifier.size(22.dp), tint = tone.accent)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(if(draft.modelId == "kling-o3-reference") "Keep reference audio" else "Generate Audio", fontSize = if(compact) 12.sp else 14.sp, fontWeight = FontWeight.Medium)
-                if(!compact) Text(if(available) "Sound with your video" else "Not available at this resolution", fontSize = 11.sp, color = Color(0xFFD8F1FF))
+                Text(if(reference) "Use reference audio" else "Generate Audio", fontSize = if(compact) 12.sp else 14.sp, fontWeight = FontWeight.Medium)
+                if(reference || !compact) Text(when {
+                    silentReference -> "Your reference has no audio track. This model cannot generate new sound."
+                    reference -> "Keeps existing sound only. Silent video stays silent."
+                    available -> "Sound with your video"
+                    else -> "Not available at this resolution"
+                }, fontSize = 11.sp, color = Color(0xFFD8F1FF))
             }
-            Switch(draft.generatedAudio, change, enabled = draft.generatedAudio || available,
+            Switch(draft.generatedAudio && !silentReference, change, enabled = !silentReference && (draft.generatedAudio || available),
                 modifier = Modifier.testTag("generated-audio-toggle"),
                 colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF178CDA),
                     uncheckedThumbColor = Color(0xFFE1DBF7), uncheckedTrackColor = Color(0xFF253B68), uncheckedBorderColor = Color(0xFF92C9F2)))

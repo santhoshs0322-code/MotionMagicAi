@@ -47,11 +47,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - Persistent projects, drafts and settings; project search, confirmation before deletion, missing-file recovery messages and cancellation cleanup.
 - Optional local completion notifications, subject to Android notification permission.
 
-For a walkthrough: **Sign in → choose a creation mode → add a photo or prompt → choose an enabled model/settings → Create → review the price → Confirm.** A funded server wallet is required. Submitted jobs appear in My Projects with a job ID and stage estimate; up to three can run at once. Refresh projects recovers requests and downloads results after reconnecting. Create Image accepts an optional reference. Kling/PixVerse image-to-video follows the photo's shape; text-to-video uses the chosen ratio.
+For a walkthrough: **Sign in → choose a creation mode → add a photo or prompt → choose an enabled model/settings → Create → review the price → Confirm.** A funded server wallet is required. Submitted jobs appear in My Projects with a stage estimate; up to three can run at once. Refresh projects recovers submitted requests and reads saved database status; Download to device saves a completed result to the phone. My Projects loads 30 cloud creations per page with Load more, deduplicates downloaded copies, and retains loaded history during active-job updates. Search applies to loaded projects. Create Image accepts an optional reference. Kling/PixVerse image-to-video follows the photo's shape; text-to-video uses the chosen ratio.
+
+**Story audio:** Kling O3 Story Reference preserves audio already present in the source video through fal's `keep_audio` parameter; it does not generate a soundtrack for silent input. The app checks for an audio track when selecting a reference, disables audio preservation if none exists, and explains the behavior before confirmation. Use Kling O3 image-to-video or text-to-video with Generate Audio for new sound. Export story joins two to six saved related scenes on the phone into one MP4, up to 60 seconds, without AI credits.
 
 ## Test mode and production work
 
-Google login is implemented in `app/src/main/java/com/gamixtv/MotionMagicAI/auth/` and served by the separate [`backend-django`](backend-django/README.md) project. Deploy it on AWS and configure Google OAuth before using it; see [login setup](docs/LOGIN_SETUP.md). Local projects remain device-wide and do not sync with accounts.
+Google login is implemented in `app/src/main/java/com/gamixtv/MotionMagicAI/auth/` and served by the separate [`backend-django`](backend-django/README.md) project. Deploy it on AWS and configure Google OAuth before using it; see [login setup](docs/LOGIN_SETUP.md). Local media and drafts are scoped to the signed-in account on that device; cloud generation history belongs to the server account.
 
 No provider key or paid product is embedded in the app. Server configuration decides which cloud variants are available. Rate defaults remain zero, and no live paid provider call is part of the automated tests. Use [PROVIDERS.md](backend-django/PROVIDERS.md) for current model contracts and pricing configuration.
 

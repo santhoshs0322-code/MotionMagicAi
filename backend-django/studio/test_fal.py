@@ -63,6 +63,7 @@ class ContractTests(SimpleTestCase):
                     if config.get("reference_video"):
                         self.assertEqual(body["video_url"], source)
                         self.assertEqual(body["keep_audio"], config["generated_audio"])
+                        self.assertNotIn("generate_audio", body)
                     elif "kling" in endpoint:
                         self.assertIn("/standard/" if config["resolution"] == "720p" else "/pro/", endpoint)
                         self.assertEqual(body["duration"], str(duration))

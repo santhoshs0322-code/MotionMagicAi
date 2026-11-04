@@ -73,12 +73,12 @@ object VideoModelCatalog {
     val models = listOf(
         VideoModelOption(
             id = "kling-o3-reference", title = "Kling O3 Story Reference",
-            description = "Make the next scene from a reference video",
+            description = "Continue a reference video; keeps existing audio only",
             requiredPlan = PlanTier.FREE, durations = (3..15).toSet(),
             resolutions = setOf("1080p"), supportsGeneratedAudio = true,
             locallyAvailable = false, creditsPerSecond = 0,
             workflow = "Reference video + prompt → next story scene",
-            capabilityLabels = listOf("Video reference", "Prompt", "Story", "Audio"),
+            capabilityLabels = listOf("Video reference", "Prompt", "Story", "Existing audio"),
         ),
         VideoModelOption(
             id = "kling-3-omni",

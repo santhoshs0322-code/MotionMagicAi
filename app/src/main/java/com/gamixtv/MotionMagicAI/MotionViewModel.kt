@@ -32,6 +32,7 @@ import com.gamixtv.MotionMagicAI.ui.Artwork
 import com.gamixtv.MotionMagicAI.ui.Template
 import java.io.File
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.ArrayDeque
 import java.util.UUID
 import java.security.MessageDigest
@@ -74,6 +75,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var photoName by mutableStateOf(""); private set
     var referenceVideoPath by mutableStateOf<String?>(null); private set
     var referenceVideoName by mutableStateOf(""); private set
+    var referenceVideoHasAudio by mutableStateOf<Boolean?>(null); private set
     private var storyRoot: String? = null
     private var storyPart: Int = 0
     var failure by mutableStateOf<String?>(null); private set
@@ -117,6 +119,12 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private var cloudMonitorGeneration = 0
     private val observedActiveJobIds = mutableSetOf<String>()
     var cloudJobs by mutableStateOf<List<CloudJob>>(emptyList()); private set
+    var projectPageLoading by mutableStateOf(false); private set
+    var projectPageError by mutableStateOf<String?>(null); private set
+    var projectHasMore by mutableStateOf(false); private set
+    private var projectNextCursor: String? = null
+    private var projectHistoryLoaded = false
+    private var projectPageJob: Job? = null
     var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
     var showcaseTemplates by mutableStateOf<List<Template>>(emptyList()); private set
     private var showcaseCheckedAt = 0L
@@ -311,6 +319,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         val withVideo = !image && screen == Screen.IMAGE && request.modelId == "kling-o3-reference" && referenceVideoPath != null
         val withPhoto = !withVideo && screen != Screen.TEXT && screen != Screen.REELS && photo != null
         val sourceVideo = if(withVideo) referenceVideoPath else null
+        if(withVideo && request.generatedAudio && referenceVideoHasAudio == false) {
+            failure = "This reference has no audio track. Turn off Use reference audio. Choose Kling O3 with a photo or text prompt to generate new sound."
+            return
+        }
         val selectedPhotoRevision = photoRevision
         startWork("Reviewing your price", "Getting your exact credit price. Your media uploads after confirmation.", replaceableOnCancel = true) {
             val account = checkNotNull(activeAccountId) { "Sign in before creating with AI." }
@@ -491,64 +503,114 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun pollCloudJobs(account: String, includeRecent: Boolean = false): Boolean = cloudPollLock.withLock {
-        val session = cloud.session()
-        if(session.user.id != account || activeAccountId != account) return@withLock false
-        val pinned = withContext(Dispatchers.IO) { pendingCloudRequests(session) }
-        val previews = pinned.mapNotNull { request -> request.optString("job_id").takeIf { it.isNotBlank() }?.let { it to request } }.toMap()
-        val trackedIds = (previews.keys + observedActiveJobIds).mapNotNull { rawId ->
-            val id = runCatching { UUID.fromString(rawId).toString() }.getOrNull()
-            if(id == null || projects.any { it.id == "cloud_$id" && File(it.path).isFile }) {
-                pinned.firstOrNull { it.optString("job_id") == rawId }?.let { request ->
-                    withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
-                    if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { withContext(Dispatchers.IO) { File(it).delete() } }
-                }
-                observedActiveJobIds.remove(rawId)
-                null
-            } else id
-        }.distinct().take(12)
-        val path = "/jobs?scope=${if (includeRecent) "recent" else "active"}" +
-            if(trackedIds.isEmpty()) "" else "&tracked=${trackedIds.joinToString(",")}"
-        val response = cloud.request("GET", path, session)
-        val rows = response.getJSONArray("results")
         if(activeAccountId != account) return@withLock false
-        val latest = (0 until rows.length()).map { index ->
-            val row = rows.getJSONObject(index)
-            val serverJob = CloudJob.from(row).copy(previewPath = previews[row.getString("id")]?.optString("preview")?.ifBlank { null },
-                previewVideo = previews[row.getString("id")]?.optBoolean("preview_video") ?: false)
-            cloudJobs.firstOrNull { it.id == serverJob.id && it.state == "downloading" && serverJob.isReady } ?: serverJob
-        }
-        val latestById = latest.associateBy { it.id }
-        for(id in trackedIds.filterNot { it in latestById }.takeIf { response.optBoolean("tracked_supported") }.orEmpty()) {
-            pinned.firstOrNull { it.optString("job_id") == id }?.let { request -> withContext(Dispatchers.IO) {
-                updateCloudPending(session, null, pendingId(request))
-                if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
-            } }
-            observedActiveJobIds.remove(id)
-        }
-        val previouslyActive = cloudJobs.filter { it.isGenerating }.map { it.id }.toSet() + observedActiveJobIds
-        observedActiveJobIds.addAll(latest.filter { it.isGenerating }.map { it.id })
-        cloudJobs = (latest + cloudJobs.filter { it.id !in latestById && (it.isReady || it.state in setOf("failed", "cancelled", "downloading")) })
-            .distinctBy { it.id }
-            .filterNot { job -> projects.any { it.id == "cloud_${job.id}" && File(it.path).isFile } }
-            .take(40)
-        var terminalChanged = false
-        for(job in latest.filter { it.state in setOf("succeeded", "failed", "cancelled") && it.id in previouslyActive }) {
-            terminalChanged = true
-            if(job.state == "succeeded") {
-                val notice = CompletedJobNotice("cloud_${job.id}", job.title,
-                    if(job.kind == "image") MediaKind.IMAGE else MediaKind.VIDEO, job.chargedPaise)
-                if(completedJobNotice == null) completedJobNotice = notice else completionQueue.addLast(notice)
+        if(includeRecent) { projectPageLoading = true; projectPageError = null }
+        try {
+            val session = cloud.session()
+            if(session.user.id != account || activeAccountId != account) return@withLock false
+            val pinned = withContext(Dispatchers.IO) { pendingCloudRequests(session) }
+            val previews = pinned.mapNotNull { request -> request.optString("job_id").takeIf { it.isNotBlank() }?.let { it to request } }.toMap()
+            val trackedIds = (previews.keys + observedActiveJobIds).mapNotNull { rawId ->
+                val id = runCatching { UUID.fromString(rawId).toString() }.getOrNull()
+                if(id == null || projects.any { it.id == "cloud_$id" && File(it.path).isFile }) {
+                    pinned.firstOrNull { it.optString("job_id") == rawId }?.let { request ->
+                        withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
+                        if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+                    }
+                    observedActiveJobIds.remove(rawId)
+                    null
+                } else id
+            }.distinct().take(12)
+            val path = "/jobs?scope=${if (includeRecent) "recent" else "active"}" +
+                if(trackedIds.isEmpty()) "" else "&tracked=${trackedIds.joinToString(",")}"
+            val response = cloud.request("GET", path, session)
+            val rows = response.getJSONArray("results")
+            if(activeAccountId != account) return@withLock false
+            val latest = (0 until rows.length()).map { index ->
+                val row = rows.getJSONObject(index)
+                val serverJob = CloudJob.from(row).copy(previewPath = previews[row.getString("id")]?.optString("preview")?.ifBlank { null },
+                    previewVideo = previews[row.getString("id")]?.optBoolean("preview_video") ?: false)
+                cloudJobs.firstOrNull { it.id == serverJob.id && it.state == "downloading" && serverJob.isReady } ?: serverJob
             }
-        }
-        for(job in latest.filter { it.state == "failed" || it.state == "cancelled" }) {
-            pinned.firstOrNull { it.optString("job_id") == job.id }?.let { request ->
-                withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
+            val latestById = latest.associateBy { it.id }
+            for(id in trackedIds.filterNot { it in latestById }.takeIf { response.optBoolean("tracked_supported") }.orEmpty()) {
+                pinned.firstOrNull { it.optString("job_id") == id }?.let { request -> withContext(Dispatchers.IO) {
+                    updateCloudPending(session, null, pendingId(request))
+                    if(request.optBoolean("preview_temp")) request.optString("preview").takeIf { it.isNotBlank() }?.let { File(it).delete() }
+                } }
+                observedActiveJobIds.remove(id)
             }
-            if(previews[job.id]?.optBoolean("preview_temp") == true) job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+            val previouslyActive = cloudJobs.filter { it.isGenerating }.map { it.id }.toSet() + observedActiveJobIds
+            observedActiveJobIds.addAll(latest.filter { it.isGenerating }.map { it.id })
+            val downloaded = projects.filter { it.id.startsWith("cloud_") && File(it.path).isFile }.map { it.id.removePrefix("cloud_") }.toSet()
+            cloudJobs = mergeCloudJobs(cloudJobs, latest, downloaded)
+            if(includeRecent && !projectHistoryLoaded) {
+                projectNextCursor = response.optString("next_cursor").takeUnless { it.isBlank() || it == "null" }
+                projectHasMore = projectNextCursor != null
+                projectHistoryLoaded = true
+            }
+            var terminalChanged = false
+            for(job in latest.filter { it.state in setOf("succeeded", "failed", "cancelled") && it.id in previouslyActive }) {
+                terminalChanged = true
+                if(job.state == "succeeded") {
+                    val notice = CompletedJobNotice("cloud_${job.id}", job.title,
+                        if(job.kind == "image") MediaKind.IMAGE else MediaKind.VIDEO, job.chargedPaise)
+                    if(completedJobNotice == null) completedJobNotice = notice else completionQueue.addLast(notice)
+                }
+            }
+            for(job in latest.filter { it.state == "failed" || it.state == "cancelled" }) {
+                pinned.firstOrNull { it.optString("job_id") == job.id }?.let { request ->
+                    withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
+                }
+                if(previews[job.id]?.optBoolean("preview_temp") == true) job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+            }
+            observedActiveJobIds.removeAll(latest.filter { it.state in setOf("succeeded", "failed", "cancelled") }.map { it.id }.toSet())
+            if(terminalChanged) refreshWallet()
+            cloudJobs.any { it.isGenerating }
+        } catch(e: CancellationException) { throw e }
+        catch(e: Exception) {
+            if(includeRecent && activeAccountId == account) projectPageError = "Could not load projects. Tap retry."
+            throw e
+        } finally { if(includeRecent && activeAccountId == account) projectPageLoading = false }
+    }
+
+    fun loadMoreProjects() {
+        val account = activeAccountId ?: return
+        if(projectPageLoading || projectPageJob?.isActive == true) return
+        if(!projectHistoryLoaded) {
+            startCloudMonitor(account, restart = true, includeRecentOnStart = true)
+            return
         }
-        observedActiveJobIds.removeAll(latest.filter { it.state in setOf("succeeded", "failed", "cancelled") }.map { it.id }.toSet())
-        if(terminalChanged) refreshWallet()
-        cloudJobs.any { it.isGenerating }
+        if(projectNextCursor == null) return
+        projectPageLoading = true; projectPageError = null
+        projectPageJob = viewModelScope.launch {
+            try {
+                cloudPollLock.withLock {
+                    if(activeAccountId != account) return@withLock
+                    val cursor = projectNextCursor ?: return@withLock
+                    val session = cloud.session()
+                    if(session.user.id != account) return@withLock
+                    // Only send the opaque cursor to our fixed API path, never follow a supplied URL.
+                    val response = cloud.request("GET", "/jobs?scope=recent&cursor=${URLEncoder.encode(cursor, "UTF-8")}", session)
+                    if(activeAccountId != account) return@withLock
+                    val rows = response.getJSONArray("results")
+                    val downloaded = projects.filter { it.id.startsWith("cloud_") && File(it.path).isFile }.map { it.id.removePrefix("cloud_") }.toSet()
+                    val page = (0 until rows.length()).map { CloudJob.from(rows.getJSONObject(it)) }
+                    cloudJobs = mergeCloudJobs(cloudJobs, page, downloaded, retainMissingActive = true)
+                    projectNextCursor = response.optString("next_cursor").takeUnless { it.isBlank() || it == "null" }
+                    projectHasMore = projectNextCursor != null
+                }
+            } catch(e: CancellationException) { throw e }
+            catch(e: Exception) {
+                if(activeAccountId == account) {
+                    if(e is CloudException && e.status == 400) {
+                        projectHistoryLoaded = false; projectNextCursor = null; projectHasMore = false
+                    }
+                    projectPageError = "Could not load more projects. Tap retry."
+                }
+            }
+            finally { if(activeAccountId == account) projectPageLoading = false }
+        }
     }
 
     private suspend fun downloadCloudJob(account: String, session: AuthSession, job: CloudJob) {
@@ -602,13 +664,16 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         billingRefreshJob?.cancel(); walletRefreshJob?.cancel()
         billingRefreshJob = null; walletRefreshJob = null
         cloudJobMonitor?.cancel(); cloudJobMonitor = null; cloudMonitorGeneration++
+        projectPageJob?.cancel(); projectPageJob = null
+        projectPageLoading = false; projectPageError = null; projectHasMore = false
+        projectNextCursor = null; projectHistoryLoaded = false
         cloudJobs = emptyList(); observedActiveJobIds.clear()
         projects = emptyList()
         completedJobNotice = null; completionQueue.clear()
         draftSave?.cancel(); imageDraftSave?.cancel()
         photoRevision++
         activeAccountId = accountId
-        photo = null; photoName = ""; referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0; cloudQuote = null
+        photo = null; photoName = ""; referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0; cloudQuote = null
         selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
         currentPlan = PlanTier.FREE; billingReady = false; billingBusy = false; billingAccountId = null; creditProducts = emptyList()
         buyingProductId = null; billingLoading = false; billingError = null; billingCheckedAt = 0L; walletCheckedAt = 0L
@@ -649,8 +714,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun tab(destination: Screen) { history.clear(); screen = destination; refreshProjectsOnEntry() }
     fun back() { screen = if (history.isEmpty()) Screen.HOME else history.removeAt(history.lastIndex); refreshProjectsOnEntry() }
     private fun refreshProjectsOnEntry() {
-        if(screen == Screen.PROJECTS && !cloudWork) activeAccountId?.let {
-            startCloudMonitor(it, restart = true, includeRecentOnStart = true)
+        if(screen == Screen.PROJECTS && !cloudWork && !projectHistoryLoaded && !projectPageLoading) activeAccountId?.let {
+            startCloudMonitor(it, includeRecentOnStart = true)
         }
     }
     fun open(project: Project) {
@@ -682,11 +747,20 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         storyPart = (clips.maxOfOrNull { it.storyPart } ?: 0) + 1
         referenceVideoPath = project.path
         referenceVideoName = "Part ${storyPart - 1} reference"
+        referenceVideoHasAudio = null
         photo = null; photoName = ""
         updateDraft(draft.copy(modelId = "kling-o3-reference", resolution = "1080p", duration = if(60 - total < 10) 5 else 10,
             generatedAudio = true, aspect = project.aspect,
             prompt = "Continue this story from @Video1. Keep the characters, setting and visual style consistent. "))
         tab(Screen.IMAGE)
+        val account = activeAccountId
+        viewModelScope.launch {
+            val hasAudio = readReferenceAudio(project.path)
+            if(activeAccountId == account && referenceVideoPath == project.path) {
+                referenceVideoHasAudio = hasAudio
+                if(hasAudio == false && draft.modelId == "kling-o3-reference") updateDraft(draft.copy(generatedAudio = false))
+            }
+        }
     }
     fun exportStory(project: Project) = startWork("Exporting your story", "Combining scenes into a shareable video on this device.") {
         require(ownsProject(project) && project.kind == MediaKind.VIDEO) { "Choose one of your saved story scenes." }
@@ -742,7 +816,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
     fun selectVideoModel(model: VideoModelOption) {
-        if(model.id != "kling-o3-reference") { referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0 }
+        if(model.id != "kling-o3-reference") { referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0 }
         val options = cloudRates.filter { it.kind == "video" && it.modelId == model.id }
         val chosen = options.firstOrNull { it.size == draft.resolution && it.audio == draft.generatedAudio }
             ?: options.firstOrNull { it.size == draft.resolution } ?: options.firstOrNull()
@@ -782,7 +856,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         selectedPhotoFile.delete()
     }
     fun removeReferenceVideo() {
-        referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0
+        referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0
     }
 
     fun validateCreationInput(): Boolean {
@@ -885,19 +959,21 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         photoRevision++
         photo = bitmap
         photoName = "Your photo"
-        referenceVideoPath = null; referenceVideoName = ""; storyRoot = null; storyPart = 0
+        referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0
         message("Photo added")
     }
 
     fun importReferenceVideo(uri: Uri) = startWork("Opening reference video") {
         val account = checkNotNull(activeAccountId) { "Sign in before choosing a video." }
         val target = File(app.filesDir, "sources/${accountHash(account)}.mp4")
+        var hasAudio = false
         withContext(Dispatchers.IO) {
             val temporary = copyUri(account, uri, 200L * 1024 * 1024, ".mp4")
             try {
                 val retriever = MediaMetadataRetriever()
                 val duration = try {
                     retriever.setDataSource(temporary.path)
+                    hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
                         ?: error("This video has no readable duration.")
                 } finally { retriever.release() }
@@ -911,10 +987,21 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
         if(activeAccountId != account) return@startWork
         referenceVideoPath = target.path; referenceVideoName = "Reference video"
+        referenceVideoHasAudio = hasAudio
         photo = null; photoName = ""; storyRoot = null; storyPart = 0
-        updateDraft(draft.copy(modelId = "kling-o3-reference", resolution = "1080p", duration = 10, generatedAudio = true,
+        updateDraft(draft.copy(modelId = "kling-o3-reference", resolution = "1080p", duration = 10, generatedAudio = hasAudio,
             prompt = draft.prompt.ifBlank { "Create the next story scene from @Video1. Keep the same characters and style." }))
-        message("Reference video added")
+        message(if(hasAudio) "Reference video added · existing audio can be kept" else "Silent reference added · this model does not generate new audio")
+    }
+
+    private suspend fun readReferenceAudio(path: String): Boolean? = withContext(Dispatchers.IO) {
+        runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(path)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
+            } finally { retriever.release() }
+        }.getOrNull()
     }
 
     private suspend fun copyUri(account: String, uri: Uri, maxBytes: Long, extension: String): File {

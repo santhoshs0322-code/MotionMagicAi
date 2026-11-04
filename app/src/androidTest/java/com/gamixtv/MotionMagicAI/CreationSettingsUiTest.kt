@@ -38,18 +38,38 @@ class CreationSettingsUiTest {
             creditPrices = mapOf(1 to 25L))
     }
 
-    private fun show(still: Boolean) {
+    private fun show(still: Boolean, reference: Boolean = false, referenceHasAudio: Boolean? = null) {
         ui.setContent {
-            var draft by remember { mutableStateOf(CreationDraft(modelId = "kling-3-omni", imageModelId = "gpt-image-2-5-s", imageQuality = "1K")) }
+            var draft by remember { mutableStateOf(CreationDraft(modelId = if(reference) "kling-o3-reference" else "kling-3-omni",
+                resolution = if(reference) "1080p" else "720p", generatedAudio = reference, imageModelId = "gpt-image-2-5-s", imageQuality = "1K")) }
             latest = draft
             MotionTheme {
                 Box(Modifier.fillMaxSize().background(Color(0xFF08090B))) {
                     ModalBottomSheet(onDismissRequest = {}, containerColor = Color(0xFF180E29), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-                        CreationSettingsPanel(draft, still, rates, false, true, { draft = it }, { draft = draft.copy(modelId = it.id) }, {}, {})
+                        val choices = if(reference) listOf(false, true).map { sound ->
+                            CloudRate("reference-$sound", "Kling O3 Story Reference", "kling-o3-reference", "video", "1080p",
+                                listOf("9:16"), (3..15).toList(), sound, false, creditPrices = (3..15).associateWith { 53L * it })
+                        } else rates
+                        CreationSettingsPanel(draft, still, choices, false, true, { draft = it }, { draft = draft.copy(modelId = it.id) }, {}, {}, referenceHasAudio)
                     }
                 }
             }
         }
+    }
+
+    @Test fun silentReferenceCannotEnableAudioAndExplainsWhy() {
+        show(false, reference = true, referenceHasAudio = false)
+        ui.onNodeWithTag("generated-audio-toggle").assertIsDisplayed().assertIsNotEnabled().assertIsOff()
+        ui.onNodeWithText("Use reference audio").assertIsDisplayed()
+        ui.onNodeWithText("Your reference has no audio track. This model cannot generate new sound.").assertIsDisplayed()
+        screenshot("settings-silent-reference.png")
+    }
+
+    @Test fun audibleReferenceCanKeepItsExistingAudioOrTurnItOff() {
+        show(false, reference = true, referenceHasAudio = true)
+        ui.onNodeWithText("Keeps existing sound only. Silent video stays silent.").assertIsDisplayed()
+        ui.onNodeWithTag("generated-audio-toggle").assertIsEnabled().assertIsOn().performClick()
+        ui.runOnIdle { assertEquals(false, latest.generatedAudio) }
     }
 
     private fun screenshot(name: String) {

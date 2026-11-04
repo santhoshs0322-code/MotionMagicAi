@@ -82,11 +82,13 @@ fun TemplatesScreen(vm: MotionViewModel) = ReferenceCatalogScreen(vm, templatePa
 
 @Composable
 fun ProjectsScreen(vm: MotionViewModel) {
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable(vm.activeAccountId) { mutableStateOf("") }
+    var localLimit by rememberSaveable(vm.activeAccountId) { mutableIntStateOf(30) }
     var deletion by remember { mutableStateOf<Project?>(null) }
-    val saved = vm.projects.sortedByDescending { it.createdAt }.distinctBy { it.id }
-        .filter { it.title.contains(query, ignoreCase = true) }
-    val savedCloudIds = vm.projects.mapNotNull { it.id.removePrefix("cloud_").takeIf { id -> it.id.startsWith("cloud_") && id.isNotBlank() } }.toSet()
+    val allSaved = remember(vm.projects) { vm.projects.sortedByDescending { it.createdAt }.distinctBy { it.id } }
+    val visibleSaved = remember(allSaved, localLimit) { allSaved.take(localLimit) }
+    val saved = remember(visibleSaved, query) { visibleSaved.filter { it.title.contains(query, ignoreCase = true) } }
+    val savedCloudIds = remember(allSaved) { allSaved.filter { it.id.startsWith("cloud_") && File(it.path).isFile }.map { it.id.removePrefix("cloud_") }.toSet() }
     val pending = vm.cloudJobs.distinctBy { it.id }
         .filter { it.id !in savedCloudIds && it.title.contains(query, ignoreCase = true) }
     val savedCount = vm.projects.distinctBy { it.id }.size + vm.cloudJobs.distinctBy { it.id }.count {
@@ -97,16 +99,18 @@ fun ProjectsScreen(vm: MotionViewModel) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("Made by you", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                    Text("$savedCount saved · ${vm.cloudJobs.count { it.isGenerating }} of 3 generating", color = Muted, fontSize = 13.sp)
+                    Text("$savedCount saved here · ${vm.cloudJobs.count { it.isGenerating }} of 3 generating", color = Muted, fontSize = 13.sp)
                 }
             }
         }
-        item { OutlinedButton(onClick = vm::resumeCloudGeneration, modifier = Modifier.fillMaxWidth()) { Text("Refresh projects") } }
+        item { OutlinedButton(onClick = vm::resumeCloudGeneration, enabled = !vm.projectPageLoading, modifier = Modifier.fillMaxWidth()) { Text("Refresh projects") } }
         if(vm.projects.isEmpty() && vm.cloudJobs.isEmpty()) {
-            item { EmptyState(Icons.Rounded.VideoLibrary, "Your ideas live here", "Create your first image, video or voice clip.", "Create a video") { vm.go(Screen.IMAGE) } }
+            if(!vm.projectPageLoading && vm.projectPageError == null) item {
+                EmptyState(Icons.Rounded.VideoLibrary, "Your ideas live here", "Create your first image, video or voice clip.", "Create a video") { vm.go(Screen.IMAGE) }
+            }
         } else {
             item {
-                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search projects") },
+                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search loaded projects") },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = PanelShape)
             }
             if(saved.isEmpty() && pending.isEmpty()) item { Text("No projects match “$query”.", color = Muted, modifier = Modifier.padding(vertical = 30.dp)) }
@@ -132,6 +136,27 @@ fun ProjectsScreen(vm: MotionViewModel) {
                             TextButton(onClick = { vm.exportStory(project) }) { Text("Export story", color = Color(0xFF75DFFF), fontSize = 11.sp) }
                     }
                     }
+                }
+            }
+        }
+        item(key = "project-pagination") {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                if(vm.projectPageLoading) {
+                    CircularProgressIndicator(Modifier.size(24.dp), color = Violet, strokeWidth = 2.dp)
+                    Text("Loading projects…", color = Muted, fontSize = 12.sp)
+                }
+                vm.projectPageError?.let { Text(it, color = Color(0xFFFFB7CE), fontSize = 12.sp) }
+                if(vm.projectHasMore || localLimit < allSaved.size || vm.projectPageError != null) {
+                    OutlinedButton(onClick = {
+                        localLimit += 30
+                        vm.loadMoreProjects()
+                    }, enabled = !vm.projectPageLoading, modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(1.dp, Violet), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE7C7FF))) {
+                        Text(if(vm.projectPageError != null) "Retry loading projects" else "Load more projects")
+                    }
+                    Text("30 cloud creations per page", color = Muted, fontSize = 11.sp)
+                } else if(!vm.projectPageLoading && (allSaved.isNotEmpty() || vm.cloudJobs.isNotEmpty())) {
+                    Text("You're all caught up", color = Muted, fontSize = 12.sp)
                 }
             }
         }

@@ -1,6 +1,7 @@
 package com.gamixtv.MotionMagicAI.cloud
 
 import org.json.JSONObject
+import java.time.OffsetDateTime
 
 /** A server-owned generation shown in My Projects before its media is downloaded. */
 data class CloudJob(
@@ -16,6 +17,7 @@ data class CloudJob(
     val progressPercent: Int = stagePercent(state),
     val previewPath: String? = null,
     val previewVideo: Boolean = false,
+    val createdAt: Long = 0,
 ) {
     val isGenerating: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain")
     val isActive: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain", "downloading")
@@ -53,6 +55,20 @@ data class CloudJob(
             outputAssetId = json.optString("output_asset_id").takeUnless { it.isBlank() || it == "null" },
             chargedPaise = json.optLong("charged_paise"),
             errorCode = json.optString("error_code"),
+            createdAt = runCatching { OffsetDateTime.parse(json.optString("created_at")).toInstant().toEpochMilli() }.getOrDefault(0),
         )
     }
+}
+
+/** Merge DB pages without duplicating saved files or resetting an ongoing device download. */
+internal fun mergeCloudJobs(existing: List<CloudJob>, incoming: List<CloudJob>, downloadedIds: Set<String>, retainMissingActive: Boolean = false): List<CloudJob> {
+    val previous = existing.associateBy { it.id }
+    val merged = existing.filter { retainMissingActive || !it.isGenerating }.associateByTo(linkedMapOf()) { it.id }
+    for(job in incoming) {
+        val old = previous[job.id]
+        merged[job.id] = if(old?.state == "downloading" && job.isReady) old
+            else job.copy(previewPath = job.previewPath ?: old?.previewPath, previewVideo = if(job.previewPath != null) job.previewVideo else old?.previewVideo ?: false)
+    }
+    return merged.values.filterNot { it.id in downloadedIds }
+        .sortedWith(compareByDescending<CloudJob> { it.createdAt }.thenByDescending { it.id })
 }
