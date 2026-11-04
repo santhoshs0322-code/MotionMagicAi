@@ -438,7 +438,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
             // A project refresh reads saved database status only. Result media is
-            // downloaded separately when the user taps Save to My Projects.
+            // downloaded separately when the user taps Download to device.
             pollCloudJobs(session.user.id, includeRecent = true)
             tab(Screen.PROJECTS)
             if(cloudJobs.any { it.isGenerating }) startCloudMonitor(session.user.id, restart = true)
@@ -448,13 +448,13 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun downloadCloudResult(jobId: String) = startWork("Saving your creation", "Downloading the completed result to My Projects.") {
+    fun downloadCloudResult(jobId: String) = startWork("Downloading your creation", "Your result is already saved to your account. Copying it to this device.") {
         val account = checkNotNull(activeAccountId) { "Sign in to save your creation." }
         val session = cloud.session()
         require(session.user.id == account && activeAccountId == account) { "Your account changed. Sign in again." }
         if (projects.any { it.id == "cloud_$jobId" && File(it.path).isFile }) return@startWork
         val job = cloudJobs.firstOrNull { it.id == jobId && it.isReady }
-            ?: error("This result is not ready to save. Refresh My Projects to check its status.")
+            ?: error("This result is not ready to download. Refresh My Projects to check its status.")
         try { downloadCloudJob(account, session, job) }
         catch (e: Exception) {
             if(activeAccountId == account) cloudJobs = cloudJobs.map { if (it.id == jobId) it.copy(state = "succeeded", progressPercent = 100) else it }
@@ -527,7 +527,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
         val previouslyActive = cloudJobs.filter { it.isGenerating }.map { it.id }.toSet() + observedActiveJobIds
         observedActiveJobIds.addAll(latest.filter { it.isGenerating }.map { it.id })
-        cloudJobs = (latest + cloudJobs.filter { it.id !in latestById && (it.isReady || it.state in setOf("failed", "cancelled")) })
+        cloudJobs = (latest + cloudJobs.filter { it.id !in latestById && (it.isReady || it.state in setOf("failed", "cancelled", "downloading")) })
             .distinctBy { it.id }
             .filterNot { job -> projects.any { it.id == "cloud_${job.id}" && File(it.path).isFile } }
             .take(40)
@@ -555,13 +555,13 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         val id = "cloud_${job.id}"
         val output = File(projectDir(account), "$id.media")
         val temporary = File(projectDir(account), "$id.part")
-        cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "downloading", progressPercent = 90) else it }
+        cloudJobs = cloudJobs.map { if(it.id == job.id) it.copy(state = "downloading", progressPercent = 0) else it }
         try {
             withContext(Dispatchers.IO) { temporary.delete() }
             val mime = cloud.download(checkNotNull(job.outputAssetId), session, temporary) { transferred, total ->
                 withContext(Dispatchers.Main.immediate) {
                     if(activeAccountId == account) cloudJobs = cloudJobs.map {
-                        if(it.id == job.id) it.copy(progressPercent = 90 + (transferred * 9 / total).toInt().coerceIn(0, 9)) else it
+                        if(it.id == job.id) it.copy(progressPercent = (transferred * 100 / total).toInt().coerceIn(0, 100)) else it
                     }
                 }
             }
@@ -592,7 +592,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             if(pending?.optBoolean("preview_temp") == true) job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
             observedActiveJobIds.remove(job.id)
             autoSave(project)
-            message("${job.title} saved · ${credits(job.chargedPaise)} charged")
+            message("${job.title} downloaded to this device.")
         } finally { withContext(NonCancellable + Dispatchers.IO) { temporary.delete() } }
     }
 

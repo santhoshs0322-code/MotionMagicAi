@@ -276,6 +276,48 @@ class FalFlowTests(TestCase):
         self.assertNotIn("headers", get.call_args.kwargs)  # No credentials on media GET.
         self.assertEqual(Ledger.objects.filter(kind="charge").count(), 1)
 
+    def test_success_cannot_settle_without_a_ready_saved_output(self):
+        job = self.job()
+        with self.assertRaisesMessage(Exception, "Save the generated media"):
+            services.finish_job(job.pk, "succeeded", 10)
+        incomplete = Asset.objects.create(account=self.account, key=storage.generated_key(job), mime="image/png", size=5, ready=False)
+        with self.assertRaisesMessage(Exception, "Generated media does not belong"):
+            services.finish_job(job.pk, "succeeded", 10, asset=incomplete)
+        job.refresh_from_db(); self.wallet.refresh_from_db()
+        self.assertEqual((job.state, job.output_id, self.wallet.balance_paise, self.wallet.held_paise), ("queued", None, 100_000, 100))
+        self.assertFalse(Ledger.objects.filter(kind="charge").exists())
+
+    @patch("studio.fal.requests.post", return_value=Response({"request_id": "saved-output-request"}, status=202))
+    @patch("studio.fal.requests.get")
+    @patch("studio.fal.storage.existing_generated_image", return_value=None)
+    @patch("studio.fal.storage.put_generated_stream")
+    @patch("studio.worker.storage.provider_output")
+    def test_storage_failure_keeps_job_incomplete_and_retry_saves_before_charging(self, output_asset, put, existing, get, post):
+        job = self.job()
+        worker.run_one()
+        get.side_effect = [Response({"status": "COMPLETED"}), Response({"images": [{"url": "https://v3.fal.media/result.png"}]}), Response()]
+        put.side_effect = IOError("S3 transfer interrupted")
+        Job.objects.filter(pk=job.pk).update(next_attempt_at=timezone.now())
+        worker.run_one()
+        job.refresh_from_db(); self.wallet.refresh_from_db()
+        self.assertEqual((job.state, job.output_id, self.wallet.balance_paise, self.wallet.held_paise), ("uncertain", None, 100_000, 100))
+        self.assertFalse(Asset.objects.exists())
+        self.assertFalse(Ledger.objects.filter(kind="charge").exists())
+        output_asset.assert_not_called()
+
+        asset = Asset.objects.create(account=self.account, key=storage.generated_key(job), mime="image/png", size=5, ready=True)
+        output_asset.return_value = asset
+        put.side_effect = None
+        put.return_value = {"key": asset.key, "mime": asset.mime, "size": asset.size}
+        get.side_effect = [Response({"status": "COMPLETED"}), Response({"images": [{"url": "https://v3.fal.media/result.png"}]}), Response()]
+        Job.objects.filter(pk=job.pk).update(next_attempt_at=timezone.now())
+        worker.run_one()
+        job.refresh_from_db(); self.wallet.refresh_from_db()
+        self.assertEqual((job.state, job.output_id, self.wallet.balance_paise, self.wallet.held_paise), ("succeeded", asset.pk, 99_900, 0))
+        post.assert_called_once()
+        self.assertEqual(Ledger.objects.filter(kind="charge").count(), 1)
+        self.assertFalse(worker.run_one())
+
     @patch("studio.fal.requests.post", side_effect=requests.Timeout)
     def test_ambiguous_submission_is_never_retried_and_releases_wallet(self, post):
         job = self.job()

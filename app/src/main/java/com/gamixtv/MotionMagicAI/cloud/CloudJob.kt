@@ -25,8 +25,8 @@ data class CloudJob(
         "submitting" -> "Sending to AI model"
         "running" -> "AI model is generating"
         "uncertain" -> "Checking provider status"
-        "downloading" -> "Saving creation to this device"
-        "succeeded" -> "Completed · ready to save"
+        "downloading" -> "Completed · downloading to this device"
+        "succeeded" -> "Completed · saved to your account"
         "cancelled" -> "Cancelled"
         "failed" -> "Generation failed · credits released"
         else -> "Checking generation"
@@ -37,7 +37,7 @@ data class CloudJob(
             "queued" -> 10
             "submitting" -> 20
             "running", "uncertain" -> 50
-            "downloading" -> 90
+            "downloading" -> 0
             "succeeded" -> 100
             "failed", "cancelled" -> 0
             else -> 0

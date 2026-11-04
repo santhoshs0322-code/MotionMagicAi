@@ -50,7 +50,9 @@ class PricingTests(TestCase):
         self.assertEqual(job.pk, same.pk)
         wallet.refresh_from_db()
         self.assertEqual((wallet.balance_paise, wallet.held_paise, wallet.available_paise), (1000, 250, 750))
-        finish_job(job.pk, "succeeded", 80)
+        output = Asset.objects.create(account=account, key=f"accounts/{account.pk}/video/generated/{job.pk}/generated.mp4",
+                                      mime="video/mp4", size=10, ready=True)
+        finish_job(job.pk, "succeeded", 80, asset=output)
         finish_job(job.pk, "succeeded", 80)
         wallet.refresh_from_db()
         self.assertEqual((wallet.balance_paise, wallet.held_paise), (800, 0))

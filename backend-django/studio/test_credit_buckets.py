@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from . import billing, services
 from .authentication import digest, issue_token
-from .models import Account, Ledger, Product, Rate, Subscription, Wallet
+from .models import Account, Asset, Ledger, Product, Rate, Subscription, Wallet
 
 
 RUNTIME = dict(PLAY_ENABLED=True, SUBSCRIPTIONS_ENABLED=True,
@@ -57,12 +57,16 @@ class CreditBucketTests(TestCase):
         with transaction.atomic():
             return services.wallet_for_update(self.account)
 
+    def output(self, job):
+        return Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/image/generated/{job.pk}/generated.png",
+                                    mime="image/png", size=10, ready=True)
+
     def test_monthly_spent_first_renewal_replaces_unused_and_topup_persists(self):
         self.subscribe()
         self.topup()
         first = self.job(100, "first-job")
         self.assertEqual((first.monthly_reserved_paise, first.topup_reserved_paise), (1000, 0))
-        services.finish_job(first.pk, "succeeded", 100)
+        services.finish_job(first.pk, "succeeded", 100, asset=self.output(first))
         self.assertEqual((self.wallet().monthly_available_paise, self.wallet().topup_available_paise), (200, 500))
 
         renewed = self.subscribe("GPA.month-two", expiry=self.expiry + timedelta(days=30))
@@ -74,7 +78,7 @@ class CreditBucketTests(TestCase):
 
         second = self.job(140, "second-job")
         self.assertEqual((second.monthly_reserved_paise, second.topup_reserved_paise), (1200, 200))
-        services.finish_job(second.pk, "succeeded", 140)
+        services.finish_job(second.pk, "succeeded", 140, asset=self.output(second))
         self.assertEqual((self.wallet().monthly_available_paise, self.wallet().topup_available_paise), (0, 300))
         Wallet.objects.filter(account=self.account).update(monthly_expires_at=timezone.now() - timedelta(seconds=1))
         wallet = self.wallet()

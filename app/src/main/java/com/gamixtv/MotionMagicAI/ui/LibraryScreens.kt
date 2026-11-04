@@ -89,12 +89,15 @@ fun ProjectsScreen(vm: MotionViewModel) {
     val savedCloudIds = vm.projects.mapNotNull { it.id.removePrefix("cloud_").takeIf { id -> it.id.startsWith("cloud_") && id.isNotBlank() } }.toSet()
     val pending = vm.cloudJobs.distinctBy { it.id }
         .filter { it.id !in savedCloudIds && it.title.contains(query, ignoreCase = true) }
+    val savedCount = vm.projects.distinctBy { it.id }.size + vm.cloudJobs.distinctBy { it.id }.count {
+        (it.isReady || it.state == "downloading") && it.id !in savedCloudIds
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("Made by you", fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                    Text("${vm.projects.size} saved · ${vm.cloudJobs.count { it.isGenerating }} of 3 generating", color = Muted, fontSize = 13.sp)
+                    Text("$savedCount saved · ${vm.cloudJobs.count { it.isGenerating }} of 3 generating", color = Muted, fontSize = 13.sp)
                 }
             }
         }
@@ -145,15 +148,20 @@ private fun CloudJobCard(job: CloudJob, onRefresh: () -> Unit, onDownload: () ->
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(job.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                    Text(if(job.kind == "image") "Creating your image" else "Creating your video", color = Violet, fontSize = 11.sp)
+                    Text(if(job.isGenerating) { if(job.kind == "image") "Creating your image" else "Creating your video" }
+                        else if(job.kind == "image") "AI image" else "AI video", color = Violet, fontSize = 11.sp)
                 }
             }
             Text(job.statusLabel, color = Color(0xFFDAC8F2), fontSize = 12.sp)
             if(job.isActive || job.isReady) {
                 LinearProgressIndicator(progress = { job.progressPercent / 100f }, modifier = Modifier.fillMaxWidth(), color = Violet, trackColor = Color(0xFF322645))
-                Text(if(job.isReady) "100% · generation completed" else "${job.progressPercent}% · estimated progress; updates after each stage", color = Muted, fontSize = 10.sp)
+                Text(when {
+                    job.state == "downloading" -> "${job.progressPercent}% · downloading the saved result"
+                    job.isReady -> "100% · generation completed"
+                    else -> "${job.progressPercent}% · estimated progress; updates after each stage"
+                }, color = Muted, fontSize = 10.sp)
             }
-            if(job.isReady) TextButton(onClick = onDownload) { Text("Save to My Projects") }
+            if(job.isReady) TextButton(onClick = onDownload) { Text("Download to device") }
             else if(job.isActive) TextButton(onClick = onRefresh) { Text("Check status") }
         }
     }

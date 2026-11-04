@@ -349,6 +349,8 @@ def finish_job(job_id, state, actual_cost=0, asset=None, error="", lease_id=None
         return job
     if state not in TERMINAL or type(actual_cost) is not int or actual_cost < 0:
         raise Problem("Invalid job settlement.", 503)
+    if state == "succeeded" and asset is None:
+        raise Problem("Save the generated media before completing this job.", 503)
     if asset is not None and (str(asset.account_id) != str(job.account_id) or not asset.ready or asset.deleted):
         raise Problem("Generated media does not belong to this account.", 503)
     bucket = Budget.objects.select_for_update().get(pk=job.budget_id)
