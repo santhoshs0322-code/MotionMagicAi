@@ -170,6 +170,8 @@ data class CreationDraft(
     val audioPrompt: String = "",
     val imageModelId: String = "qwen-image",
     val outputCount: Int = 1,
+    val templateId: String? = null,
+    val requiresReference: Boolean = false,
 )
 
 data class ValidationResult(val errors: List<String>) {

@@ -104,6 +104,8 @@ class MotionStore(context: Context) {
             audioPrompt = json.optString("audioPrompt", ""),
             imageModelId = imageModel.id,
             outputCount = json.optInt("outputCount", 1).coerceIn(1, 4),
+            templateId = json.optString("templateId").takeIf { it.isNotBlank() && it != "null" },
+            requiresReference = json.optBoolean("requiresReference"),
         )
     }
 
@@ -121,6 +123,8 @@ class MotionStore(context: Context) {
             .put("audioPrompt", value.audioPrompt)
             .put("imageModelId", value.imageModelId)
             .put("outputCount", value.outputCount)
+            .put("templateId", value.templateId)
+            .put("requiresReference", value.requiresReference)
         commit(preferences.edit().putString(draftKey(key, accountId), json.toString()))
     }
 

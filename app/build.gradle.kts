@@ -67,6 +67,8 @@ android {
         compose = true
         buildConfig = true
     }
+    // One reviewed artwork/prompt catalogue is shared with Django's initial templates.
+    sourceSets.getByName("main").assets.srcDir(rootProject.file("backend-django/template-assets"))
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }

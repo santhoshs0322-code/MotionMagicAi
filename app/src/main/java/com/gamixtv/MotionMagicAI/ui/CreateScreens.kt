@@ -86,7 +86,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
     }
     val hasInput = if(mode == CreationMode.IMAGE_TO_VIDEO) {
         if(VideoModelCatalog.isReference(draft.modelId)) vm.referenceVideoPath != null else vm.photo != null
-    } else draft.prompt.isNotBlank()
+    } else draft.prompt.isNotBlank() && (!draft.requiresReference || vm.photo != null)
     LaunchedEffect(Unit) { refreshCatalog() }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -102,6 +102,10 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if(draft.requiresReference) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Your photo is required for this look", Modifier.weight(1f), color = colors.primary, fontSize = 12.sp)
+                TextButton(onClick = { update(draft.copy(templateId = null, requiresReference = false)) }) { Text("Clear template", fontSize = 11.sp) }
+            }
             if(mode == CreationMode.IMAGE_TO_VIDEO && VideoModelCatalog.isReference(draft.modelId)) {
                 VideoReferenceInput(draft.modelId, vm.cloudRates.map { it.modelId }.distinct(), vm.referenceVideoPath, vm.referenceVideoDurationMs,
                     vm.referencePhotoPaths, rate?.maxReferenceImages ?: 0, { vm.selectVideoModel(VideoModelCatalog.find(it)) }, onPickVideo,
@@ -171,11 +175,15 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         CreationButton(still, price, hasInput && price != null) { focus.clearFocus(); vm.prepareCloudGeneration() }
     }
     if(modes) CreationModeSheet(mode, { modes = false }) { chosen -> vm.switchCreationMode(chosen); modes = false }
+    if(gallery) ObserveTemplateCatalogue(vm)
+    LaunchedEffect(vm.showcaseTemplates) {
+        selectedTemplate?.remoteId?.let { id -> selectedTemplate = vm.showcaseTemplates.firstOrNull { it.remoteId == id } }
+    }
     if(gallery) ModalBottomSheet(onDismissRequest = { gallery = false }, containerColor = colors.surface) {
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text("Templates", fontSize = 21.sp, fontWeight = FontWeight.Bold)
             LazyColumn(Modifier.heightIn(max = 450.dp), contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(vm.showcaseTemplates.filter { it.mode == mode }.ifEmpty { templates }) { item ->
+                items(vm.showcaseTemplates.filter { it.mode == mode }) { item ->
                     Row(Modifier.fillMaxWidth().clickable { gallery = false; selectedTemplate = item }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         ShowcasePoster(item, Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)))
                         Text(item.name, Modifier.weight(1f).padding(start = 12.dp), fontWeight = FontWeight.SemiBold)
@@ -188,7 +196,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
     selectedTemplate?.let { item ->
         val templateMode = if(item.remoteId == null) mode else item.mode
         TemplatePreviewSheet(item, templateMode, { selectedTemplate = null }) {
-            vm.useTemplate(item.art, item.name, item.promptFor(templateMode), templateMode, item.aspect, item.duration, item.modelId, item.resolution, item.generatedAudio)
+            vm.useTemplate(item.art, item.name, item.promptFor(templateMode), templateMode, item.aspect, item.duration, item.modelId, item.resolution, item.generatedAudio, item.remoteId, item.requiresReference)
             selectedTemplate = null
         }
     }
@@ -219,7 +227,7 @@ private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, pickPhoto: 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(if(reference != null) Icons.Rounded.VideoLibrary else Icons.Rounded.Image, null, Modifier.size(20.dp))
             Text(if(reference != null) "Reference Video" else "Reference Image", Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(if(still) "  (Optional)" else if(reference == null) "  (Starting Frame)" else "", fontSize = 10.sp, color = colors.muted)
+            Text(if(still && vm.imageDraft.requiresReference) "  (Your photo required)" else if(still) "  (Optional)" else if(reference == null) "  (Starting Frame)" else "", fontSize = 10.sp, color = colors.muted)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if(photo != null || reference != null) Box(Modifier.weight(1f).height(112.dp).clip(RoundedCornerShape(14.dp)).background(colors.field)) {

@@ -50,7 +50,8 @@ data class Template(val name: String, val art: Artwork, val category: String, va
     val remoteId: String? = null, val posterUrl: String? = null, val videoUrl: String? = null,
     val exampleInputUrl: String? = null, val mediaRevision: String = "", val prompt: String? = null,
     val mode: CreationMode = CreationMode.IMAGE_TO_VIDEO, val modelId: String? = null,
-    val resolution: String? = null, val generatedAudio: Boolean = false, val featured: Boolean = false) {
+    val resolution: String? = null, val generatedAudio: Boolean = false, val featured: Boolean = false,
+    val requiresReference: Boolean = false, val bundledPoster: String? = null, val bundledPosterHash: String? = null) {
     fun promptFor(mode: CreationMode): String {
         if (!prompt.isNullOrBlank()) return prompt
         val scene = when(name) {

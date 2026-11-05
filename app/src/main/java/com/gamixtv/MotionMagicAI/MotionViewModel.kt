@@ -150,7 +150,12 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private var projectHistoryLoaded = false
     private var projectPageJob: Job? = null
     var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
-    var showcaseTemplates by mutableStateOf<List<Template>>(emptyList()); private set
+    private val showcasePreferences = app.getSharedPreferences("motion_public_templates", Application.MODE_PRIVATE)
+    private val showcaseCacheKey = AuthConfig.fromBuildConfig().normalizedBaseUrl
+    private val savedShowcase = runCatching { showcasePreferences.getString(showcaseCacheKey, null)?.let {
+        com.gamixtv.MotionMagicAI.ui.ImageTemplateCatalogue.parse(JSONArray(it))
+    } }.getOrNull()
+    var showcaseTemplates by mutableStateOf(savedShowcase ?: com.gamixtv.MotionMagicAI.ui.ImageTemplateCatalogue.bundled(app)); private set
     private var showcaseCheckedAt = 0L
     private var showcaseLoading = false
     private var catalogCheckedAt = 0L
@@ -185,36 +190,18 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun refreshShowcase() {
-        if (showcaseLoading || System.currentTimeMillis() - showcaseCheckedAt < 2 * 60_000) return
+    fun refreshShowcase(force: Boolean = false) {
+        if(showcaseLoading || !force && System.currentTimeMillis() - showcaseCheckedAt < 30_000) return
         showcaseLoading = true
         viewModelScope.launch {
             try {
                 val rows = cloud.request("GET", "/templates").getJSONArray("templates")
-                showcaseTemplates = (0 until rows.length()).mapNotNull { index ->
-                    val row = rows.getJSONObject(index)
-                    val mode = when(row.optString("mode")) {
-                        "create_image" -> CreationMode.CREATE_IMAGE
-                        "text_to_video" -> CreationMode.TEXT_TO_VIDEO
-                        "image_to_video" -> CreationMode.IMAGE_TO_VIDEO
-                        else -> return@mapNotNull null
-                    }
-                    val category = row.optString("category", "Trending")
-                    val art = when {
-                        category.contains("anime", true) -> Artwork.Anime
-                        category.contains("travel", true) -> Artwork.Travel
-                        category.contains("birthday", true) -> Artwork.Birthday
-                        else -> Artwork.Cinematic
-                    }
-                    Template(row.getString("title"), art, category, row.optString("aspect_ratio", "9:16"),
-                        row.optInt("duration", 5), row.getString("id"), row.getString("poster_url"),
-                        row.getString("video_url"), row.optString("example_input_url"), row.optString("updated_at"),
-                        row.getString("prompt"), mode, row.optString("model_id"), row.optString("resolution"),
-                        row.optBoolean("generated_audio"), row.optBoolean("featured"))
-                }
+                showcaseTemplates = com.gamixtv.MotionMagicAI.ui.ImageTemplateCatalogue.parse(rows)
+                // Persist the authoritative empty feed too: unpublished rows must not reappear offline.
+                showcasePreferences.edit().putString(showcaseCacheKey, rows.toString()).apply()
                 showcaseCheckedAt = System.currentTimeMillis()
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { /* Keep the locally bundled template previews available offline. */ }
+            } catch(e: CancellationException) { throw e }
+            catch(_: Exception) { /* Keep the last owner catalogue, or initial bundled previews. */ }
             finally { showcaseLoading = false }
         }
     }
@@ -369,6 +356,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             val payload = JSONObject().put("service", rate.id).put("aspect_ratio", request.aspect)
                 .put("prompt", request.prompt.trim().ifBlank { "Animate this photo with gentle natural movement." })
             if(!image) payload.put("duration", request.duration).put("generated_audio", request.generatedAudio)
+            request.templateId?.let { payload.put("template_id", it) }
             if(withVideo) payload.put("reference_image_count", referencePhotos.size)
             coroutineScope {
                 val deferred = cloud.deferredInputQuotes
@@ -928,6 +916,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             if(VideoModelCatalog.isReference(input.modelId) && screen != Screen.CREATE_IMAGE && (screen != Screen.IMAGE || referenceVideoPath == null)) add("Choose a base video in Image to Video for this model.")
             if(VideoModelCatalog.isReference(input.modelId) && screen != Screen.CREATE_IMAGE && input.prompt.isBlank()) add("Describe how to use @Video1 and your reference photos.")
             if(screen != Screen.IMAGE && input.prompt.isBlank()) add("Describe what you want to create.")
+            if(input.requiresReference && photo == null) add("Upload your own photo to recreate this template.")
             if(input.prompt.length > 500) add("Keep your prompt to 500 characters or fewer.")
         }
         if(errors.isNotEmpty()) failure = errors.joinToString("\n")
@@ -956,18 +945,19 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
     fun useTemplate(art: Artwork, title: String, prompt: String = "A $title scene with a slow cinematic camera movement",
                     mode: CreationMode = CreationMode.IMAGE_TO_VIDEO, aspect: String = "9:16", duration: Int = 5,
-                    modelId: String? = null, resolution: String? = null, generatedAudio: Boolean = false) {
+                    modelId: String? = null, resolution: String? = null, generatedAudio: Boolean = false,
+                    templateId: String? = null, requiresReference: Boolean = false) {
         selectedArt = art
         if(mode == CreationMode.CREATE_IMAGE) updateImageDraft(imageDraft.copy(selectedStyle = title, prompt = prompt, aspect = aspect,
             imageModelId = modelId?.takeIf { id -> ImageModelCatalog.models.any { it.id == id } } ?: imageDraft.imageModelId,
-            imageQuality = resolution ?: imageDraft.imageQuality))
+            imageQuality = resolution ?: imageDraft.imageQuality, templateId = templateId, requiresReference = requiresReference))
         else {
             val model = VideoModelCatalog.find(modelId ?: draft.modelId)
             updateDraft(draft.copy(selectedStyle = title, prompt = prompt, aspect = aspect, modelId = model.id,
                 resolution = resolution?.takeIf { it in model.resolutions }
                     ?: draft.resolution.takeIf { it in model.resolutions } ?: model.resolutions.first(),
                 generatedAudio = generatedAudio && model.supportsGeneratedAudio,
-                duration = duration.takeIf { it in model.durations } ?: model.durations.min()))
+                duration = duration.takeIf { it in model.durations } ?: model.durations.min(), templateId = templateId, requiresReference = requiresReference))
         }
         val target = when(mode) {
             CreationMode.IMAGE_TO_VIDEO -> Screen.IMAGE

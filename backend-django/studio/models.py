@@ -103,6 +103,7 @@ class ShowcaseTemplate(models.Model):
     video_key = models.CharField(max_length=300, blank=True)
     example_input_key = models.CharField(max_length=300, blank=True)
     featured = models.BooleanField(default=False)
+    requires_reference = models.BooleanField(default=False, db_default=False)
     published = models.BooleanField(default=False)
     position = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

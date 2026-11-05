@@ -10,7 +10,7 @@ from django.db.models import Q
 from django.utils import timezone
 from .authentication import digest
 from .errors import Problem
-from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset, Subscription
+from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset, Subscription, ShowcaseTemplate
 from . import gemini, gemini_video, fal, fal_catalog
 
 TERMINAL = ("succeeded", "failed", "cancelled")
@@ -225,7 +225,7 @@ def reference_images(account, identifiers, config):
 
 
 def create_quote(account, data):
-    if not isinstance(data, dict) or set(data) - {"service", "prompt", "duration", "asset_id", "input_kind", "aspect_ratio", "generated_audio", "reference_image_count", "reference_image_ids"}:
+    if not isinstance(data, dict) or set(data) - {"service", "prompt", "duration", "asset_id", "input_kind", "aspect_ratio", "generated_audio", "reference_image_count", "reference_image_ids", "template_id"}:
         raise Problem("Use service, prompt, optional duration, asset_id, input_kind, aspect_ratio and generated_audio only.")
     try:
         rate = enabled_rates().get(pk=data.get("service"))
@@ -285,6 +285,13 @@ def create_quote(account, data):
         payload["asset_id"] = str(asset.pk)
     elif rate_config.get("reference_video") and input_kind != "video":
         raise Problem("Select a reference video for this model.")
+    if data.get("template_id"):
+        template = published_template(data["template_id"])
+        if (template.mode == "create_image") != (rate.kind == "image"):
+            raise Problem("This template's creation mode changed. Choose it again.", 409)
+        if template.requires_reference and payload.get("input_kind") != "image":
+            raise Problem("Add your own reference photo to recreate this template.")
+        payload.update(template_id=str(template.pk), requires_reference=template.requires_reference)
     refs = data.get("reference_image_ids", [])
     images = reference_images(account, refs, rate_config)
     count = data.get("reference_image_count", len(images))
@@ -299,6 +306,13 @@ def create_quote(account, data):
     charge = price(cost + rate.overhead_paise)
     ttl_minutes = 15 if input_kind in ("image", "video") and not data.get("asset_id") else 5
     return Quote.objects.create(account=account, rate=rate, payload=payload, payload_hash=digest(json.dumps(payload, sort_keys=True)), provider_cost_paise=cost, overhead_paise=rate.overhead_paise, markup_bps=settings.MARKUP_BPS, fee_bps=settings.STORE_FEE_BPS, charge_paise=charge, expires_at=timezone.now() + timedelta(minutes=ttl_minutes))
+
+
+def published_template(identifier):
+    try:
+        return ShowcaseTemplate.objects.get(pk=uuid.UUID(str(identifier)), published=True)
+    except (ValueError, ShowcaseTemplate.DoesNotExist):
+        raise Problem("This template is no longer available. Choose another template.", 409) from None
 
 @transaction.atomic
 def submit_job(account, quote_id, key, asset_id=None, reference_image_ids=None):
@@ -317,6 +331,10 @@ def submit_job(account, quote_id, key, asset_id=None, reference_image_ids=None):
     if quote.expires_at <= timezone.now() or not enabled_rates().filter(pk=quote.rate_id).exists() or quote.rate.revision != quote.payload["revision"]:
         raise Problem("Quote expired or service changed. Request another quote.", 409)
     require_rate_access(account, quote.rate)
+    if quote.payload.get("template_id"):
+        template = published_template(quote.payload["template_id"])
+        if template.requires_reference and quote.payload.get("input_kind") != "image":
+            raise Problem("Add your own reference photo to recreate this template.", 409)
     if Job.objects.filter(quote=quote).exists():
         raise Problem("This quote already has a job.", 409)
     # Quotes price model/settings without an S3 upload. Bind the uploaded source

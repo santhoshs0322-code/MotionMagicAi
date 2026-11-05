@@ -23,6 +23,7 @@ urlpatterns = [
     path("auth/motion-ai/me", v.Me.as_view()), path("auth/motion-ai/logout", v.Logout.as_view()),
     path("api/v1/capabilities", v.Capabilities.as_view()),
     path("api/v1/templates", showcase.ShowcaseFeed.as_view()),
+    path("api/v1/templates/artwork/<str:filename>", showcase.bundled_artwork, name="template-artwork"),
     path("api/v1/wallet", v.WalletView.as_view()), path("api/v1/transactions", v.Transactions.as_view()),
     path("api/v1/quotes", v.Quotes.as_view()), path("api/v1/jobs", v.Jobs.as_view()), path("api/v1/jobs/<uuid:identifier>", v.JobDetail.as_view()),
     path("api/v1/assets", v.Assets.as_view()), path("api/v1/assets/<uuid:identifier>", v.AssetDetail.as_view()),
