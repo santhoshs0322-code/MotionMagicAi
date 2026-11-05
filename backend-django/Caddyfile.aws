@@ -1,18 +1,12 @@
-{
-    # Clients connecting to an IP often omit TLS SNI. AWS NAT also means the
-    # container does not see the public Elastic IP as its local socket address.
-    default_sni {$MOTION_AI_API_HOST}
-}
-
+# Point this DNS hostname at the instance's associated Elastic IP. Caddy manages
+# the public domain certificate and HTTP-to-HTTPS redirect automatically.
 {$MOTION_AI_API_HOST} {
-    # A publicly trusted certificate for a bare IP requires Let's Encrypt's
-    # shortlived ACME profile. Caddy renews it using the persisted /data volume.
-    tls {
-        issuer acme {
-            dir https://acme-v02.api.letsencrypt.org/directory
-            profile shortlived
-        }
-    }
     encode zstd gzip
     reverse_proxy api:8000
+}
+
+# Temporary public website destination, including /terms and /privacy.
+# API, sign-in, owner and Play callback requests use api.motionmagicai.in.
+motionmagicai.in, www.motionmagicai.in {
+    redir https://gamixtv.in{uri} 302
 }

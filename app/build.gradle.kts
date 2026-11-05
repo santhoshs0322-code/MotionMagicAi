@@ -9,11 +9,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Build against the deployed API host. The default keeps existing releases on
-// Render until the AWS host is ready and an updated bundle is published.
+// Use the stable API domain so later EC2 address changes only require DNS updates.
+// Keep an explicit HTTPS override available for isolated test deployments.
 val motionMagicApiBaseUrl = providers.gradleProperty("motionAiApiBaseUrl")
     .orNull?.trim()?.trimEnd('/')?.takeIf(String::isNotEmpty)
-    ?: "https://motionmagicai.onrender.com"
+    ?: "https://api.motionmagicai.in"
 val motionMagicApiUri = URI(motionMagicApiBaseUrl)
 require(motionMagicApiUri.scheme == "https" && motionMagicApiUri.host != null &&
     motionMagicApiUri.rawPath.isNullOrEmpty() && motionMagicApiUri.rawQuery == null &&

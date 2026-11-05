@@ -37,7 +37,7 @@ services:
   web:
     image: caddy:2.11.7-alpine
     environment:
-      MOTION_AI_API_HOST: ${MOTION_AI_API_HOST:?Set MOTION_AI_API_HOST to the public Elastic IP}
+      MOTION_AI_API_HOST: ${MOTION_AI_API_HOST:?Set MOTION_AI_API_HOST to the API DNS hostname, such as api.motionmagicai.in}
     ports:
       - "80:80"
       - "443:443"

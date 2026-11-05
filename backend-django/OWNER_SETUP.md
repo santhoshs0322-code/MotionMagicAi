@@ -1,8 +1,8 @@
 # Private owner finance panel
 
-After deploying `dev`, open https://motionmagicai.onrender.com/owner/ . This is a separate browser login. App Google accounts, app JWTs, ordinary Django staff and other superusers cannot access it. The configured username must also be an active Django superuser. Leaving the username empty disables all owner routes with HTTP 404.
+After deploying `dev` and configuring the AWS domain, open https://api.motionmagicai.in/owner/ . This is a separate browser login. App Google accounts, app JWTs, ordinary Django staff and other superusers cannot access it. The configured username must also be an active Django superuser. Leaving the username empty disables all owner routes with HTTP 404. See [AWS domain setup](AWS_FREE_TIER_SETUP.md) for GoDaddy DNS, HTTPS and the Play callback.
 
-## Render environment
+## Server environment
 
 Keep existing database, Redis, signing, Google **login**, S3 and pricing settings. Add these on the API and worker (replace placeholders privately):
 
@@ -13,7 +13,7 @@ MOTION_AI_OWNER_USERNAME=motion-owner
 MOTION_AI_FAL_BILLING_KEY=YOUR_FAL_BILLING_READ_KEY
 MOTION_AI_USD_INR_RATE=0
 MOTION_AI_MARKUP_BPS=15000
-MOTION_AI_CSRF_TRUSTED_ORIGINS=https://motionmagicai.onrender.com
+MOTION_AI_CSRF_TRUSTED_ORIGINS=https://api.motionmagicai.in
 ```
 
 `USD_INR_RATE=0` deliberately disables automatic bill reconciliation. Replace it with your verified INR per USD conversion rate (up to six decimal places). No exchange rate is guessed. The billing key needs fal's BILLING preset / billing-event read permissions; a normal generation API key may not have these permissions. Both keys belong only on the server. A Gemini generation key is not required. Nano Banana and Google video are excluded even if old keys remain configured; adapters remain for already submitted jobs.

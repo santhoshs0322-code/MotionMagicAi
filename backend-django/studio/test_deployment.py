@@ -51,6 +51,19 @@ class DeploymentSettingsTests(SimpleTestCase):
         with self.assertRaises(ImproperlyConfigured):
             self.load(MOTION_AI_PROXY_MODE="unknown", MOTION_AI_ALLOWED_HOSTS="api.example.test")
 
+    def test_aws_domain_keeps_https_host_csrf_and_play_audience_in_sync(self):
+        config = self.load(MOTION_AI_PROXY_MODE="alb", MOTION_AI_BEHIND_ALB="false",
+                           MOTION_AI_ALLOWED_HOSTS="api.motionmagicai.in",
+                           MOTION_AI_CSRF_TRUSTED_ORIGINS="https://api.motionmagicai.in",
+                           MOTION_AI_CURRENT_SITE_URL="https://api.motionmagicai.in/",
+                           MOTION_AI_PLAY_PUBSUB_AUDIENCE="")
+        self.assertEqual(config["ALLOWED_HOSTS"], ["api.motionmagicai.in"])
+        self.assertEqual(config["CSRF_TRUSTED_ORIGINS"], ["https://api.motionmagicai.in"])
+        self.assertEqual(config["CURRENT_SITE_URL"], "https://api.motionmagicai.in")
+        self.assertEqual(config["PLAY_PUBSUB_AUDIENCE"], "https://api.motionmagicai.in/api/v1/billing/play-notifications")
+        self.assertEqual(config["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https"))
+        self.assertTrue(config["SECURE_SSL_REDIRECT"])
+
     def test_production_still_requires_database_cache_hosts_and_separate_secrets(self):
         for changed in (
             {"MOTION_AI_DATABASE_URL": "sqlite:///:memory:"},

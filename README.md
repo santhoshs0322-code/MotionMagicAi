@@ -1,12 +1,12 @@
 > Launch update: fal-only image/video generation; Nano Banana is excluded. Private financial reporting is available at `/owner/` after owner setup. See [Owner setup](backend-django/OWNER_SETUP.md) for permissions, billing reconciliation, cash records and Render environment values.
 
-Play Console requires every new bundle to have a higher version code. The next code is read from `version.properties` and advances after a successful release bundle. Builds call `https://motionmagicai.onrender.com` by default; use `-PmotionAiApiBaseUrl=https://YOUR_ELASTIC_IP` when publishing the AWS cutover build. Release builds use R8 code shrinking and obfuscation.
+Play Console requires every new bundle to have a higher version code. The next code is read from `version.properties` and advances after a successful release bundle. New builds call `https://api.motionmagicai.in` by default; an explicit `-PmotionAiApiBaseUrl=https://api.example.com` can select another HTTPS test deployment. Configure the domain's DNS, Caddy HTTPS and backend environment before publishing the domain build. Release builds use R8 code shrinking and obfuscation.
 
 # MotionMagicAi
 
 A native Kotlin / Jetpack Compose MotionMagic studio with a separate Django backend for accounts, server-priced generation jobs, transaction ledger and verified credit packs.
 
-For the small-launch AWS move, follow [the EC2 cutover guide](backend-django/AWS_FREE_TIER_SETUP.md). It preserves the current PostgreSQL database and Valkey service during the first move.
+For the small-launch AWS deployment and GoDaddy domain setup, follow [the EC2 cutover guide](backend-django/AWS_FREE_TIER_SETUP.md). It preserves the current PostgreSQL database and Valkey service. Associate an Elastic IP with EC2 and point `api.motionmagicai.in` at it; the main and `www` domains temporarily redirect to GamixTV. The owner panel is `https://api.motionmagicai.in/owner/`.
 
 Device Voice works without a provider key. **AI image/video generation is connected through Django** using fal.ai. Configure the server key, costs, private storage, worker and wallet before generating. Fake keys never count as working credentials. See [provider setup and environment variables](backend-django/PROVIDERS.md).
 
@@ -24,7 +24,7 @@ The script finds the installed JDK/SDK and keeps build caches and the debug sign
 
 The APK is produced at `app/build/outputs/apk/debug/app-debug.apk`. It supports Android 8.0 / API 26 and newer. This is a debug-signed test APK, not a Play Store release.
 
-The current integration build is [MotionMagic-AI-cloud-test.apk](artifacts/MotionMagic-AI-cloud-test.apk), configured for `https://motionmagicai.onrender.com`. Earlier APKs and editor screenshots remain in `artifacts/`.
+The earlier [MotionMagic-AI-cloud-test.apk](artifacts/MotionMagic-AI-cloud-test.apk) was built for the former Render endpoint. Existing APKs keep their compiled address; rebuild and publish an updated bundle to use the new domain. Historical APKs and editor screenshots remain in `artifacts/`.
 
 To install on a connected test device:
 
