@@ -59,7 +59,9 @@ class ContractTests(SimpleTestCase):
                     payload = {"model": "fal:" + config["app_model_id"], "config": config, "aspect_ratio": "9:16", "prompt": "A beach", "units": duration, "generated_audio": config["generated_audio"]}
                     endpoint, body = fal_catalog.request(payload, source)
                     self.assertEqual(body.get("image_url"), None if config.get("reference_video") else source)
-                    self.assertEqual(body.get("aspect_ratio"), "9:16" if config.get("reference_video") or not source else None)
+                    self.assertEqual(body.get("aspect_ratio"), None if config.get("duration_from_source") else "9:16" if config.get("reference_video") or not source else None)
+                    if config.get("duration_from_source"):
+                        self.assertNotIn("duration", body)
                     if config.get("reference_video"):
                         self.assertEqual(body["video_url"], source)
                         self.assertEqual(body["keep_audio"], config["generated_audio"])
@@ -245,7 +247,8 @@ class FalFlowTests(TestCase):
         job = self.job("kling-o3-reference-1080p-audio", duration=10, generated_audio=True, asset_id=str(asset.pk))
         s3.return_value.generate_presigned_url.return_value = "https://test-bucket.s3.amazonaws.com/signed-reference.mp4"
         post.return_value = Response({"request_id": "story-reference-request"}, status=202)
-        self.assertEqual(fal.submit(job)["state"], "running")
+        with patch("studio.reference_media.prepare_video", return_value=("https://test-bucket.s3.amazonaws.com/signed-reference.mp4", job.quote.provider_cost_paise)):
+            self.assertEqual(fal.submit(job)["state"], "running")
         args, kwargs = post.call_args
         self.assertIn("/video-to-video/reference", args[0])
         self.assertEqual(kwargs["json"]["video_url"], "https://test-bucket.s3.amazonaws.com/signed-reference.mp4")

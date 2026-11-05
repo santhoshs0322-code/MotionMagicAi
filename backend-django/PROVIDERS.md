@@ -15,12 +15,13 @@ Use one fal.ai generation key for the launch models; separate Kling, PixVerse, Q
 | Seedream 5 Lite | fal `bytedance/seedream/v5/lite/{text-to-image,edit}` | 2K |
 | Seedream 4.5 | fal `fal-ai/bytedance/seedream/v4.5/{text-to-image,edit}` | 2K |
 | Kling O3 (formerly labeled Kling 3 Omni) | fal `fal-ai/kling-video/o3/{standard,pro}/{text-to-video,image-to-video}` | 720p / 1080p, every integer duration 3–15s, native sound on/off |
-| Kling O3 Story Reference | fal `fal-ai/kling-video/o3/pro/video-to-video/reference` | 1080p, every integer duration 3–15s, owned MP4 reference (3–15s), keep sound on/off |
+| Kling O3 Story Reference | fal `fal-ai/kling-video/o3/pro/video-to-video/reference` | 1080p, output 3–15s, one owned MP4 + up to four photos, keep existing sound/mute |
+| Kling O3 Video Edit | fal `fal-ai/kling-video/o3/pro/video-to-video/edit` | 1080p Pro, source length/frame, one owned MP4 (3–15s) + up to four photos, keep existing sound/mute |
 | PixVerse V6 | fal `fal-ai/pixverse/v6/{text-to-video,image-to-video}` | 720p / 1080p, every integer duration 1–15s, native sound on/off |
 
 Duration ranges were rechecked on 2026-11-04 against the fal [Kling O3 schema](https://fal.ai/models/fal-ai/kling-video/o3/standard/text-to-video/api), [Kling reference schema](https://fal.ai/models/fal-ai/kling-video/o3/pro/video-to-video/reference/api) and [PixVerse V6 schema](https://fal.ai/models/fal-ai/pixverse/v6/text-to-video/api). Run `sync_provider_rates` after deploying to update the stored configs and per-duration credit prices. Android reads these prices from capabilities and offers a snapping slider, a swipeable seconds list and validated numeric entry. Generation still checks the selected duration on the server.
 
-The unsupported “PixVerse V6 Max” branding was removed; saved selections migrate to V6. Every image route supports text or one reference image with a prompt. Native video sound is generated output; uploading audio/voice clones, video references, batches and arbitrary provider settings are not implemented. Gemini's duration and silent-output instructions are prompt requests, not guaranteed API controls; its output can differ. Kling/PixVerse have explicit duration/audio parameters. Their image-to-video shape follows the source image. In image sizes, 1K/2K designate approximate square pixel area; non-square dimensions vary with the ratio.
+The unsupported “PixVerse V6 Max” branding was removed; saved selections migrate to V6. Every image route supports text or one reference image with a prompt. Ordinary Kling/PixVerse routes generate native sound and derive image-to-video shape from the source image. The two video-reference workflows preserve existing audio or mute; they do not generate new sound. Video + multiple photos, source validation, credit calculation and rollout are documented in [VIDEO_REFERENCES.md](VIDEO_REFERENCES.md). Uploading audio/voice clones, batches and arbitrary provider settings are not implemented. In image sizes, 1K/2K designate approximate square pixel area; non-square dimensions vary with the ratio.
 
 ## Render rollout
 
@@ -28,14 +29,14 @@ The unsupported “PixVerse V6 Max” branding was removed; saved selections mig
 2. Set `MOTION_AI_FAL_KEY` privately on both API and background worker. Keep S3 private; provide the existing prefixed AWS credentials and bucket/region. No keys belong in the APK or Git. Models also require provider balance and account access.
 3. Deploy a Render Background Worker using the same code and `python manage.py run_generation_worker`. The Blueprint does not create this additional paid service. Copy database/cache/signing/storage/provider settings; use the worker host/proxy settings in [RENDER_SETUP.md](RENDER_SETUP.md). Start with one worker for the database's 15-connection limit.
 4. Set the appropriate cost variables from [.env.example](.env.example), overhead, fee assumptions and daily provider budget, then run `python manage.py sync_provider_rates` or redeploy. Keep settings consistent on both services. The full environment list uses the `MOTION_AI_` prefix. Zero or omitted costs keep individual variants unavailable. Key changes require rate sync too.
-5. Check `/api/v1/capabilities`. Only enabled variants appear in live pricing. In Android, sign in, choose an enabled model, add input, tap Create, and review the quote. A funded server wallet is required. Confirm starts generation; Check cloud generation resumes a saved request or downloads a result. Do not treat the Android purchase UI as complete: Play credit verification exists on the backend, but an Android credit-pack checkout is separate work. No subscription entitlements are implemented.
+5. Check `/api/v1/capabilities`. Only enabled variants appear in live pricing. In Android, sign in, choose an enabled model, add input, tap Create, and review the quote. Confirm uploads references and starts generation. Credits are reserved then charged only on success. My Projects reads database status; result downloads are separate. Google Play consumable credit packs are integrated; recurring subscriptions are implemented but disabled in the current credit-only launch.
 
 Minimal new variables (placeholders, not working credentials or prices):
 
 ```dotenv
 MOTION_AI_FAL_KEY=your_fal_server_key
 MOTION_AI_FAL_ONLY=true
-MOTION_AI_MARKUP_BPS=15000
+MOTION_AI_CREDIT_ONLY_MODE=true
 MOTION_AI_FAL_OVERHEAD_PAISE=0
 MOTION_AI_FAL_QWEN_IMAGE_720P_COST_PAISE=0
 MOTION_AI_FAL_KLING_3_OMNI_720P_SILENT_COST_PAISE_PER_SECOND=0
@@ -47,7 +48,7 @@ MOTION_AI_DAILY_PROVIDER_BUDGET_PAISE=0
 
 Set actual nonzero cost allowances from your provider account before testing. Image costs are per one output and must cover the largest supported ratio and text/reference input; GPT routes use `high` quality. Video costs are per second, separately for each resolution and audio setting. Add FX, input-token charges, applicable tax, storage and egress allowances. The app displays the resulting server quote rather than invented credits.
 
-`MARKUP_BPS=15000` applies 150% **markup**, or cost × 2.5 before store-fee gross-up. That is 60% gross margin before other expenses, not a 150% profit margin. Existing pricing uses integer paise. Configured allowances remain separate from actual bills. The owner console can reconcile fal billing events or verified INR invoice costs without changing wallet charges; see OWNER_SETUP.md. Monitor usage and adjust allowances. The daily budget bounds configured allowances, not an independently verified provider bill. It is partitioned into 64 account shards, so a shard may run out before the overall budget. Allow at least 64 times the largest single-job allowance to avoid rejecting every job.
+In credit-only mode, $1 face value equals 200 credits. fal allowances are whole USD cents despite legacy `PAISE` names; wallet values are credits. The fixed pricing factors target a 25% contribution margin after an assumed 15% Play fee, before other costs; see the exact formula and examples in [VIDEO_REFERENCES.md](VIDEO_REFERENCES.md). Configured allowances remain separate from actual bills and owner reconciliation. The daily budget bounds configured allowances, not an independently verified provider bill. It is partitioned by `MOTION_AI_BUDGET_SHARDS` (default 64), so a shard may run out before the overall budget. Allow at least the shard count times the largest single-job allowance to avoid rejecting every job; small deployments can use one shard.
 
 ## Recovery and resource bounds
 

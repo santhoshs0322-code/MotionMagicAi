@@ -32,7 +32,7 @@ data class CloudJob(
         "downloading" -> "Completed · downloading to this device"
         "succeeded" -> "Completed · saved to your account"
         "cancelled" -> "Cancelled"
-        "failed" -> "Generation failed · credits released"
+        "failed" -> if(errorCode == "invalid_reference") "Check reference format, length and size · credits released" else "Generation failed · credits released"
         else -> "Checking generation"
     }
 

@@ -17,6 +17,7 @@ MODELS = {
     "seedream-4-5": dict(title="Seedream 4.5", text="fal-ai/bytedance/seedream/v4.5/text-to-image", edit="fal-ai/bytedance/seedream/v4.5/edit", sizes=["2K"], family="seedream_45"),
     "kling-3-omni": dict(title="Kling O3", family="kling", sizes=["720p", "1080p"]),
     "kling-o3-reference": dict(title="Kling O3 Story Reference", family="kling_reference", sizes=["1080p"]),
+    "kling-o3-edit": dict(title="Kling O3 Video Edit", family="kling_edit", sizes=["1080p"]),
     "pixverse-v6": dict(title="PixVerse V6", family="pixverse", sizes=["720p", "1080p"]),
 }
 PROVIDER_MODELS = {"fal:" + name for name in MODELS}
@@ -25,7 +26,7 @@ LAUNCH_MODELS = PROVIDER_MODELS - {"fal:nano-banana"}
 
 def variants():
     for name, model in MODELS.items():
-        video = model["family"] in ("kling", "kling_reference", "pixverse")
+        video = model["family"] in ("kling", "kling_reference", "kling_edit", "pixverse")
         for size in model["sizes"]:
             for sound in ([False, True] if video else [None]):
                 suffix = ("-audio" if sound else "-silent") if video else ""
@@ -34,8 +35,10 @@ def variants():
                 config = {"provider": "fal", "app_model_id": name, "aspect_ratios": RATIOS if not video else ["16:9", "9:16", "1:1"], "input_modes": ["text", "image_and_text"]}
                 if video:
                     config.update(resolution=size, durations=list(range(1 if model["family"] == "pixverse" else 3, 16)), generated_audio=sound, image_aspect_ratio="source")
-                    if model["family"] == "kling_reference":
-                        config.update(input_modes=["video_and_text"], reference_video=True)
+                    if model["family"] in ("kling_reference", "kling_edit"):
+                        config.update(input_modes=["video_and_text"], reference_video=True, max_reference_images=4,
+                                      duration_from_source=model["family"] == "kling_edit",
+                                      workflow="edit_video" if model["family"] == "kling_edit" else "new_scene")
                 else:
                     config.update(image_size=size, output_count=1)
                     if model["family"] == "gpt":
@@ -51,7 +54,7 @@ def dimensions(size, ratio):
             "height": round(edge * math.sqrt(height / width) / 16) * 16}
 
 
-def request(payload, source_url=None):
+def request(payload, source_url=None, reference_urls=None):
     name = payload["model"].removeprefix("fal:")
     model = MODELS[name]
     config = payload["config"]
@@ -60,17 +63,24 @@ def request(payload, source_url=None):
     if size not in model["sizes"] or ratio not in config["aspect_ratios"]:
         raise ValueError("Unsupported fal settings")
     family = model["family"]
+    reference_urls = reference_urls or []
+    if reference_urls and (family not in ("kling_reference", "kling_edit") or len(reference_urls) > 4):
+        raise ValueError("This model does not support these reference photos")
     body = {"prompt": payload["prompt"]}
-    if family in ("kling", "kling_reference", "pixverse"):
+    if family in ("kling", "kling_reference", "kling_edit", "pixverse"):
         duration, sound = payload["units"], payload["generated_audio"]
         if duration not in config["durations"] or sound is not config["generated_audio"]:
             raise ValueError("Video settings differ from the priced variant")
         mode = "image-to-video" if source_url else "text-to-video"
-        if family == "kling_reference":
+        if family in ("kling_reference", "kling_edit"):
             if not source_url:
                 raise ValueError("Kling story reference needs a video")
-            endpoint = "fal-ai/kling-video/o3/pro/video-to-video/reference"
-            body.update(duration=str(duration), video_url=source_url, keep_audio=sound, aspect_ratio=ratio)
+            endpoint = "fal-ai/kling-video/o3/pro/video-to-video/" + ("edit" if family == "kling_edit" else "reference")
+            body.update(video_url=source_url, keep_audio=sound)
+            if family == "kling_reference":
+                body.update(duration=str(duration), aspect_ratio=ratio)
+            if reference_urls:
+                body["image_urls"] = reference_urls
         elif family == "kling":
             tier = "standard" if size == "720p" else "pro"
             endpoint = f"fal-ai/kling-video/o3/{tier}/{mode}"
@@ -80,7 +90,7 @@ def request(payload, source_url=None):
             body.update(duration=duration, resolution=size, generate_audio_switch=sound, generate_multi_clip_switch=False)
         body["enable_safety_checker"] = True
         # Both providers derive I2V geometry from the input image, not a ratio parameter.
-        if source_url and family != "kling_reference":
+        if source_url and family not in ("kling_reference", "kling_edit"):
             body["image_url"] = source_url
         elif not source_url:
             body["aspect_ratio"] = ratio

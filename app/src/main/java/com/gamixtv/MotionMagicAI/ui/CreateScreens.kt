@@ -60,7 +60,8 @@ private val CreatorSelectionGradient: Brush @Composable get() = Brush.horizontal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -> Unit, refreshCatalog: () -> Unit = vm::refreshCloudCatalog) {
+fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -> Unit, refreshCatalog: () -> Unit = vm::refreshCloudCatalog,
+    onPickReferencePhotos: (Int?) -> Unit = {}) {
     val mode = when(vm.screen) {
         Screen.CREATE_IMAGE -> CreationMode.CREATE_IMAGE
         Screen.TEXT, Screen.REELS -> CreationMode.TEXT_TO_VIDEO
@@ -70,7 +71,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
     val draft = if(still) vm.imageDraft else vm.draft
     val update: (CreationDraft) -> Unit = { if(still) vm.updateImageDraft(it) else vm.updateDraft(it) }
     val rate = vm.cloudRates.firstOrNull { it.matches(draft, still) }
-    val price = rate?.priceFor(draft, still)
+    val price = if(!still && draft.modelId == "kling-o3-edit" && vm.referenceVideoDurationMs == null) null else rate?.priceFor(draft, still)
     val model = if(still) ImageModelCatalog.find(draft.imageModelId).title else vm.selectedVideoModel.title
     val colors = StudioColors
     val focus = LocalFocusManager.current
@@ -83,7 +84,9 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
             if(!words.isNullOrBlank()) update(draft.copy(prompt = (draft.prompt.trimEnd() + " " + words).trim().take(500)))
         }
     }
-    val hasInput = if(mode == CreationMode.IMAGE_TO_VIDEO) vm.photo != null || vm.referenceVideoPath != null else draft.prompt.isNotBlank()
+    val hasInput = if(mode == CreationMode.IMAGE_TO_VIDEO) {
+        if(VideoModelCatalog.isReference(draft.modelId)) vm.referenceVideoPath != null else vm.photo != null
+    } else draft.prompt.isNotBlank()
     LaunchedEffect(Unit) { refreshCatalog() }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -99,7 +102,11 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if(mode != CreationMode.TEXT_TO_VIDEO) ReferencePhotoInput(vm, still, onPickPhoto, onPickVideo) { focus.clearFocus(); gallery = true }
+            if(mode == CreationMode.IMAGE_TO_VIDEO && VideoModelCatalog.isReference(draft.modelId)) {
+                VideoReferenceInput(draft.modelId, vm.cloudRates.map { it.modelId }.distinct(), vm.referenceVideoPath, vm.referenceVideoDurationMs,
+                    vm.referencePhotoPaths, rate?.maxReferenceImages ?: 0, { vm.selectVideoModel(VideoModelCatalog.find(it)) }, onPickVideo,
+                    vm::removeReferenceVideo, onPickReferencePhotos, vm::removeReferencePhoto)
+            } else if(mode != CreationMode.TEXT_TO_VIDEO) ReferencePhotoInput(vm, still, onPickPhoto, onPickVideo) { focus.clearFocus(); gallery = true }
             StudioCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = colors.primary)
@@ -108,14 +115,17 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                 }
                 OutlinedTextField(draft.prompt, { update(draft.copy(prompt = it.take(501))) },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 225.dp).testTag("creation-prompt"),
-                    placeholder = { Text(if(still) "Describe your image, style and light…" else if(vm.referenceVideoPath != null) "Continue the scene from @Video1…"
+                    placeholder = { Text(if(still) "Describe your image, style and light…" else if(draft.modelId == "kling-o3-edit") "Replace the subject in @Video1 using @Image1. Keep the camera movement…" else if(vm.referenceVideoPath != null) "Create a new scene from @Video1 using @Image1…"
                         else "Describe the movement, scene and camera…", fontSize = 13.sp, color = colors.muted) },
                     shape = RoundedCornerShape(14.dp), isError = draft.prompt.length > 500,
                     textStyle = LocalTextStyle.current.copy(fontSize = 14.sp, lineHeight = 22.sp),
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = colors.field, unfocusedContainerColor = colors.field,
                         focusedBorderColor = colors.primary, unfocusedBorderColor = colors.border))
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                    PromptAction("Inspire", Icons.Rounded.AutoAwesome) { update(draft.copy(prompt = templates.first().promptFor(mode))) }
+                    PromptAction("Inspire", Icons.Rounded.AutoAwesome) { update(draft.copy(prompt = if(!still && VideoModelCatalog.isReference(draft.modelId)) {
+                        if(draft.modelId == "kling-o3-edit") "Edit @Video1. ${if(vm.referencePhotoPaths.isNotEmpty()) "Use @Image1 for the main subject's appearance. " else "Change the setting to a golden sunset. "}Keep the original motion and camera."
+                        else "Create a new scene guided by @Video1. ${if(vm.referencePhotoPaths.isNotEmpty()) "Keep the subject's appearance from @Image1. " else "Keep the visual style consistent. "}Use natural movement and cinematic lighting."
+                    } else templates.first().promptFor(mode))) }
                     PromptAction("Voice Input", Icons.Rounded.Mic) {
                         try { speech.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)) }
                         catch(_: Exception) { vm.message("Voice input isn't available on this device.") }
@@ -232,8 +242,8 @@ private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, pickPhoto: 
             }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if(!still && vm.cloudRates.any { it.modelId == "kling-o3-reference" }) OutlinedButton(onClick = pickVideo, contentPadding = PaddingValues(horizontal = 10.dp)) {
-                Icon(Icons.Rounded.VideoLibrary, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Add Reference Video", fontSize = 10.sp)
+            if(!still && vm.cloudRates.any { VideoModelCatalog.isReference(it.modelId) }) OutlinedButton(onClick = pickVideo, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                Icon(Icons.Rounded.VideoLibrary, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Use video + photos", fontSize = 10.sp)
             }
             OutlinedButton(onClick = templates, contentPadding = PaddingValues(horizontal = 10.dp)) {
                 Icon(Icons.Rounded.Layers, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Templates", fontSize = 10.sp)
@@ -286,13 +296,13 @@ fun CreationSettingsScreen(vm: MotionViewModel) {
     CreationSettingsPanel(draft, still, vm.cloudRates,
         vm.creationSettingsMode == CreationMode.IMAGE_TO_VIDEO && vm.photo != null && vm.referenceVideoPath == null,
         { if(still) vm.updateImageDraft(it) else vm.updateDraft(it) }, vm::selectVideoModel, vm::back, vm.referenceVideoHasAudio,
-        allowVideoReference = vm.creationSettingsMode == CreationMode.IMAGE_TO_VIDEO)
+        allowVideoReference = vm.creationSettingsMode == CreationMode.IMAGE_TO_VIDEO, referenceDurationMs = vm.referenceVideoDurationMs)
 }
 
 @Composable
 internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>,
     sourceRatio: Boolean, update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
-    close: () -> Unit, referenceHasAudio: Boolean? = null, allowVideoReference: Boolean = true) {
+    close: () -> Unit, referenceHasAudio: Boolean? = null, allowVideoReference: Boolean = true, referenceDurationMs: Long? = null) {
     val colors = StudioColors
     val activeRate = rates.firstOrNull { it.matches(draft, still) }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
@@ -303,12 +313,13 @@ internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: 
         Text(if(still) "Configure model, quality and aspect ratio" else "Configure model, quality, aspect ratio and duration",
             fontSize = 11.sp, color = colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp))
         HorizontalDivider(color = colors.border)
-        ReferenceSettings(draft, still, update, selectVideo, rates, sourceRatio, referenceHasAudio, Modifier.weight(1f), allowVideoReference)
+        ReferenceSettings(draft, still, update, selectVideo, rates, sourceRatio, referenceHasAudio, Modifier.weight(1f), allowVideoReference, referenceDurationMs)
         Surface(color = colors.surface, shape = PanelShape, border = BorderStroke(1.dp, colors.border), modifier = Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Toll, null, Modifier.size(21.dp)); Text("Estimated cost", Modifier.weight(1f).padding(start = 9.dp), fontSize = 13.sp)
                 Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFBD32), modifier = Modifier.size(22.dp))
-                Text(activeRate?.priceFor(draft, still)?.let { "$it Credits" } ?: "Unavailable", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text((if(draft.modelId == "kling-o3-edit" && referenceDurationMs == null && !still) null else activeRate?.priceFor(draft, still))?.let { "$it Credits" }
+                    ?: if(!still && draft.modelId == "kling-o3-edit" && referenceDurationMs == null) "Add base video" else "Unavailable", fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -316,7 +327,7 @@ internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: 
 
 @Composable
 private fun ReferenceSettings(draft: CreationDraft, still: Boolean, update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
-    rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, sourceRatio: Boolean, referenceHasAudio: Boolean?, modifier: Modifier, allowVideoReference: Boolean) {
+    rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, sourceRatio: Boolean, referenceHasAudio: Boolean?, modifier: Modifier, allowVideoReference: Boolean, referenceDurationMs: Long?) {
     val colors = StudioColors
     val id = if(still) draft.imageModelId else draft.modelId
     val title = if(still) ImageModelCatalog.find(id).title else VideoModelCatalog.find(id).title
@@ -333,7 +344,7 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, update: (Cre
                         Art(if(still) Artwork.Beach else Artwork.Fantasy, Modifier.size(42.dp), null)
                         Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(title, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(if(id == "kling-o3-reference") "Reference video · existing audio only" else if(still) "Create from your words or photo" else "Create from text or a starting frame", color = colors.muted, fontSize = 10.sp, lineHeight = 14.sp)
+                            Text(if(!still && id == "kling-o3-edit") "Edit existing clip · video + up to 4 photos" else if(!still && id == "kling-o3-reference") "New scene · video + up to 4 photos" else if(still) "Create from your words or photo" else "Create from text or a starting frame", color = colors.muted, fontSize = 10.sp, lineHeight = 14.sp)
                         }
                         Icon(Icons.Rounded.ExpandMore, "Choose model", Modifier.size(20.dp))
                     }
@@ -341,7 +352,7 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, update: (Cre
                 DropdownMenu(choosing, { choosing = false }, containerColor = colors.surface,
                     modifier = Modifier.width((LocalConfiguration.current.screenWidthDp - 32).dp).heightIn(max = 380.dp)) {
                     val options = if(still) ImageModelCatalog.models.map { it.id to it.title } else VideoModelCatalog.models.map { it.id to it.title }
-                    val enabled = options.filter { (modelId, _) -> (allowVideoReference || modelId != "kling-o3-reference") && rates.any { it.modelId == modelId && it.kind == (if(still) "image" else "video") } }
+                    val enabled = options.filter { (modelId, _) -> (allowVideoReference || !VideoModelCatalog.isReference(modelId)) && rates.any { it.modelId == modelId && it.kind == (if(still) "image" else "video") } }
                     enabled.forEach { (modelId, name) ->
                         DropdownMenuItem(text = { Text(name, fontSize = 13.sp) }, modifier = Modifier.testTag("model-option-$name"),
                             trailingIcon = { if(modelId == id) Icon(Icons.Rounded.Check, "Selected", tint = colors.primary) },
@@ -377,8 +388,11 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, update: (Cre
         }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SettingsLabel("Aspect Ratio", Icons.Rounded.Crop)
-            if(sourceRatio && !still) Text("Matches your reference photo", color = colors.muted, fontSize = 13.sp)
-            else {
+            if(!still && draft.modelId == "kling-o3-edit") {
+                Text("Matches your base video's frame", color = colors.muted, fontSize = 13.sp)
+            } else if(sourceRatio && !still) {
+                Text("Matches your reference photo", color = colors.muted, fontSize = 13.sp)
+            } else {
                 val ratios = activeRate?.ratios ?: modelRates.firstOrNull()?.ratios.orEmpty()
                 val columns = if(LocalConfiguration.current.fontScale > 1.3f) 2 else if(ratios.size <= 3) 3 else 4
                 ratios.chunked(columns).forEach { row ->
@@ -390,7 +404,11 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, update: (Cre
             }
         }
         if(!still) {
-            ModelDurationPicker(activeRate?.durations.orEmpty(), draft.duration) { update(draft.copy(duration = it)) }
+            if(draft.modelId == "kling-o3-edit") {
+                SettingsLabel("Clip duration", Icons.Rounded.Timer)
+                Text(referenceDurationMs?.let { "${"%.2f".format(java.util.Locale.US, it / 1000.0)}s source · billed as ${draft.duration}s (rounded up)" }
+                    ?: "Add a base video to calculate credits. The edit keeps its length.", color = colors.muted, fontSize = 12.sp, modifier = Modifier.testTag("source-duration"))
+            } else ModelDurationPicker(activeRate?.durations.orEmpty(), draft.duration) { update(draft.copy(duration = it)) }
             AudioOptions(draft, modelRates, referenceHasAudio, update)
         }
         if(activeRate == null) Text("Choose an available model and settings to see the credit estimate.", color = colors.muted, fontSize = 12.sp)
@@ -444,7 +462,7 @@ private fun RatioSquare(ratio: String, selected: Boolean, modifier: Modifier = M
 @Composable
 private fun AudioChoice(draft: CreationDraft, available: Boolean, hasAudio: Boolean?, change: (Boolean) -> Unit) {
     val colors = StudioColors
-    val reference = draft.modelId == "kling-o3-reference"
+    val reference = VideoModelCatalog.isReference(draft.modelId)
     val silent = reference && hasAudio == false
     Surface(color = colors.surface, shape = PanelShape, border = BorderStroke(1.dp, colors.border)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -460,7 +478,7 @@ private fun AudioChoice(draft: CreationDraft, available: Boolean, hasAudio: Bool
 
 @Composable
 private fun AudioOptions(draft: CreationDraft, rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, hasAudio: Boolean?, update: (CreationDraft) -> Unit) {
-    val reference = draft.modelId == "kling-o3-reference"
+    val reference = VideoModelCatalog.isReference(draft.modelId)
     val silent = reference && hasAudio == false
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SettingsLabel("Audio", Icons.Rounded.GraphicEq)

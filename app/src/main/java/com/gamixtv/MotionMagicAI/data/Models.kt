@@ -70,14 +70,23 @@ object VideoResolutionCatalog {
  * provider or entitlement has been configured.
  */
 object VideoModelCatalog {
+    fun isReference(id: String) = id == "kling-o3-reference" || id == "kling-o3-edit"
     val models = listOf(
         VideoModelOption(
+            id = "kling-o3-edit", title = "Kling O3 Video Edit",
+            description = "Edit your existing clip using up to four reference photos",
+            requiredPlan = PlanTier.FREE, durations = (3..15).toSet(), resolutions = setOf("1080p"),
+            supportsGeneratedAudio = true, locallyAvailable = false, creditsPerSecond = 0,
+            workflow = "Video + up to 4 photos + prompt → edited clip",
+            capabilityLabels = listOf("Edit this video", "4 photos", "Existing audio"),
+        ),
+        VideoModelOption(
             id = "kling-o3-reference", title = "Kling O3 Story Reference",
-            description = "Continue a reference video; keeps existing audio only",
+            description = "Create a new scene guided by a video and up to four photos",
             requiredPlan = PlanTier.FREE, durations = (3..15).toSet(),
             resolutions = setOf("1080p"), supportsGeneratedAudio = true,
             locallyAvailable = false, creditsPerSecond = 0,
-            workflow = "Reference video + prompt → next story scene",
+            workflow = "Video + up to 4 photos + prompt → new scene",
             capabilityLabels = listOf("Video reference", "Prompt", "Story", "Existing audio"),
         ),
         VideoModelOption(

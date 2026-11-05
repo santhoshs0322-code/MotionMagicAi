@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from collections import defaultdict, deque
 from datetime import timedelta
@@ -209,8 +210,22 @@ def source_asset(account, asset_id, kind, config):
     return asset
 
 
+def reference_images(account, identifiers, config):
+    if not isinstance(identifiers, list) or len(identifiers) > config.get("max_reference_images", 0):
+        raise Problem("This model accepts up to four reference photos alongside one video.")
+    try:
+        ids = [uuid.UUID(str(value)) for value in identifiers]
+    except (ValueError, TypeError, AttributeError):
+        raise Problem("Invalid reference photo.") from None
+    if len(ids) != len(set(ids)):
+        raise Problem("Choose different reference photos.")
+    # At most four indexed, account-scoped lookups; order defines @Image1, @Image2.
+    return [{"id": str(asset.pk), "key": asset.key} for asset in
+            (source_asset(account, identifier, "image", {}) for identifier in ids)]
+
+
 def create_quote(account, data):
-    if not isinstance(data, dict) or set(data) - {"service", "prompt", "duration", "asset_id", "input_kind", "aspect_ratio", "generated_audio"}:
+    if not isinstance(data, dict) or set(data) - {"service", "prompt", "duration", "asset_id", "input_kind", "aspect_ratio", "generated_audio", "reference_image_count", "reference_image_ids"}:
         raise Problem("Use service, prompt, optional duration, asset_id, input_kind, aspect_ratio and generated_audio only.")
     try:
         rate = enabled_rates().get(pk=data.get("service"))
@@ -270,13 +285,23 @@ def create_quote(account, data):
         payload["asset_id"] = str(asset.pk)
     elif rate_config.get("reference_video") and input_kind != "video":
         raise Problem("Select a reference video for this model.")
+    refs = data.get("reference_image_ids", [])
+    images = reference_images(account, refs, rate_config)
+    count = data.get("reference_image_count", len(images))
+    if type(count) is not int or not 0 <= count <= rate_config.get("max_reference_images", 0) or (images and count != len(images)):
+        raise Problem("Reference photo count differs from this model's limit or uploaded photos.")
+    payload.update(reference_image_count=count, reference_images=images)
+    if rate_config.get("reference_video"):
+        for tag in re.findall(r"@Image([0-9]+)\b", prompt):
+            if not 1 <= int(tag) <= count:
+                raise Problem(f"Your prompt refers to @Image{tag}. Add that reference photo or update the prompt.")
     cost = rate.unit_cost_paise * units
     charge = price(cost + rate.overhead_paise)
     ttl_minutes = 15 if input_kind in ("image", "video") and not data.get("asset_id") else 5
     return Quote.objects.create(account=account, rate=rate, payload=payload, payload_hash=digest(json.dumps(payload, sort_keys=True)), provider_cost_paise=cost, overhead_paise=rate.overhead_paise, markup_bps=settings.MARKUP_BPS, fee_bps=settings.STORE_FEE_BPS, charge_paise=charge, expires_at=timezone.now() + timedelta(minutes=ttl_minutes))
 
 @transaction.atomic
-def submit_job(account, quote_id, key, asset_id=None):
+def submit_job(account, quote_id, key, asset_id=None, reference_image_ids=None):
     if not isinstance(key, str) or not 8 <= len(key) <= 128 or not all(c.isalnum() or c in "-_" for c in key):
         raise Problem("Send an Idempotency-Key of 8–128 letters, digits, hyphens or underscores.")
     wallet = wallet_for_update(account)
@@ -310,6 +335,15 @@ def submit_job(account, quote_id, key, asset_id=None):
             quote.save(update_fields=["payload", "payload_hash"])
     elif quote.payload.get("input_kind") in ("image", "video"):
         raise Problem("Upload your reference media before starting this generation.", 409)
+    quoted_images = quote.payload.get("reference_images", [])
+    supplied = reference_image_ids if reference_image_ids is not None else [row["id"] for row in quoted_images]
+    images = reference_images(account, supplied, quote.payload["config"])
+    if len(images) != quote.payload.get("reference_image_count", 0) or (quoted_images and images != quoted_images):
+        raise Problem("Reference photos differ from your quote. Review your creation again.", 409)
+    if images and not quoted_images:
+        quote.payload = {**quote.payload, "reference_images": images}
+        quote.payload_hash = digest(json.dumps(quote.payload, sort_keys=True))
+        quote.save(update_fields=["payload", "payload_hash"])
     if wallet.available_paise < quote.charge_paise:
         raise Problem("Insufficient credits.", 402)
     if Job.objects.filter(account=account, state__in=ACTIVE_STATES).count() >= settings.MAX_ACTIVE_JOBS:

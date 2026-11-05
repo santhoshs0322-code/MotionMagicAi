@@ -37,6 +37,7 @@ import com.gamixtv.MotionMagicAI.Screen
 import com.gamixtv.MotionMagicAI.auth.LoginGate
 import com.gamixtv.MotionMagicAI.data.MediaKind
 import com.gamixtv.MotionMagicAI.data.Project
+import com.gamixtv.MotionMagicAI.data.VideoModelCatalog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +60,15 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
     LaunchedEffect(vm.activeAccountId) { pendingExport = null; snackbar.currentSnackbarData?.dismiss() }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::importPhoto) }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::importReferenceVideo) }
+    var referencePick by remember { mutableStateOf<Pair<String, Int?>?>(null) }
+    val referencePhotoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val pending = referencePick; referencePick = null
+        if(uri != null && pending != null && vm.activeAccountId == pending.first) vm.importReferencePhotos(listOf(uri), pending.second)
+    }
+    val referencePhotosPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia((4 - vm.referencePhotoPaths.size).coerceAtLeast(2))) { uris ->
+        val pending = referencePick; referencePick = null
+        if(uris.isNotEmpty() && pending != null && vm.activeAccountId == pending.first) vm.importReferencePhotos(uris)
+    }
     val documentSaver = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val uri = if(result.resultCode == android.app.Activity.RESULT_OK) result.data?.data else null
         if(uri != null) pendingExport?.let { vm.saveDocument(it, uri) }
@@ -141,7 +151,14 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
                 Screen.CREATION_SETTINGS -> CreationSettingsScreen(vm)
                 Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE -> CreateScreen(vm,
                     onPickPhoto = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    onPickVideo = { videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) })
+                    onPickVideo = { videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                    onPickReferencePhotos = { index ->
+                        vm.activeAccountId?.let { account ->
+                            referencePick = account to index
+                            if(index != null || vm.referencePhotoPaths.size >= 3) referencePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            else referencePhotosPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                    })
                 Screen.VOICE -> VoiceScreen(vm)
                 Screen.TEMPLATES -> TemplatesScreen(vm)
                 Screen.PROJECTS -> ProjectsScreen(vm)
@@ -192,10 +209,15 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Maximum charge: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
                 Text("Available balance: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.availablePaise)}")
-                if(quote.draft.modelId == "kling-o3-reference" && !quote.image) Text(
+                if(VideoModelCatalog.isReference(quote.draft.modelId) && !quote.image) {
+                    Text(if(quote.draft.modelId == "kling-o3-edit") "Edit this video · ${quote.draft.duration} billed seconds · ${quote.draft.resolution}"
+                        else "Create a new scene · ${quote.draft.duration}s output · ${quote.draft.resolution}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${quote.referencePhotoPaths.size} reference photos included. ${if(quote.draft.modelId == "kling-o3-edit") "Source length is rounded up to a whole second and verified before generation." else "Credits are based on the selected output length."}", fontSize = 12.sp)
+                    Text(
                     if(quote.draft.generatedAudio) "Audio: keeps the reference's existing sound. A silent reference stays silent; this model does not generate new audio."
                     else "Audio: off. This model does not generate new sound. Use Kling O3 with a photo or text prompt for generated audio.",
                     color = StudioColors.warning, fontSize = 12.sp)
+                }
                 Text(if(quote.deferredInput && (quote.sourcePhoto || quote.sourceVideoPath != null))
                     "After confirmation, your reference uploads with progress, then your generation appears in My Projects. Credits are reserved while it runs and charged only on success."
                     else "After confirmation, your generation appears in My Projects. You can run up to three generations at once. Credits are reserved while it runs and charged only on success.", fontSize = 13.sp)

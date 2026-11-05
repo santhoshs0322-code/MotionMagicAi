@@ -1,15 +1,18 @@
 """Durable asynchronous fal queue integration. Never retry a paid submission."""
 import json
 import re
+import subprocess
 from datetime import timedelta
 from urllib.parse import urlsplit
 
 import requests
+from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 from django.utils import timezone
 
-from . import fal_catalog, storage
-from .models import Job
+from . import fal_catalog, storage, reference_media
+from .models import Job, Asset
+from .errors import Problem
 
 QUEUE = "https://queue.fal.run"
 
@@ -33,8 +36,11 @@ def read_json(response):
 def terminal(job, output=None, rejected=False):
     # This is the configured conservative cost allowance, NOT a fal invoice amount.
     # Failures release the customer's entire hold; ambiguous calls still consume budget.
+    cost = job.provider_context.get("verified_cost", job.quote.provider_cost_paise)
+    if type(cost) is not int or not 0 <= cost <= job.quote.provider_cost_paise:
+        cost = job.quote.provider_cost_paise
     result = {"state": "succeeded" if output else "failed", "currency": "INR",
-              "cost_paise": 0 if rejected else job.quote.provider_cost_paise}
+              "cost_paise": 0 if rejected else cost}
     if output:
         result["output"] = output
     return result
@@ -43,6 +49,7 @@ def terminal(job, output=None, rejected=False):
 def submit(job):
     try:
         source_url = None
+        reference_urls = []
         payload = job.quote.payload
         if payload.get("input_key"):
             asset = job.account.asset_set.get(pk=payload["asset_id"], key=payload["input_key"], ready=True, deleted=False)
@@ -51,9 +58,28 @@ def submit(job):
                 asset.mime in {"image/png", "image/jpeg", "image/webp"} and asset.size <= settings.GEMINI_MAX_INPUT_BYTES)
             if not valid_media:
                 return terminal(job, rejected=True)
-            source_url = storage.client().generate_presigned_url("get_object", Params={"Bucket": settings.S3_BUCKET, "Key": asset.key}, ExpiresIn=86400)
-        endpoint, body = fal_catalog.request(payload, source_url)
-    except (ValueError, KeyError):
+            if reference_video:
+                source_url, cost = reference_media.prepare_video(job, asset)
+                job.provider_context = {**job.provider_context, "verified_cost": cost}
+                if not Job.objects.filter(pk=job.pk, lease_id=job.lease_id).update(provider_context=job.provider_context):
+                    raise ValueError("Worker lease was lost")
+            else:
+                storage.require_owner_key(asset)
+                source_url = storage.client().generate_presigned_url("get_object", Params={"Bucket": settings.S3_BUCKET, "Key": asset.key}, ExpiresIn=86400)
+        images = payload.get("reference_images", [])
+        if len(images) != payload.get("reference_image_count", 0) or len(images) > payload["config"].get("max_reference_images", 0):
+            raise ValueError("Invalid reference photos")
+        for row in images:
+            asset = job.account.asset_set.get(pk=row["id"], key=row["key"], ready=True, deleted=False)
+            storage.require_owner_key(asset)
+            if asset.mime not in {"image/png", "image/jpeg", "image/webp"} or not 0 < asset.size <= settings.GEMINI_MAX_INPUT_BYTES:
+                raise ValueError("Invalid reference photo")
+            reference_urls.append(storage.client().generate_presigned_url("get_object", Params={"Bucket": settings.S3_BUCKET, "Key": asset.key}, ExpiresIn=86400))
+        endpoint, body = fal_catalog.request(payload, source_url, reference_urls)
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError, Problem, Asset.DoesNotExist):
+        return {**terminal(job, rejected=True), "error_code": "invalid_reference"}
+    except (BotoCoreError, ClientError):
+        # Nothing has been submitted to fal. A storage outage must not leave a hold.
         return terminal(job, rejected=True)
     try:
         with requests.post(f"{QUEUE}/{endpoint}", json=body, headers={"Authorization": f"Key {settings.FAL_KEY}"},
@@ -66,7 +92,7 @@ def submit(job):
             return terminal(job)
         # Save before any result fetch. Reconciliation uses this ID after a worker restart.
         root = "/".join(endpoint.split("/")[:2])
-        saved = Job.objects.filter(pk=job.pk, lease_id=job.lease_id).update(provider_id=identifier, provider_context={"root": root, "endpoint": endpoint})
+        saved = Job.objects.filter(pk=job.pk, lease_id=job.lease_id).update(provider_id=identifier, provider_context={**job.provider_context, "root": root, "endpoint": endpoint})
         if not saved:
             raise ValueError("Worker lease was lost")
         return {"state": "running", "id": identifier}

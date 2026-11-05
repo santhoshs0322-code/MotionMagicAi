@@ -10,6 +10,8 @@ data class CloudRate(
     val minimumPricePaise: Long = 0, val minimumUnits: Int = 1,
     val creditPrices: Map<Int, Long> = emptyMap(),
     val requiredPlan: PlanTier = PlanTier.PRO,
+    val maxReferenceImages: Int = 0,
+    val durationFromSource: Boolean = false,
 ) {
     fun priceFor(draft: CreationDraft, image: Boolean): Long? =
         if (matches(draft, image) && draft.aspect in ratios && (image || draft.duration in durations))
@@ -23,7 +25,8 @@ data class CloudRate(
 data class CloudQuote(val id: String, val chargePaise: Long, val availablePaise: Long, val title: String,
     val session: AuthSession, val draft: CreationDraft, val image: Boolean, val sourcePhoto: Boolean,
     val sourceVideoPath: String? = null, val storyRoot: String? = null, val storyPart: Int = 0,
-    val deferredInput: Boolean = false, val sourcePhotoRevision: Int = 0)
+    val deferredInput: Boolean = false, val sourcePhotoRevision: Int = 0,
+    val referencePhotoPaths: List<String> = emptyList())
 
 class CloudException(val status: Int, message: String) : Exception(message)
 

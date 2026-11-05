@@ -7,6 +7,7 @@ from datetime import datetime, timezone as dt_timezone
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -232,8 +233,8 @@ class Jobs(Private):
         return ok(results=job_rows_public(current), next=next_url, next_cursor=next_cursor,
                   has_more=bool(next_cursor), tracked_supported=True)
     def post(self, request):
-        data = body(request, ("quote_id", "asset_id"))
-        job, created = services.submit_job(request.user, data.get("quote_id"), request.headers.get("Idempotency-Key"), data.get("asset_id"))
+        data = body(request, ("quote_id", "asset_id", "reference_image_ids"))
+        job, created = services.submit_job(request.user, data.get("quote_id"), request.headers.get("Idempotency-Key"), data.get("asset_id"), data.get("reference_image_ids"))
         return Response({"ok": True, **job_public(job)}, status=202 if created else 200)
 
 class JobDetail(Private):
@@ -253,7 +254,7 @@ class Assets(Private):
     def get(self, request):
         return page(request, Asset.objects.filter(account=request.user, deleted=False, ready=True), asset_public)
     def post(self, request):
-        authentication.rate_limit("uploads:" + str(request.user.pk), 10)
+        authentication.rate_limit("uploads:" + str(request.user.pk), 20)
         data = body(request, ("mime", "size", "kind"))
         asset, upload = storage.begin_upload(request.user, data.get("mime"), data.get("size"), data.get("kind", "image"))
         return ok(asset=asset_public(asset), upload=upload, expires_in=300)
@@ -275,7 +276,10 @@ class AssetDetail(Private):
         return ok(url=storage.download(asset), expires_in=60, asset=asset_public(asset))
     def delete(self, request, identifier):
         asset = self.find(request, identifier)
-        if Job.objects.filter(account=request.user, quote__payload__asset_id=str(identifier)).exclude(state__in=services.TERMINAL).exists():
+        used = Q(quote__payload__asset_id=str(identifier))
+        for index in range(4):
+            used |= Q(**{f"quote__payload__reference_images__{index}__id": str(identifier)})
+        if Job.objects.filter(used, account=request.user, state__in=services.ACTIVE_STATES).exists():
             raise Problem("Media is used by an active job.", 409)
         # Delete S3 first; retry is safe, and a failed delete never reports success.
         if asset.thumbnail_key:

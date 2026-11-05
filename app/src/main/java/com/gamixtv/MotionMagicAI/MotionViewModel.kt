@@ -79,6 +79,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var referenceVideoPath by mutableStateOf<String?>(null); private set
     var referenceVideoName by mutableStateOf(""); private set
     var referenceVideoHasAudio by mutableStateOf<Boolean?>(null); private set
+    var referenceVideoDurationMs by mutableStateOf<Long?>(null); private set
+    var referencePhotoPaths by mutableStateOf<List<String>>(emptyList()); private set
     private var storyRoot: String? = null
     private var storyPart: Int = 0
     var failure by mutableStateOf<String?>(null); private set
@@ -112,6 +114,20 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 640) sample *= 2
         val bitmap = BitmapFactory.decodeFile(source.path, BitmapFactory.Options().apply { inSampleSize = sample })
             ?: throw IOException("Could not create a preview.")
+        try {
+            target.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 78, it)) }
+        } finally { bitmap.recycle() }
+    }
+    private fun createVideoJobPreview(source: File, target: File) {
+        val retriever = MediaMetadataRetriever()
+        val frame = try {
+            retriever.setDataSource(source.path)
+            if(Build.VERSION.SDK_INT >= 27) retriever.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 320, 320)
+            else retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        } finally { retriever.release() } ?: throw IOException("Could not create a video preview.")
+        val factor = minOf(1f, 320f / maxOf(frame.width, frame.height))
+        val bitmap = Bitmap.createScaledBitmap(frame, (frame.width * factor).toInt().coerceAtLeast(1), (frame.height * factor).toInt().coerceAtLeast(1), true)
+        if(bitmap !== frame) frame.recycle()
         try {
             target.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 78, it)) }
         } finally { bitmap.recycle() }
@@ -324,9 +340,14 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         if(!validateCreationInput()) return
         val image = screen == Screen.CREATE_IMAGE
         val request = if(image) imageDraft else draft
-        val withVideo = !image && screen == Screen.IMAGE && request.modelId == "kling-o3-reference" && referenceVideoPath != null
+        val withVideo = !image && screen == Screen.IMAGE && VideoModelCatalog.isReference(request.modelId) && referenceVideoPath != null
         val withPhoto = !withVideo && screen != Screen.TEXT && screen != Screen.REELS && photo != null
         val sourceVideo = if(withVideo) referenceVideoPath else null
+        val referencePhotos = if(withVideo) referencePhotoPaths.toList() else emptyList()
+        if(!image && request.modelId == "kling-o3-edit" && referenceVideoDurationMs == null) {
+            failure = "Choose your base video again so its length can be checked."
+            return
+        }
         if(withVideo && request.generatedAudio && referenceVideoHasAudio == false) {
             failure = "This reference has no audio track. Turn off Use reference audio. Choose Kling O3 with a photo or text prompt to generate new sound."
             return
@@ -344,9 +365,11 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 ?: error("This model and resolution are not enabled on the server yet. Choose an available setting or try again after setup.")
             require(request.aspect in rate.ratios) { "This model supports ${rate.ratios.joinToString()}. Change the aspect ratio in Settings." }
             require(image || request.duration in rate.durations) { "Choose a supported video duration." }
+            require(referencePhotos.size <= rate.maxReferenceImages) { "Photo references are unavailable with this setting. Remove the photos or choose another model." }
             val payload = JSONObject().put("service", rate.id).put("aspect_ratio", request.aspect)
                 .put("prompt", request.prompt.trim().ifBlank { "Animate this photo with gentle natural movement." })
             if(!image) payload.put("duration", request.duration).put("generated_audio", request.generatedAudio)
+            if(withVideo) payload.put("reference_image_count", referencePhotos.size)
             coroutineScope {
                 val deferred = cloud.deferredInputQuotes
                 // New servers quote the input type without transferring media.
@@ -354,6 +377,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 val walletCheck = if(deferred) null else async { cloud.request("GET", "/wallet", session) }
                 if(deferred) payload.put("input_kind", if(withVideo) "video" else if(withPhoto) "image" else "text")
                 else {
+                    require(referencePhotos.isEmpty()) { "Multiple photo references are temporarily unavailable. Remove the photos or try again later." }
                     if(withPhoto) payload.put("asset_id", cloud.uploadImage(selectedPhotoFile, session, if(image) "image" else "video"))
                     if(withVideo) payload.put("asset_id", cloud.uploadReferenceVideo(File(checkNotNull(sourceVideo)), session))
                 }
@@ -365,7 +389,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 cloudQuote = CloudQuote(quote.getString("id"), quote.getLong("maximum_charge_paise"), available,
                     quote.getString("title"), session, request.copy(outputCount = 1), image, withPhoto,
                     sourceVideo, if(withVideo) storyRoot else null, if(withVideo) storyPart else 0,
-                    deferredInput = deferred, sourcePhotoRevision = selectedPhotoRevision)
+                    deferredInput = deferred, sourcePhotoRevision = selectedPhotoRevision, referencePhotoPaths = referencePhotos)
             }
         }
     }
@@ -384,7 +408,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 val session = cloud.session()
                 require(session.user.id == quote.session.user.id && activeAccountId == session.user.id) { "Your account changed. Request a new price." }
                 require(!quote.sourcePhoto || photoRevision == quote.sourcePhotoRevision) { "Your photo changed. Review the new creation price." }
+                require(quote.sourceVideoPath == null || quote.sourceVideoPath == referenceVideoPath && quote.referencePhotoPaths == referencePhotoPaths) { "Your references changed. Review your creation again." }
                 var assetId: String? = null
+                val referenceIds = JSONArray()
                 if(quote.deferredInput && (quote.sourcePhoto || quote.sourceVideoPath != null)) {
                     val title = if(quote.sourcePhoto) "Uploading your photo" else "Uploading your reference video"
                     work.value = WorkState(title, detail = "Sending your reference securely. Generation starts after upload.")
@@ -395,6 +421,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                     assetId = if(quote.sourcePhoto) cloud.uploadImage(selectedPhotoFile, session, if(quote.image) "image" else "video", progress)
                         else cloud.uploadReferenceVideo(File(checkNotNull(quote.sourceVideoPath)), session, progress)
                 }
+                for((index, path) in quote.referencePhotoPaths.withIndex()) {
+                    work.value = WorkState("Uploading reference photo ${index + 1} of ${quote.referencePhotoPaths.size}", detail = "Your video and photos are sent together to the selected model.")
+                    referenceIds.put(cloud.uploadImage(File(path), session, "video"))
+                }
                 currentCoroutineContext().ensureActive()
                 require(activeAccountId == session.user.id) { "Your account changed. Request a new price." }
                 work.value = WorkState("Starting your creation", detail = "Reserving credits and adding your generation to My Projects.")
@@ -402,18 +432,24 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                     .put("title", quote.draft.prompt.take(55).ifBlank { quote.title }).put("image", quote.image)
                     .put("duration", if(quote.image) 0 else quote.draft.duration).put("aspect", quote.draft.aspect)
                 assetId?.let { pending.put("asset_id", it) }
+                if(referenceIds.length() > 0) pending.put("reference_image_ids", referenceIds)
                 if(quote.sourcePhoto && selectedPhotoFile.isFile) {
                     val preview = File(projectDir(session.user.id), "preview_${pending.getString("key")}.jpg")
                     val saved = withContext(Dispatchers.IO) { runCatching { createJobPreview(selectedPhotoFile, preview) }.isSuccess }
                     if(saved) pending.put("preview", preview.path).put("preview_temp", true)
                 }
-                quote.sourceVideoPath?.let { pending.put("preview", it).put("preview_video", true) }
+                quote.sourceVideoPath?.let { path ->
+                    val preview = File(projectDir(session.user.id), "preview_${pending.getString("key")}.jpg")
+                    val saved = withContext(Dispatchers.IO) { runCatching { createVideoJobPreview(File(path), preview) }.isSuccess }
+                    if(saved) pending.put("preview", preview.path).put("preview_temp", true)
+                }
                 quote.storyRoot?.let { pending.put("story_root", it).put("story_part", quote.storyPart) }
                 withContext(Dispatchers.IO) { updateCloudPending(session, pending, pending.getString("key")) }
                 cloudWork = true
                 val job = try {
                     val submission = JSONObject().put("quote_id", quote.id)
                     assetId?.let { submission.put("asset_id", it) }
+                    if(referenceIds.length() > 0) submission.put("reference_image_ids", referenceIds)
                     cloud.request("POST", "/jobs", session, submission, pending.getString("key"))
                 } catch(e: CloudException) {
                     if(e.status in listOf(400, 402, 403, 404, 409, 429)) withContext(Dispatchers.IO) {
@@ -449,6 +485,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 try {
                     val submission = JSONObject().put("quote_id", request.getString("quote_id"))
                     request.optString("asset_id").takeIf { it.isNotBlank() }?.let { submission.put("asset_id", it) }
+                    request.optJSONArray("reference_image_ids")?.let { submission.put("reference_image_ids", it) }
                     val job = cloud.request("POST", "/jobs", session, submission, request.getString("key"))
                     request.put("job_id", job.getString("id"))
                     withContext(Dispatchers.IO) { updateCloudPending(session, request, id) }
@@ -687,8 +724,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         completedJobNotice = null; completionQueue.clear()
         draftSave?.cancel(); imageDraftSave?.cancel()
         photoRevision++
+        removeReferenceVideo()
         activeAccountId = accountId
         photo = null; photoName = ""; referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0; cloudQuote = null
+        referencePhotoPaths = emptyList(); referenceVideoDurationMs = null
         selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
         currentPlan = PlanTier.FREE; billingReady = false; billingBusy = false; billingAccountId = null; creditProducts = emptyList()
         buyingProductId = null; billingLoading = false; billingError = null; billingCheckedAt = 0L; walletCheckedAt = 0L
@@ -763,6 +802,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         referenceVideoPath = project.path
         referenceVideoName = "Part ${storyPart - 1} reference"
         referenceVideoHasAudio = null
+        referenceVideoDurationMs = null
+        referencePhotoPaths = emptyList()
         photo = null; photoName = ""
         updateDraft(draft.copy(modelId = "kling-o3-reference", resolution = "1080p", duration = if(60 - total < 10) 5 else 10,
             generatedAudio = true, aspect = project.aspect,
@@ -773,7 +814,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             val hasAudio = readReferenceAudio(project.path)
             if(activeAccountId == account && referenceVideoPath == project.path) {
                 referenceVideoHasAudio = hasAudio
-                if(hasAudio == false && draft.modelId == "kling-o3-reference") updateDraft(draft.copy(generatedAudio = false))
+                if(hasAudio == false && VideoModelCatalog.isReference(draft.modelId)) updateDraft(draft.copy(generatedAudio = false))
             }
         }
     }
@@ -798,17 +839,19 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateDraft(value: CreationDraft) {
         val account = activeAccountId ?: return
-        draft = value
+        val saved = if(value.modelId == "kling-o3-edit" && referenceVideoDurationMs != null)
+            value.copy(duration = referenceBillableSeconds(checkNotNull(referenceVideoDurationMs))) else value
+        draft = saved
         draftSave?.cancel()
         draftSave = viewModelScope.launch {
             delay(250)
-            try { withContext(Dispatchers.IO) { store.saveDraft(value, accountId = account) } }
+            try { withContext(Dispatchers.IO) { store.saveDraft(saved, accountId = account) } }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { failure = e.message ?: "Could not save your draft." }
         }
     }
     fun selectVideoModel(model: VideoModelOption) {
-        if(model.id != "kling-o3-reference") { referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0 }
+        if(!VideoModelCatalog.isReference(model.id)) removeReferenceVideo()
         val options = cloudRates.filter { it.kind == "video" && it.modelId == model.id }
         val chosen = options.firstOrNull { it.size == draft.resolution && it.audio == draft.generatedAudio }
             ?: options.firstOrNull { it.size == draft.resolution } ?: options.firstOrNull()
@@ -816,7 +859,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             modelId = model.id,
             duration = draft.duration.takeIf { it in (chosen?.durations ?: model.durations) } ?: chosen?.durations?.firstOrNull() ?: model.durations.min(),
             resolution = chosen?.size ?: draft.resolution.takeIf { it in model.resolutions } ?: model.resolutions.first(),
-            generatedAudio = chosen?.audio ?: (draft.generatedAudio && model.supportsGeneratedAudio),
+            generatedAudio = (chosen?.audio ?: (draft.generatedAudio && model.supportsGeneratedAudio)) && !(VideoModelCatalog.isReference(model.id) && referenceVideoHasAudio == false),
             aspect = draft.aspect.takeIf { chosen == null || it in chosen.ratios } ?: chosen?.ratios?.firstOrNull() ?: "9:16",
         ))
     }
@@ -848,14 +891,42 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         selectedPhotoFile.delete()
     }
     fun removeReferenceVideo() {
+        discardDraftVideo(referenceVideoPath)
         referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0
+        referenceVideoDurationMs = null
+        referencePhotoPaths.forEach { File(it).delete() }
+        referencePhotoPaths = emptyList()
+        cloudQuote = null
+    }
+
+    private fun discardDraftVideo(path: String?) {
+        val account = activeAccountId ?: return
+        if(path == null) return
+        runCatching {
+            val file = File(path).canonicalFile
+            val sourceDir = File(app.filesDir, "sources/${accountHash(account)}").canonicalFile
+            if(file.parentFile != sourceDir || file.extension != "mp4") return@runCatching
+            // Retain legacy requests whose saved preview still points to the clip.
+            val raw = cloudPending.getString(AuthConfig.fromBuildConfig().normalizedBaseUrl + "|" + account, null)
+            val pending = if(raw.isNullOrBlank()) JSONArray() else if(raw.trimStart().startsWith("[")) JSONArray(raw) else JSONArray().put(JSONObject(raw))
+            if((0 until pending.length()).none { pending.getJSONObject(it).optString("preview") == path }) file.delete()
+        }
+    }
+
+    fun removeReferencePhoto(index: Int) {
+        val path = referencePhotoPaths.getOrNull(index) ?: return
+        referencePhotoPaths = referencePhotoPaths.filterIndexed { i, _ -> i != index }
+        File(path).delete()
+        cloudQuote = null
+        message("Photo removed. Check the @Image numbers in your prompt.")
     }
 
     fun validateCreationInput(): Boolean {
         val input = if(screen == Screen.CREATE_IMAGE) imageDraft else draft
         val errors = buildList {
             if(screen == Screen.IMAGE && photo == null && referenceVideoPath == null) add("Add a photo or reference video.")
-            if(screen == Screen.IMAGE && input.modelId == "kling-o3-reference" && referenceVideoPath == null) add("Choose a reference video for this model.")
+            if(VideoModelCatalog.isReference(input.modelId) && screen != Screen.CREATE_IMAGE && (screen != Screen.IMAGE || referenceVideoPath == null)) add("Choose a base video in Image to Video for this model.")
+            if(VideoModelCatalog.isReference(input.modelId) && screen != Screen.CREATE_IMAGE && input.prompt.isBlank()) add("Describe how to use @Video1 and your reference photos.")
             if(screen != Screen.IMAGE && input.prompt.isBlank()) add("Describe what you want to create.")
             if(input.prompt.length > 500) add("Keep your prompt to 500 characters or fewer.")
         }
@@ -929,53 +1000,82 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         go(Screen.CREATION_SETTINGS)
     }
 
+    private suspend fun normalizedPhoto(account: String, uri: Uri, target: File): Bitmap = withContext(Dispatchers.IO) {
+        val temporary = copyUri(account, uri, 20L * 1024 * 1024, ".image")
+        try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(temporary.path, bounds)
+            require(bounds.outWidth > 0 && bounds.outHeight > 0) { "This file is not a supported photo. Choose a JPG, PNG or WebP image." }
+            var sample = 1
+            while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2
+            val decoded = BitmapFactory.decodeFile(temporary.path, BitmapFactory.Options().apply { inSampleSize = sample })
+                ?: error("Could not open this photo. Try another image.")
+            val orientation = runCatching { androidx.exifinterface.media.ExifInterface(temporary.path).getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1)
+            val matrix = Matrix().apply {
+                when(orientation) {
+                    2 -> setScale(-1f, 1f)
+                    3 -> setRotate(180f)
+                    4 -> setScale(1f, -1f)
+                    5 -> { setRotate(90f); postScale(-1f, 1f) }
+                    6 -> setRotate(90f)
+                    7 -> { setRotate(-90f); postScale(-1f, 1f) }
+                    8 -> setRotate(-90f)
+                }
+            }
+            val oriented = if(orientation == 1) decoded else Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true).also { if(it !== decoded) decoded.recycle() }
+            target.parentFile?.mkdirs()
+            val staged = File(target.parentFile, "${UUID.randomUUID()}.tmp")
+            try {
+                staged.outputStream().use { require(oriented.compress(Bitmap.CompressFormat.PNG, 100, it)) { "Could not save this photo." } }
+                require(staged.renameTo(target)) { "Could not save this photo. Free some storage and try again." }
+            } finally { staged.delete() }
+            oriented
+        } finally { temporary.delete() }
+    }
+
     fun importPhoto(uri: Uri) = startWork("Opening photo") {
         val account = checkNotNull(activeAccountId)
-        val target = photoFile(account)
-        val bitmap = withContext(Dispatchers.IO) {
-            val temporary = copyUri(account, uri, 20L * 1024 * 1024, ".image")
-            try {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(temporary.path, bounds)
-                require(bounds.outWidth > 0 && bounds.outHeight > 0) { "This file is not a supported photo. Choose a JPG, PNG or WebP image." }
-                var sample = 1
-                while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2
-                val decoded = BitmapFactory.decodeFile(temporary.path, BitmapFactory.Options().apply { inSampleSize = sample })
-                    ?: error("Could not open this photo. Try another image.")
-                val orientation = runCatching { androidx.exifinterface.media.ExifInterface(temporary.path).getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1)
-                val matrix = Matrix().apply {
-                    when(orientation) {
-                        2 -> setScale(-1f, 1f)
-                        3 -> setRotate(180f)
-                        4 -> setScale(1f, -1f)
-                        5 -> { setRotate(90f); postScale(-1f, 1f) }
-                        6 -> setRotate(90f)
-                        7 -> { setRotate(-90f); postScale(-1f, 1f) }
-                        8 -> setRotate(-90f)
-                    }
-                }
-                val oriented = if(orientation == 1) decoded else Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true).also { if(it !== decoded) decoded.recycle() }
-                target.parentFile?.mkdirs()
-                val staged = File(target.parentFile, "${UUID.randomUUID()}.tmp")
-                try {
-                    staged.outputStream().use { require(oriented.compress(Bitmap.CompressFormat.PNG, 100, it)) { "Could not save this photo." } }
-                    require(staged.renameTo(target)) { "Could not save this photo. Free some storage and try again." }
-                } finally { staged.delete() }
-                oriented
-            } finally { temporary.delete() }
-        }
-        if (activeAccountId != account) return@startWork
+        val bitmap = normalizedPhoto(account, uri, photoFile(account))
+        if(activeAccountId != account) { bitmap.recycle(); return@startWork }
         photoRevision++
         photo = bitmap
         photoName = "Your photo"
-        referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0
+        // Creating/editing an image keeps the separate video draft and references.
+        if(screen != Screen.CREATE_IMAGE) removeReferenceVideo()
         message("Photo added")
+    }
+
+    fun importReferencePhotos(uris: List<Uri>, replaceIndex: Int? = null) = startWork("Opening reference photos") {
+        val account = checkNotNull(activeAccountId)
+        require(VideoModelCatalog.isReference(draft.modelId) && referenceVideoPath != null) { "Add a base video first." }
+        require(uris.isNotEmpty() && (replaceIndex == null && referencePhotoPaths.size + uris.size <= 4 ||
+            replaceIndex != null && replaceIndex in referencePhotoPaths.indices && uris.size == 1)) { "You can use up to four reference photos." }
+        val added = mutableListOf<String>()
+        try {
+            for(uri in uris) {
+                val file = File(app.filesDir, "sources/${accountHash(account)}/reference_${UUID.randomUUID()}.png")
+                added.add(file.path)
+                normalizedPhoto(account, uri, file).recycle()
+                require(file.length() in 1..10L * 1024 * 1024) { "Choose a smaller reference photo (10 MB maximum)." }
+            }
+            require(activeAccountId == account) { "Your account changed. Choose the photos again." }
+            if(replaceIndex == null) referencePhotoPaths = referencePhotoPaths + added
+            else {
+                val previous = referencePhotoPaths[replaceIndex]
+                referencePhotoPaths = referencePhotoPaths.toMutableList().apply { set(replaceIndex, added.single()) }
+                File(previous).delete()
+            }
+            added.clear()
+            cloudQuote = null
+            message("Reference photos ready. Use @Image1, @Image2 in your prompt.")
+        } finally { added.forEach { File(it).delete() } }
     }
 
     fun importReferenceVideo(uri: Uri) = startWork("Opening reference video") {
         val account = checkNotNull(activeAccountId) { "Sign in before choosing a video." }
-        val target = File(app.filesDir, "sources/${accountHash(account)}.mp4")
+        val target = File(app.filesDir, "sources/${accountHash(account)}/${UUID.randomUUID()}.mp4")
         var hasAudio = false
+        var durationMs = 0L
         withContext(Dispatchers.IO) {
             val temporary = copyUri(account, uri, 200L * 1024 * 1024, ".mp4")
             try {
@@ -983,10 +1083,14 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 val duration = try {
                     retriever.setDataSource(temporary.path)
                     hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
+                    val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                    val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                    require(width in 720..3840 && height in 720..3840) { "Choose an MP4 with width and height between 720 and 3840 pixels." }
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
                         ?: error("This video has no readable duration.")
                 } finally { retriever.release() }
                 require(duration in 3_000..15_000) { "Choose a reference MP4 between 3 and 15 seconds." }
+                durationMs = duration
                 require(app.contentResolver.getType(uri) in setOf("video/mp4", "application/mp4")) { "Choose an MP4 reference video." }
                 target.parentFile?.mkdirs()
                 if(target.exists() && !target.delete()) error("Could not replace the previous reference video.")
@@ -995,11 +1099,18 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             } finally { temporary.delete() }
         }
         if(activeAccountId != account) return@startWork
+        discardDraftVideo(referenceVideoPath)
         referenceVideoPath = target.path; referenceVideoName = "Reference video"
         referenceVideoHasAudio = hasAudio
+        referenceVideoDurationMs = durationMs
+        cloudQuote = null
         photo = null; photoName = ""; storyRoot = null; storyPart = 0
-        updateDraft(draft.copy(modelId = "kling-o3-reference", resolution = "1080p", duration = 10, generatedAudio = hasAudio,
-            prompt = draft.prompt.ifBlank { "Create the next story scene from @Video1. Keep the same characters and style." }))
+        val modelId = if(VideoModelCatalog.isReference(draft.modelId)) draft.modelId
+            else cloudRates.firstOrNull { VideoModelCatalog.isReference(it.modelId) }?.modelId ?: "kling-o3-reference"
+        val keepAudio = hasAudio && cloudRates.any { it.modelId == modelId && it.audio == true }
+        updateDraft(draft.copy(modelId = modelId, resolution = "1080p", duration = if(modelId == "kling-o3-edit") referenceBillableSeconds(durationMs) else 10, generatedAudio = keepAudio,
+            prompt = draft.prompt.ifBlank { if(modelId == "kling-o3-edit") "Edit @Video1. Keep the original movement and camera, with warm cinematic lighting."
+                else "Create the next story scene from @Video1. Keep the same characters and style." }))
         message(if(hasAudio) "Reference video added · existing audio can be kept" else "Silent reference added · this model does not generate new audio")
     }
 

@@ -61,7 +61,8 @@ class CloudApi(context: Context, private val config: AuthConfig = AuthConfig.fro
                 (0 until (durations?.length() ?: 0)).map { durations!!.getInt(it) },
                 if(settings.optString("provider") == "fal" && settings.has("generated_audio")) settings.getBoolean("generated_audio") else null,
                 settings.optString("image_aspect_ratio") == "source", row.optLong("minimum_charge_paise"), row.optInt("minimum_units", 1),
-                creditPrices, if (row.optString("required_plan") == "free") PlanTier.FREE else PlanTier.PRO)
+                creditPrices, if (row.optString("required_plan") == "free") PlanTier.FREE else PlanTier.PRO,
+                settings.optInt("max_reference_images").coerceIn(0, 4), settings.optBoolean("duration_from_source"))
         }
     }
 
