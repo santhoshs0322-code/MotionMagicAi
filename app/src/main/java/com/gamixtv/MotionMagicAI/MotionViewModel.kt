@@ -152,10 +152,16 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var cloudRates by mutableStateOf<List<CloudRate>>(emptyList()); private set
     private val showcasePreferences = app.getSharedPreferences("motion_public_templates", Application.MODE_PRIVATE)
     private val showcaseCacheKey = AuthConfig.fromBuildConfig().normalizedBaseUrl
-    private val savedShowcase = runCatching { showcasePreferences.getString(showcaseCacheKey, null)?.let {
-        com.gamixtv.MotionMagicAI.ui.ImageTemplateCatalogue.parse(JSONArray(it))
+    private val savedShowcaseJson = runCatching { showcasePreferences.getString(showcaseCacheKey, null)?.let {
+        if(it.trimStart().startsWith("[")) JSONObject().put("templates", JSONArray(it)) else JSONObject(it)
+    } }.getOrNull()
+    private val savedShowcase = runCatching { savedShowcaseJson?.optJSONArray("templates")?.let {
+        com.gamixtv.MotionMagicAI.ui.ImageTemplateCatalogue.parse(it)
     } }.getOrNull()
     var showcaseTemplates by mutableStateOf(savedShowcase ?: com.gamixtv.MotionMagicAI.ui.ImageTemplateCatalogue.bundled(app)); private set
+    var homeBanners by mutableStateOf(runCatching { savedShowcaseJson?.optJSONArray("banners")?.let {
+        com.gamixtv.MotionMagicAI.ui.HomeBannerCatalogue.parse(it)
+    } }.getOrNull() ?: com.gamixtv.MotionMagicAI.ui.HomeBannerCatalogue.bundled(app)); private set
     private var showcaseCheckedAt = 0L
     private var showcaseLoading = false
     private var catalogCheckedAt = 0L
@@ -195,10 +201,12 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         showcaseLoading = true
         viewModelScope.launch {
             try {
-                val rows = cloud.request("GET", "/templates").getJSONArray("templates")
+                val catalogue = cloud.request("GET", "/templates")
+                val rows = catalogue.getJSONArray("templates")
                 showcaseTemplates = com.gamixtv.MotionMagicAI.ui.ImageTemplateCatalogue.parse(rows)
+                catalogue.optJSONArray("banners")?.let { homeBanners = com.gamixtv.MotionMagicAI.ui.HomeBannerCatalogue.parse(it) }
                 // Persist the authoritative empty feed too: unpublished rows must not reappear offline.
-                showcasePreferences.edit().putString(showcaseCacheKey, rows.toString()).apply()
+                showcasePreferences.edit().putString(showcaseCacheKey, catalogue.toString()).apply()
                 showcaseCheckedAt = System.currentTimeMillis()
             } catch(e: CancellationException) { throw e }
             catch(_: Exception) { /* Keep the last owner catalogue, or initial bundled previews. */ }

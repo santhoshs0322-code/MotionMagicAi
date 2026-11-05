@@ -13,11 +13,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import storage
-from .models import OwnerAudit, Rate, ShowcaseTemplate
+from .models import OwnerAudit, Rate, ShowcaseTemplate, ShowcaseBanner
 from .owner import owner_only
 from . import bundled_templates
 
-FEED_CACHE_KEY = "motion:showcase:feed:v2"
+FEED_CACHE_KEY = "motion:showcase:feed:v3"
 
 
 IMAGE_TYPES = {b"\xff\xd8\xff": ("image/jpeg", "jpg"), b"\x89PNG\r\n\x1a\n": ("image/png", "png")}
@@ -145,8 +145,9 @@ def owner_templates(request, identifier=None):
     for row in preview:
         groups.setdefault(row.category, []).append(row)
     featured = next((row for row in preview if row.featured), next(iter(preview), None))
+    banners = banner_rows()
     return render(request, "owner/showcase.html", {"form": form, "items": items, "featured": featured,
-                  "preview_groups": list(groups.items()), "editing": bool(identifier)})
+                  "preview_groups": list(groups.items()), "banners": banners, "editing": bool(identifier)})
 
 
 @owner_only
@@ -167,7 +168,7 @@ class ShowcaseFeed(APIView):
     def get(self, request):
         cached = cache.get(FEED_CACHE_KEY)
         if cached is not None:
-            response = Response({"ok": True, "templates": cached})
+            response = Response({"ok": True, **cached})
             response["Cache-Control"] = "public, max-age=30"
             return response
         rows = ShowcaseTemplate.objects.select_related("rate").filter(
@@ -193,8 +194,9 @@ class ShowcaseFeed(APIView):
                 "poster_url": media_url(row.poster_key, s3), "video_url": media_url(row.video_key, s3),
                 "example_input_url": media_url(row.example_input_key, s3),
             })
-        cache.set(FEED_CACHE_KEY, data, 30)
-        response = Response({"ok": True, "templates": data})
+        catalogue = {"templates": data, "banners": banner_rows()}
+        cache.set(FEED_CACHE_KEY, catalogue, 30)
+        response = Response({"ok": True, **catalogue})
         response["Cache-Control"] = "public, max-age=30"
         return response
 
@@ -208,7 +210,72 @@ def bundled_artwork(request, filename):
     if request.headers.get("If-None-Match") == etag:
         response = HttpResponse(status=304)
     else:
-        response = FileResponse((bundled_templates.ROOT / entry["file"]).open("rb"), content_type="image/jpeg")
+        response = FileResponse(bundled_templates.artwork_path(entry["file"]).open("rb"), content_type="image/jpeg")
     response["ETag"] = etag
     response["Cache-Control"] = "public, max-age=86400"
     return response
+
+
+def banner_rows():
+    rows = ShowcaseBanner.objects.filter(published=True).exclude(image_key="")
+    if not settings.S3_BUCKET:
+        rows = rows.filter(image_key__startswith="builtin:")
+    rows = list(rows[:20])
+    s3 = storage.client() if any(not row.image_key.startswith("builtin:") for row in rows) else None
+    return [{"id": str(row.pk), "title": row.title, "destination": row.destination, "position": row.position,
+             "display_seconds": row.display_seconds, "updated_at": row.updated_at.isoformat(),
+             "image_url": media_url(row.image_key, s3), "bundled_image": bundled_templates.poster(row.image_key)} for row in rows]
+
+
+class BannerForm(forms.ModelForm):
+    image = forms.FileField(required=False, help_text="Wide JPG, PNG or WebP, up to 5 MB. About 3:1 matches the supplied banners.")
+    display_seconds = forms.IntegerField(min_value=3, max_value=15, initial=4, help_text="Seconds before the app advances to the next banner (3–15).")
+
+    class Meta:
+        model = ShowcaseBanner
+        fields = ("title", "destination", "position", "display_seconds", "published")
+
+    def clean(self):
+        data = super().clean()
+        image = self.files.get("image")
+        if image:
+            if not 0 < image.size <= 5 * 1024**2:
+                self.add_error("image", "Choose an image under 5 MB.")
+            else:
+                try:
+                    image_type(image)
+                except forms.ValidationError as error:
+                    self.add_error("image", error)
+        if data.get("published") and not (image or self.instance.image_key):
+            self.add_error("image", "Upload banner artwork before publishing.")
+        return data
+
+
+@owner_only
+@require_http_methods(["GET", "POST"])
+def owner_banners(request, identifier=None):
+    item = get_object_or_404(ShowcaseBanner, pk=identifier) if identifier else ShowcaseBanner()
+    form = BannerForm(request.POST or None, request.FILES or None, instance=item)
+    if request.method == "POST" and form.is_valid():
+        updated = form.save(commit=False)
+        uploaded = None
+        try:
+            if request.FILES.get("image"):
+                uploaded = upload_media(updated, "banner", request.FILES["image"])
+                updated.image_key = uploaded
+            updated.save()
+            cache.delete(FEED_CACHE_KEY)
+            OwnerAudit.objects.create(owner=request.user, action="banner_save", reference=str(updated.pk))
+            return redirect("owner-banners")
+        except Exception:
+            if uploaded:
+                try:
+                    storage.client().delete_object(Bucket=settings.S3_BUCKET, Key=uploaded)
+                except Exception:
+                    pass
+            form.add_error(None, "Could not save banner. Check storage and retry.")
+    rows = list(ShowcaseBanner.objects.all()[:100])
+    s3 = storage.client() if any(row.image_key and not row.image_key.startswith("builtin:") for row in rows) else None
+    for row in rows:
+        row.image_url = media_url(row.image_key, s3)
+    return render(request, "owner/banners.html", {"form": form, "banners": rows, "editing": bool(identifier)})

@@ -25,15 +25,16 @@ internal fun ObserveTemplateCatalogue(vm: MotionViewModel) {
 
 /** Bundled rows are only initial previews. A successful server feed, even empty, replaces them. */
 internal object ImageTemplateCatalogue {
-    @Volatile private var hashes: Map<String, String>? = null
+    @Volatile private var hashes: Map<String, Pair<String, String>>? = null
     fun bundledPath(context: Context, filename: String?, hash: String?): String? {
         if(filename == null || hash == null) return null
         val known = hashes ?: synchronized(this) {
-            hashes ?: JSONArray(context.assets.open("image_templates/catalog.json").bufferedReader().use { it.readText() }).let { rows ->
-                (0 until rows.length()).associate { i -> rows.getJSONObject(i).let { it.getString("file") to it.getString("sha256") } }
-            }.also { hashes = it }
+            hashes ?: listOf("image_templates", "home_banners").flatMap { folder ->
+                val rows = JSONArray(context.assets.open("$folder/catalog.json").bufferedReader().use { it.readText() })
+                (0 until rows.length()).map { i -> rows.getJSONObject(i).let { it.getString("file") to ("$folder/${it.getString("file")}" to it.getString("sha256")) } }
+            }.toMap().also { hashes = it }
         }
-        return if(known[filename] == hash) "image_templates/$filename" else null
+        return known[filename]?.takeIf { it.second == hash }?.first
     }
     fun bundled(context: Context): List<Template> = parse(JSONArray(context.assets.open("image_templates/catalog.json").bufferedReader().use { it.readText() }))
 

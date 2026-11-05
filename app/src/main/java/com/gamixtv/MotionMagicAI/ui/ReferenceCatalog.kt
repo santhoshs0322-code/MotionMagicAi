@@ -7,8 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,8 +30,8 @@ import androidx.compose.ui.unit.sp
 import com.gamixtv.MotionMagicAI.MotionViewModel
 import com.gamixtv.MotionMagicAI.Screen
 import com.gamixtv.MotionMagicAI.data.ThemeMode
-import com.gamixtv.MotionMagicAI.data.CreationMode
-import androidx.compose.ui.layout.ContentScale
+import com.gamixtv.MotionMagicAI.data.HomeBanner
+import androidx.compose.ui.platform.LocalContext
 
 private data class CatalogTool(val title: String, val subtitle: String, val icon: ImageVector, val destination: Screen, val artwork: Artwork)
 private val mainCatalogTools = listOf(
@@ -50,7 +49,8 @@ fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
         preview?.remoteId?.let { id -> preview = vm.showcaseTemplates.firstOrNull { it.remoteId == id } }
     }
     ReferenceCatalogContent(vm.walletCredits, vm.settings.themeMode, vm.showcaseTemplates,
-        templatePage, vm::toggleTheme, { destination -> if(destination == Screen.TEMPLATES) vm.tab(destination) else vm.go(destination) }, { preview = it })
+        templatePage, vm::toggleTheme, { destination -> if(destination == Screen.TEMPLATES) vm.tab(destination) else vm.go(destination) }, { preview = it },
+        banners = vm.homeBanners, bannersActive = preview == null)
     preview?.let { item -> TemplatePreviewSheet(item, item.mode, { preview = null }) {
         vm.useTemplate(item.art, item.name, item.promptFor(item.mode), item.mode, item.aspect, item.duration,
             item.modelId, item.resolution, item.generatedAudio, item.remoteId, item.requiresReference)
@@ -60,22 +60,27 @@ fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
 
 @Composable
 internal fun ReferenceCatalogContent(credits: Long?, theme: ThemeMode, entries: List<Template>, templatePage: Boolean,
-    toggleTheme: () -> Unit, navigate: (Screen) -> Unit, preview: (Template) -> Unit) {
+    toggleTheme: () -> Unit, navigate: (Screen) -> Unit, preview: (Template) -> Unit,
+    banners: List<HomeBanner>? = null, bannersActive: Boolean = true) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var expanded by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val colors = StudioColors
+    val context = LocalContext.current
+    val bannerRows = banners ?: remember { HomeBannerCatalogue.bundled(context) }
+    val listState = rememberLazyListState()
+    val bannerVisible by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.any { it.key == "home-banners" } } }
     Column(Modifier.fillMaxSize().background(colors.background)) {
         CatalogHeader(credits, theme, toggleTheme, { navigate(Screen.PLANS) }) { searching = !searching }
         if(searching) OutlinedTextField(query, { query = it }, label = { Text("Search templates") }, singleLine = true,
             trailingIcon = { IconButton(onClick = { query = ""; searching = false }) { Icon(Icons.Rounded.Close, "Close search") } },
             shape = PanelShape, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if(entries.isEmpty()) item {
                 Text("Templates are currently unavailable. Try again shortly.", color = Muted, modifier = Modifier.padding(16.dp))
             }
             if(!templatePage && query.isBlank()) {
-                item { CatalogHero(entries.sortedByDescending { it.featured }.take(3), preview) }
+                item(key = "home-banners") { HomeBannerCarousel(bannerRows, bannersActive && bannerVisible && !searching, navigate) }
                 item {
                     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         mainCatalogTools.chunked(2).forEach { row ->
@@ -148,38 +153,6 @@ internal fun CatalogHeader(credits: Long?, theme: ThemeMode, toggleTheme: () -> 
     }
 }
 
-@Composable
-private fun CatalogHero(entries: List<Template>, preview: (Template) -> Unit) {
-    if(entries.isEmpty()) return
-    val pager = rememberPagerState(pageCount = { entries.size })
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        HorizontalPager(pager, contentPadding = PaddingValues(horizontal = 16.dp), pageSpacing = 12.dp) { index ->
-            val item = entries[index]
-            Box(Modifier.fillMaxWidth().aspectRatio(2.35f).clip(RoundedCornerShape(18.dp)).clickable { preview(item) }) {
-                if(item.mode == CreationMode.CREATE_IMAGE) {
-                    Box(Modifier.fillMaxSize().background(MagicGradient))
-                    ShowcasePoster(item, Modifier.align(Alignment.CenterEnd).padding(end = 12.dp, top = 6.dp, bottom = 6.dp)
-                        .fillMaxHeight().aspectRatio(9f / 16f).clip(RoundedCornerShape(10.dp)), item.name, ContentScale.Fit)
-                } else if(item.remoteId != null) ShowcasePoster(item, Modifier.fillMaxSize(), item.name)
-                else if(index == 0) Art(Artwork.Banner, Modifier.fillMaxSize(), "Turn photos into stunning videos")
-                else Art(item.art, Modifier.fillMaxSize(), item.name)
-                if(item.remoteId != null || index != 0) {
-                    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .7f), Color.Transparent))))
-                    Column(Modifier.align(Alignment.CenterStart).fillMaxWidth(if(item.mode == CreationMode.CREATE_IMAGE) .7f else .76f).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(if(item.remoteId != null) item.name else "Turn Photos Into\nStunning Videos", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
-                        Text(if(item.mode == CreationMode.CREATE_IMAGE) "Recreate with your photo" else "Create, Edit, Animate with AI", color = Color.White, fontSize = 10.sp)
-                    }
-                }
-                if(item.remoteId != null || index != 0) Surface(color = Color.Black.copy(alpha = .35f), shape = CircleShape, border = BorderStroke(1.dp, Color.White.copy(alpha = .75f)), modifier = Modifier.align(if(item.mode == CreationMode.CREATE_IMAGE) Alignment.BottomEnd else Alignment.CenterEnd).padding(end = 16.dp, bottom = if(item.mode == CreationMode.CREATE_IMAGE) 9.dp else 0.dp).size(if(item.mode == CreationMode.CREATE_IMAGE) 28.dp else 42.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Icon(if(item.videoUrl != null) Icons.Rounded.PlayArrow else Icons.Rounded.AutoAwesome, "Preview ${item.name}", tint = Color.White, modifier = Modifier.size(30.dp)) }
-                }
-            }
-        }
-        if(entries.size > 1) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
-            repeat(entries.size) { index -> Box(Modifier.size(6.dp).background(if(pager.currentPage == index) StudioColors.primary else StudioColors.muted.copy(alpha = .4f), CircleShape)) }
-        }
-    }
-}
 
 @Composable
 private fun RoundCatalogTool(title: String, icon: ImageVector, action: () -> Unit) {

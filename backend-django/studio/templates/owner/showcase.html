@@ -4,6 +4,7 @@
 .phone{background:#080a13;border:2px solid #7138a3;border-radius:34px;padding:17px;max-width:430px;box-shadow:0 18px 50px #0008}
 .phone-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.phone-top b{font-size:19px}.credits{color:#ffd36c;background:#2d2038;border-radius:20px;padding:5px 10px}
 .hero.portrait img{width:auto;height:100%;object-fit:contain;position:absolute;right:10px;top:0}.hero.portrait strong{width:65%}.shelf .poster img,.manage article img{object-position:top}
+.hero.banner{height:auto;aspect-ratio:3/1}.hero.banner img{object-fit:contain}
 .hero{height:175px;border-radius:19px;overflow:hidden;background:linear-gradient(120deg,#452474,#272e73);position:relative;margin-bottom:12px}.hero img{width:100%;height:100%;object-fit:cover}.hero strong{position:absolute;bottom:12px;left:13px;text-shadow:0 2px 8px black}
 .quick{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.quick div{height:78px;border-radius:15px;padding:12px;background:linear-gradient(130deg,#6127c6,#d12e9e);font-weight:700}.quick div:nth-child(2){background:linear-gradient(130deg,#a83298,#293dd3)}.quick div:nth-child(3){background:linear-gradient(130deg,#245dda,#4730b1)}.quick div:nth-child(4){background:linear-gradient(130deg,#8d28dc,#1f96d9)}
 .shelf{display:flex;gap:8px;overflow:auto;padding-bottom:8px}.poster{flex:0 0 105px;min-height:145px;border-radius:12px;background:#21172e;position:relative;overflow:hidden}.poster img{width:100%;height:145px;object-fit:cover}.poster span{position:absolute;bottom:0;left:0;right:0;padding:17px 7px 6px;background:linear-gradient(transparent,#060712ed);font-size:11px;line-height:1.2}.poster small{position:absolute;top:5px;left:5px;background:#9628b9;color:white;border-radius:8px;padding:1px 5px}
@@ -12,10 +13,12 @@
 @media(max-width:950px){.showcase-layout{grid-template-columns:1fr}}
 </style>
 <h1>App templates</h1><p class="muted">Manage the same templates shown in the app. Edit titles, prompts, artwork, categories, ordering and model settings here. Changes appear when the app refreshes (normally within 30 seconds while Home or Templates is open). Unpublished templates disappear from the app. A disabled model hides its templates until enabled.</p>
+<p><a class="button" href="{% url 'owner-banners' %}">Manage Home banners</a></p>
 <div class="showcase-layout">
 <section class="phone" aria-label="Home screen preview">
   <div class="phone-top"><b>MotionMagic <span style="color:#cb70f6">AI</span></b><span class="credits">⚡ credits</span></div>
-  <div class="hero{% if featured.mode == 'create_image' %} portrait{% endif %}">{% if featured %}<img src="{{ featured.poster_url }}" alt="{{ featured.title }}"><strong>{{ featured.title }}</strong>{% else %}<strong>Your featured template appears here</strong>{% endif %}</div>
+  <div class="hero{% if banners %} banner{% endif %}">{% if banners %}<img src="{{ banners.0.image_url }}" alt="{{ banners.0.title }}">{% else %}<strong>No published Home banners</strong>{% endif %}</div>
+  {% if banners %}<p class="muted">{% for banner in banners %}{{ forloop.counter }}{% if not forloop.last %} → {% else %} → 1{% endif %}{% endfor %} · {{ banners.0.display_seconds }}s first slide</p>{% endif %}
   <div class="quick"><div>Create Image</div><div>Image to Video</div><div>Text to Video</div><div>Continue Story</div></div>
   {% for title, group in preview_groups %}<h3>{{ title }}</h3><div class="shelf">{% for row in group %}<div class="poster">{% if row.poster_url %}<img loading="lazy" src="{{ row.poster_url }}" alt="">{% endif %}<span>{{ row.title }}</span></div>{% endfor %}</div>{% endfor %}
 </section>

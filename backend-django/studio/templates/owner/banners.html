@@ -1,0 +1,11 @@
+{% extends 'owner/base.html' %}{% block content %}
+<style>
+.banner-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}.banner-list img{width:100%;aspect-ratio:3/1;object-fit:contain;border-radius:16px;background:#101322}.banner-list article{padding:16px;border:1px solid #614188;border-radius:20px;background:#171a2b}.banner-form input,.banner-form select{max-width:100%}
+</style>
+<h1>Home banners</h1>
+<p class="muted">The app loops through published banners in position order. Each slide stays for its configured duration (four seconds initially). Changes refresh in the app without a new APK. Title is the accessible label; upload replacement artwork to change text printed on an image.</p>
+<p><a href="{% url 'owner-templates' %}">← App templates and home mirror</a></p>
+<section class="panel banner-form"><h2>{% if editing %}Edit banner{% else %}Add banner{% endif %}</h2>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button type="submit">Save banner</button> {% if editing %}<a href="{% url 'owner-banners' %}">Cancel edit</a>{% endif %}</form></section>
+<h2>Banner order</h2><div class="banner-list">{% for row in banners %}<article>{% if row.image_url %}<img loading="lazy" src="{{ row.image_url }}" alt="{{ row.title }}">{% endif %}<h3>{{ row.title }}</h3><p>Position {{ row.position }} · {{ row.display_seconds }} seconds · {{ row.get_destination_display }} · {% if row.published %}Published{% else %}Unpublished{% endif %}</p><a class="button" href="{% url 'owner-banner-edit' row.pk %}">Edit banner</a></article>{% empty %}<p>No banners yet.</p>{% endfor %}</div>
+{% endblock %}

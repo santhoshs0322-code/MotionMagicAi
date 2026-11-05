@@ -6,6 +6,8 @@ from studio import showcase
 urlpatterns = [
     path("owner/", owner.dashboard, name="owner-dashboard"),
     path("owner/showcase/", showcase.owner_templates, name="owner-templates"),
+    path("owner/showcase/banners/", showcase.owner_banners, name="owner-banners"),
+    path("owner/showcase/banners/<uuid:identifier>/", showcase.owner_banners, name="owner-banner-edit"),
     path("owner/showcase/<uuid:identifier>/", showcase.owner_templates, name="owner-template-edit"),
     path("owner/showcase/<uuid:identifier>/unpublish/", showcase.unpublish_template, name="owner-template-unpublish"),
     path("owner/login/", owner.sign_in, name="owner-login"),

@@ -112,6 +112,21 @@ class ShowcaseTemplate(models.Model):
     class Meta:
         indexes = [models.Index(fields=["published", "category", "position", "-created_at"], name="showcase_feed_idx")]
 
+class ShowcaseBanner(models.Model):
+    DESTINATIONS = [("create_image", "Create Image"), ("image_to_video", "Image to Video"), ("text_to_video", "Text to Video"), ("templates", "Templates")]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=90)
+    image_key = models.CharField(max_length=300, blank=True)
+    destination = models.CharField(max_length=20, choices=DESTINATIONS, default="templates")
+    position = models.PositiveSmallIntegerField(default=0)
+    display_seconds = models.PositiveSmallIntegerField(default=4)
+    published = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("position", "id")
+
+
 class Asset(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     account = models.ForeignKey(Account, on_delete=models.PROTECT)

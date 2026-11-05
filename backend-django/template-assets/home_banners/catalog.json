@@ -1,0 +1,47 @@
+[
+  {
+    "file": "01_create_ai_videos_images.jpg",
+    "id": "8acd4153-80e4-5bcc-889c-9bfd69158b03",
+    "sha256": "aded494c1753a72d2b5170f680bd2aee03ddfc73211a03413da8dd776cca46df",
+    "title": "Create AI Videos & Images",
+    "destination": "create_image",
+    "position": 0,
+    "display_seconds": 4
+  },
+  {
+    "file": "02_bring_imagination_to_life.jpg",
+    "id": "2dcc2f79-8f4f-55b1-8757-f829b39a0dcb",
+    "sha256": "51e1dc16fb66263735f5f7b026373c97eeee4fb49fe2e4e1f606317c0f88f91a",
+    "title": "Bring Your Imagination to Life",
+    "destination": "text_to_video",
+    "position": 1,
+    "display_seconds": 4
+  },
+  {
+    "file": "03_anime_transformation.jpg",
+    "id": "9c9baca3-6af0-5a1c-a341-0a915b4bf40f",
+    "sha256": "df62918a17e034e116945864da1be03bdf960ff120bec42f2b46619706d841f1",
+    "title": "Anime Transformation",
+    "destination": "templates",
+    "position": 2,
+    "display_seconds": 4
+  },
+  {
+    "file": "04_travel_with_ai.jpg",
+    "id": "dc8be045-fd85-5864-939b-b56c30a59225",
+    "sha256": "a027039b4235a55a43fbd290606423f033ce199444fb9e698d3de684cf4cea1c",
+    "title": "Travel with AI",
+    "destination": "create_image",
+    "position": 3,
+    "display_seconds": 4
+  },
+  {
+    "file": "05_make_photos_come_alive.jpg",
+    "id": "49dd68f7-2e35-5d51-b644-4ce41204197a",
+    "sha256": "50c9aee6989f58e0665f37b49e7016ede4b63b7c7eefad11e13d66778d7c7361",
+    "title": "Make Your Photos Come Alive",
+    "destination": "image_to_video",
+    "position": 4,
+    "display_seconds": 4
+  }
+]

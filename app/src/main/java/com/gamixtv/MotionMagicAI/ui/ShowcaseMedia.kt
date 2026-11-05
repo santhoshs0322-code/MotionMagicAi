@@ -43,13 +43,13 @@ private val posterLoads = Semaphore(3)
 fun ShowcasePoster(template: Template, modifier: Modifier = Modifier, description: String = template.name, contentScale: ContentScale = ContentScale.Crop) {
     val context = LocalContext.current
     val key = "${template.remoteId}:${template.mediaRevision}"
-    val bitmap = produceState<Bitmap?>(null, key) {
+    val bitmap = produceState<Bitmap?>(synchronized(posters) { posters.get(key) }, key, template.posterUrl) {
         value = synchronized(posters) { posters.get(key) }
         if (value == null) {
             value = try { withContext(Dispatchers.IO) { posterLoads.withPermit {
                 val asset = ImageTemplateCatalogue.bundledPath(context, template.bundledPoster, template.bundledPosterHash)
                 if(asset != null) context.assets.open(asset).use { BitmapFactory.decodeStream(it) }
-                else template.posterUrl?.let { fetchPoster(it) }
+                else template.posterUrl?.let { fetchPoster(it, if(template.remoteId?.startsWith("banner:") == true) 1280 else 640) }
             } } } catch(e: CancellationException) { throw e } catch(_: Exception) { null }
             value?.let { image -> synchronized(posters) { posters.put(key, image) } }
         }
@@ -61,7 +61,7 @@ fun ShowcasePoster(template: Template, modifier: Modifier = Modifier, descriptio
     }
 }
 
-private fun fetchPoster(address: String): Bitmap? {
+private fun fetchPoster(address: String, maxEdge: Int): Bitmap? {
     val origin = URL(AuthConfig.fromBuildConfig().normalizedBaseUrl)
     val url = URL(URL(origin.toString() + "/"), address)
     val ownArtwork = url.host.equals(origin.host, true) && url.port == origin.port && url.path.startsWith("/api/v1/templates/artwork/")
@@ -87,7 +87,7 @@ private fun fetchPoster(address: String): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
         var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 640) sample *= 2
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxEdge) sample *= 2
         return BitmapFactory.decodeByteArray(data, 0, data.size, BitmapFactory.Options().apply { inSampleSize = sample })
     } finally { connection.disconnect() }
 }
