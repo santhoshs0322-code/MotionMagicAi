@@ -43,7 +43,7 @@ data class PremiumWorkflowOption(
 
 object ImageModelCatalog {
     val models = listOf(
-        PremiumWorkflowOption("qwen-image", "Qwen-image", "Image generation", "Text + photo → image", listOf("Text", "Photo"), requiredPlan = PlanTier.FREE, resolutions = listOf("720p", "1080p")),
+        PremiumWorkflowOption("qwen-image", "Qwen Image", "Image generation", "Text + photo → image", listOf("Text", "Photo"), requiredPlan = PlanTier.FREE, resolutions = listOf("720p", "1080p")),
         PremiumWorkflowOption("gpt-image-2-5-s", "GPT Image 2.5 Sunburst", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
         PremiumWorkflowOption("gpt-image-2-5-f", "GPT Image 2.5 Flare", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
         PremiumWorkflowOption("gpt-image-2", "GPT Image 2", "Image generation and editing", "Text + photo → image", listOf("Text", "Photo")),
