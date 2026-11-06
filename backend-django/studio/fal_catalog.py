@@ -2,6 +2,7 @@
 
 Schemas: https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>
 Duration contracts reviewed 2026-11-04. Prices are deployment configuration, not provider guesses.
+Safety controls verified against all 24 endpoint schemas on 2026-11-06.
 """
 import math
 
@@ -66,7 +67,10 @@ def request(payload, source_url=None, reference_urls=None):
     reference_urls = reference_urls or []
     if reference_urls and (family not in ("kling_reference", "kling_edit") or len(reference_urls) > 4):
         raise ValueError("This model does not support these reference photos")
-    body = {"prompt": payload["prompt"]}
+    # Enforce provider-supported safety here, never from a client or rate override.
+    # Nano exposes tolerance (1 = strictest); every other pinned endpoint exposes a checker.
+    safety = {"safety_tolerance": "1"} if family == "nano" else {"enable_safety_checker": True}
+    body = {"prompt": payload["prompt"], **safety}
     if family in ("kling", "kling_reference", "kling_edit", "pixverse"):
         duration, sound = payload["units"], payload["generated_audio"]
         if duration not in config["durations"] or sound is not config["generated_audio"]:
@@ -88,7 +92,6 @@ def request(payload, source_url=None, reference_urls=None):
         else:
             endpoint = f"fal-ai/pixverse/v6/{mode}"
             body.update(duration=duration, resolution=size, generate_audio_switch=sound, generate_multi_clip_switch=False)
-        body["enable_safety_checker"] = True
         # Both providers derive I2V geometry from the input image, not a ratio parameter.
         if source_url and family not in ("kling_reference", "kling_edit"):
             body["image_url"] = source_url
@@ -100,9 +103,9 @@ def request(payload, source_url=None, reference_urls=None):
     if source_url:
         body["image_url" if family == "qwen" else "image_urls"] = source_url if family == "qwen" else [source_url]
     if family == "nano":
-        body.update(aspect_ratio=ratio, output_format="png", safety_tolerance="4", limit_generations=True)
+        body.update(aspect_ratio=ratio, output_format="png", limit_generations=True)
     else:
-        body.update(image_size=dimensions(size, ratio), enable_safety_checker=True)
+        body.update(image_size=dimensions(size, ratio))
         if family != "seedream_45":
             body["output_format"] = "png"
         if family == "gpt":

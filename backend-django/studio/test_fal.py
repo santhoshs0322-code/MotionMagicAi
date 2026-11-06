@@ -29,6 +29,26 @@ class Response:
 
 
 class ContractTests(SimpleTestCase):
+    def test_safety_cannot_be_disabled_by_payload_or_rate_configuration(self):
+        for slug, model, config, _ in fal_catalog.variants():
+            video = "resolution" in config
+            sources = ("https://test-bucket.s3.amazonaws.com/source.mp4",) if config.get("reference_video") else (
+                None, "https://test-bucket.s3.amazonaws.com/source.jpg")
+            for source in sources:
+                with self.subTest(slug=slug, source=bool(source)):
+                    payload = {"model": "fal:" + config["app_model_id"], "prompt": "A landscape", "aspect_ratio": "9:16",
+                               "enable_safety_checker": False, "safety_tolerance": "6",
+                               "config": {**config, "enable_safety_checker": False, "safety_tolerance": "6"}}
+                    if video:
+                        payload.update(units=config["durations"][0], generated_audio=config["generated_audio"])
+                    _, body = fal_catalog.request(payload, source)
+                    if model["family"] == "nano":
+                        self.assertEqual(body["safety_tolerance"], "1")
+                        self.assertNotIn("enable_safety_checker", body)  # Not accepted by this endpoint.
+                    else:
+                        self.assertIs(body["enable_safety_checker"], True)
+                        self.assertNotIn("safety_tolerance", body)  # Do not send unsupported knobs.
+
     def test_every_image_model_has_text_and_reference_contracts_and_one_output(self):
         for slug, model, config, _ in fal_catalog.variants():
             if "resolution" in config: continue
@@ -290,6 +310,27 @@ class FalFlowTests(TestCase):
         job.refresh_from_db(); self.wallet.refresh_from_db()
         self.assertEqual((job.state, job.output_id, self.wallet.balance_paise, self.wallet.held_paise), ("queued", None, 100_000, 100))
         self.assertFalse(Ledger.objects.filter(kind="charge").exists())
+
+    @patch("studio.fal.requests.post", return_value=Response({"request_id": "safety-blocked-request"}, status=202))
+    @patch("studio.fal.requests.get")
+    @patch("studio.fal.storage.existing_generated_image", return_value=None)
+    @patch("studio.fal.storage.put_generated_stream")
+    def test_unsafe_provider_result_is_not_downloaded_or_stored_and_releases_user_credits(self, put, existing, get, post):
+        job = self.job()
+        worker.run_one()
+        self.assertIs(post.call_args.kwargs["json"]["enable_safety_checker"], True)
+        get.side_effect = [Response({"status": "COMPLETED"}), Response({"has_nsfw_concepts": [True],
+                           "images": [{"url": "https://v3.fal.media/blocked.png"}]})]
+        Job.objects.filter(pk=job.pk).update(next_attempt_at=timezone.now())
+        worker.run_one()
+        job.refresh_from_db(); self.wallet.refresh_from_db()
+        self.assertEqual((job.state, job.output_id, job.charged_paise), ("failed", None, 0))
+        self.assertEqual((self.wallet.balance_paise, self.wallet.held_paise), (100_000, 0))
+        self.assertEqual(get.call_count, 2)  # Only queue status/result; never GET the flagged image.
+        self.assertFalse(Asset.objects.filter(account=self.account).exists())
+        self.assertFalse(Ledger.objects.filter(account=self.account, kind="charge").exists())
+        put.assert_not_called()
+        post.assert_called_once()
 
     @patch("studio.fal.requests.post", return_value=Response({"request_id": "saved-output-request"}, status=202))
     @patch("studio.fal.requests.get")
