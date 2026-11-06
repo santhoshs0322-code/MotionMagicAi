@@ -87,7 +87,7 @@ class ThemeAndReferenceUiTest {
         ui.onNodeWithTag("settings-toggle").performScrollTo().performClick()
         ui.onNodeWithText("Video Settings").assertIsDisplayed()
         ui.onNodeWithText("Estimated cost").assertIsDisplayed()
-        ui.onNodeWithContentDescription("Close settings").performClick()
+        ui.onNodeWithTag("settings-done").assertIsDisplayed().performClick()
         ui.runOnIdle {
             assertEquals(Screen.TEXT, vm.screen)
             assertEquals(CreationMode.TEXT_TO_VIDEO, vm.creationSettingsMode)
@@ -102,6 +102,7 @@ class ThemeAndReferenceUiTest {
         ui.runOnIdle { vm.go(Screen.CREATE_IMAGE) }
         ui.onNodeWithTag("settings-toggle").performScrollTo().performClick()
         ui.onNodeWithText("Image Settings").assertIsDisplayed()
+        ui.onNodeWithTag("settings-done").assertIsDisplayed().assertIsEnabled()
         ui.onNodeWithContentDescription("Close settings").performClick()
         ui.runOnIdle { assertEquals(Screen.CREATE_IMAGE, vm.screen); assertEquals(originalImage, vm.imageDraft) }
     }

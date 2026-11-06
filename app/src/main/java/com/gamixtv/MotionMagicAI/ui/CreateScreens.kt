@@ -312,23 +312,28 @@ internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: 
     sourceRatio: Boolean, update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
     close: () -> Unit, referenceHasAudio: Boolean? = null, allowVideoReference: Boolean = true, referenceDurationMs: Long? = null) {
     val colors = StudioColors
+    val focus = LocalFocusManager.current
+    val finish = { focus.clearFocus(); close() }
     val activeRate = rates.firstOrNull { it.matches(draft, still) }
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = close) { Icon(Icons.Rounded.ArrowBackIosNew, "Close settings", Modifier.size(22.dp)) }
+            IconButton(onClick = finish) { Icon(Icons.Rounded.ArrowBackIosNew, "Close settings", Modifier.size(22.dp)) }
             Text(if(still) "Image Settings" else "Video Settings", Modifier.weight(1f).padding(end = 48.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
         Text(if(still) "Configure model, quality and aspect ratio" else "Configure model, quality, aspect ratio and duration",
             fontSize = 11.sp, color = colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp))
         HorizontalDivider(color = colors.border)
         ReferenceSettings(draft, still, update, selectVideo, rates, sourceRatio, referenceHasAudio, Modifier.weight(1f), allowVideoReference, referenceDurationMs)
-        Surface(color = colors.surface, shape = PanelShape, border = BorderStroke(1.dp, colors.border), modifier = Modifier.padding(16.dp)) {
-            Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Toll, null, Modifier.size(21.dp)); Text("Estimated cost", Modifier.weight(1f).padding(start = 9.dp), fontSize = 13.sp)
-                Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFBD32), modifier = Modifier.size(22.dp))
-                Text((if(draft.modelId == "kling-o3-edit" && referenceDurationMs == null && !still) null else activeRate?.priceFor(draft, still))?.let { "$it Credits" }
-                    ?: if(!still && draft.modelId == "kling-o3-edit" && referenceDurationMs == null) "Add base video" else "Unavailable", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(color = colors.surface, shape = PanelShape, border = BorderStroke(1.dp, colors.border)) {
+                Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Toll, null, Modifier.size(21.dp)); Text("Estimated cost", Modifier.weight(1f).padding(start = 9.dp), fontSize = 13.sp)
+                    Icon(Icons.Rounded.Bolt, null, tint = Color(0xFFFFBD32), modifier = Modifier.size(22.dp))
+                    Text((if(draft.modelId == "kling-o3-edit" && referenceDurationMs == null && !still) null else activeRate?.priceFor(draft, still))?.let { "$it Credits" }
+                        ?: if(!still && draft.modelId == "kling-o3-edit" && referenceDurationMs == null) "Add base video" else "Unavailable", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
             }
+            GradientButton("Done", finish, Modifier.testTag("settings-done"), icon = Icons.Rounded.Check)
         }
     }
 }

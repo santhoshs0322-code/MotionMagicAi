@@ -72,6 +72,7 @@ class CreationSettingsUiTest {
         ui.onNodeWithText("Video Settings").assertIsDisplayed()
         ui.onNodeWithTag("audio-generate").performScrollTo().assertIsDisplayed().performClick()
         ui.onNodeWithText("Estimated cost").assertIsDisplayed()
+        ui.onNodeWithTag("settings-done").assertIsDisplayed().assertIsEnabled()
         ui.onNodeWithContentDescription("Close settings").assertIsDisplayed()
         screenshot("settings-large-text.png")
     }
@@ -140,6 +141,7 @@ class CreationSettingsUiTest {
         ui.onNodeWithTag("audio-mute").performScrollTo().performClick()
         ui.runOnIdle { assertEquals(false, latest.generatedAudio) }
         ui.onNodeWithText("530 Credits").assertIsDisplayed()
+        ui.onNodeWithTag("settings-done").assertIsDisplayed().assertIsEnabled()
         screenshot("settings-reference-light.png")
     }
 }
