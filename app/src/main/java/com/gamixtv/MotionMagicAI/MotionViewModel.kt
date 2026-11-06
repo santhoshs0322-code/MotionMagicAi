@@ -57,6 +57,10 @@ data class CompletedJobNotice(val projectId: String, val title: String, val kind
 class MotionViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val store = MotionStore(app)
+    private val reviewStore = com.gamixtv.MotionMagicAI.reviews.ReviewStore(app)
+    private var reviewPending = false
+    private var reviewAccountRevision = 0L
+    var reviewOpportunity by mutableLongStateOf(0L); private set
     private val history = mutableListOf<Screen>()
     var screen by mutableStateOf(Screen.HOME); private set
     var projects by mutableStateOf<List<Project>>(emptyList()); private set
@@ -707,6 +711,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun activateAccount(accountId: String?) {
         if (activeAccountId == accountId) return
+        reviewAccountRevision++
+        reviewPending = false
         foreground.cancel()
         activeDownload = null
         billingRefreshJob?.cancel(); walletRefreshJob?.cancel()
@@ -776,6 +782,35 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         }
         selectedProject = project
         go(Screen.RESULT)
+    }
+    fun recordViewedProject(project: Project) {
+        if(project.kind != MediaKind.AUDIO && ownsProject(project)) recordReviewCreation(project.id)
+    }
+    fun recordViewedCloudCreation(jobId: String) {
+        if(cloudJobs.any { it.id == jobId && it.isReady && it.kind in setOf("image", "video") }) recordReviewCreation(jobId)
+    }
+    private fun recordReviewCreation(id: String) {
+        val account = activeAccountId ?: return
+        val revision = reviewAccountRevision
+        viewModelScope.launch {
+            val eligible = withContext(Dispatchers.IO) { runCatching { reviewStore.recordViewed(account, id) }.getOrDefault(false) }
+            if(eligible && activeAccountId == account && revision == reviewAccountRevision) {
+                reviewPending = true
+                reviewOpportunity++
+            }
+        }
+    }
+    fun reviewPromptAllowed(account: String): Boolean = activeAccountId == account && screen == Screen.HOME &&
+        work.value == null && cloudQuote == null && failure == null && info == null && completedJobNotice == null && !billingBusy
+
+    suspend fun claimAutomaticReview(account: String): Boolean {
+        if(!reviewPending || !reviewPromptAllowed(account)) return false
+        reviewPending = false
+        return withContext(Dispatchers.IO) { runCatching { reviewStore.claimAttempt(account) }.getOrDefault(false) }
+    }
+    fun recordRatingStoreVisit() {
+        reviewPending = false
+        viewModelScope.launch(Dispatchers.IO) { runCatching { reviewStore.recordStoreVisit() } }
     }
     fun continueStory(project: Project) {
         if(!ownsProject(project) || project.kind != MediaKind.VIDEO || !File(project.path).isFile) {

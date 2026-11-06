@@ -124,7 +124,7 @@ fun ProfileScreen(vm: MotionViewModel) {
         Surface(color = Panel, shape = PanelShape) {
             Column {
                 SettingRow(Icons.Rounded.HelpOutline, "Help & Support", onClick = { showHelp(vm) })
-                SettingRow(Icons.Rounded.StarOutline, "Rate Us", onClick = { vm.notice("Thanks for trying MotionMagic", "This is a local test build and has no Google Play listing yet.") }, tint = Color(0xFFFFBF46))
+                RateUsRow(vm)
                 SettingRow(Icons.Rounded.FolderOpen, "Local workspace", onClick = { vm.notice("Local workspace", "Saved projects on this device are shown only for the signed-in account. Cloud generations belong to that account and can be recovered from My Projects. Device-only previews and voice clips are not uploaded or synced.") })
             }
         }
@@ -162,6 +162,7 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
         Surface(color = Color.Transparent, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, supportTone.accent.copy(alpha = .6f))) {
             Column(Modifier.background(Brush.linearGradient(listOf(supportTone.start.copy(alpha = .55f), supportTone.end.copy(alpha = .5f))))) {
                 SettingRow(Icons.Rounded.SupportAgent, "Help & Support", onClick = { showHelp(vm) })
+                RateUsRow(vm)
                 SettingRow(Icons.Rounded.PrivacyTip, "Privacy", onClick = { vm.notice("Your media and cloud generation", "Local projects are saved on your device. For AI creation, your chosen photo is uploaded to private cloud storage while preparing a quote. After you confirm generation, your prompt and reference photo are sent through the server to fal.ai and the selected model provider. Generated media is saved in cloud storage and downloaded to your device.\n\nGoogle sign-in shares your account ID, name, email and picture with the login server. Session tokens are encrypted with Android Keystore. Signing out clears the saved session but does not delete server records.\n\nDeleting a local project removes its local copy; cloud outputs, uploaded references and gallery copies remain. Sharing sends media to the app you choose. Device Voice uses the selected Android speech engine, whose processing depends on its installed voices and settings.") })
                 SettingRow(Icons.Rounded.Description, "About this build", onClick = { vm.notice("MotionMagic AI", "Version ${BuildConfig.VERSION_NAME}\n\nChoose an enabled AI model to create images or videos. Review the server price before confirming. Device Voice does not use AI generation credits. Use media you have permission to upload and publish.") })
             }
@@ -175,6 +176,15 @@ fun SettingsScreen(vm: MotionViewModel, onNotifications: (Boolean) -> Unit) {
         }
     }, confirmButton = { TextButton(onClick = { ratioDialog = false }) { Text("Close", color = StudioColors.primary) } },
         shape = RoundedCornerShape(24.dp), containerColor = Panel)
+}
+
+@Composable
+private fun RateUsRow(vm: MotionViewModel) {
+    val context = LocalContext.current
+    SettingRow(Icons.Rounded.StarOutline, "Rate Us", onClick = {
+        if(com.gamixtv.MotionMagicAI.reviews.openPlayStoreReview(context)) vm.recordRatingStoreVisit()
+        else vm.message("Could not open Google Play. Please install or enable a browser and try again.")
+    }, tint = Color(0xFFFFBF46))
 }
 
 

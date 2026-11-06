@@ -45,6 +45,7 @@ private val mainCatalogTools = listOf(
 fun ReferenceCatalogScreen(vm: MotionViewModel, templatePage: Boolean) {
     ObserveTemplateCatalogue(vm)
     var preview by remember { mutableStateOf<Template?>(null) }
+    if(!templatePage) ReviewPromptHost(vm, enabled = preview == null)
     LaunchedEffect(vm.showcaseTemplates) {
         preview?.remoteId?.let { id -> preview = vm.showcaseTemplates.firstOrNull { it.remoteId == id } }
     }

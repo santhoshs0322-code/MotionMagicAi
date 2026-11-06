@@ -53,6 +53,10 @@ fun ProjectsScreen(vm: MotionViewModel) {
         onOptions = { selectedKey = it.key }, onCreate = { vm.go(Screen.IMAGE) })
 
     entries.firstOrNull { it.key == selectedKey }?.let { item ->
+        val viewedJob = (item as? LibraryItem.Cloud)?.job
+        LaunchedEffect(account, viewedJob?.id, viewedJob?.isReady) {
+            if(viewedJob?.isReady == true) vm.recordViewedCloudCreation(viewedJob.id)
+        }
         ModalBottomSheet(onDismissRequest = { selectedKey = null }, containerColor = Panel) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(item.title, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)

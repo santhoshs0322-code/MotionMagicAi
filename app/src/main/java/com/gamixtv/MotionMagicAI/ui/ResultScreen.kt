@@ -102,6 +102,7 @@ fun ResultScreen(vm: MotionViewModel, onDownload: (Project) -> Unit, onShare: (P
         EmptyState(Icons.Rounded.MovieCreation, "Nothing to preview yet", "Create or open a project to see it here.", "Open projects") { vm.tab(Screen.PROJECTS) }
         return
     }
+    LaunchedEffect(vm.activeAccountId, project.id) { vm.recordViewedProject(project) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) {
         if(project.kind == MediaKind.AUDIO) {
             Box(Modifier.fillMaxWidth().height(180.dp).clip(PanelShape).background(MagicGradient), contentAlignment = Alignment.Center) {

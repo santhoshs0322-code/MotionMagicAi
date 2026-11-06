@@ -98,6 +98,7 @@ dependencies {
     // Modern Google Play Billing; its manifest metadata replaces the legacy
     // AIDL billing path detected by Play Console.
     implementation("com.android.billingclient:billing-ktx:8.0.0")
+    implementation("com.google.android.play:review:2.0.2")
     implementation("androidx.credentials:credentials:1.5.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
