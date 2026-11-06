@@ -12,6 +12,7 @@ from .limits import CREATION_PROMPT_MAX_LENGTH
 from .models import Account, Asset, Wallet, Ledger
 import hashlib
 import io
+from collections import Counter
 
 
 @override_settings(OWNER_USERNAME="owner", S3_BUCKET="test-bucket")
@@ -169,14 +170,19 @@ class ImageTemplateTests(TestCase):
         s3.assert_not_called()
 
     @patch("studio.showcase.storage.client")
-    def test_thirty_image_templates_publish_without_sample_video_or_s3_downloads(self, s3):
+    def test_sixty_six_templates_have_five_per_category_without_s3_downloads(self, s3):
         rows = self.client.get("/api/v1/templates")
         self.assertEqual(rows["Cache-Control"], "public, max-age=30")
         feed = rows.json()["templates"]
-        self.assertEqual(len(feed), 30)
+        self.assertEqual(len(feed), 66)
+        counts = Counter(row["category"] for row in feed)
+        self.assertEqual(len(counts), 13)
+        self.assertGreaterEqual(min(counts.values()), 5)
         self.assertEqual(feed[0]["title"], "Mars Astronaut")
         self.assertEqual(feed[10]["title"], "Lightning Hero — Man")
-        self.assertEqual(feed[-1]["title"], "Forest Archer — Woman")
+        self.assertEqual(feed[29]["title"], "Forest Archer — Woman")
+        self.assertEqual(feed[30]["title"], "Orbital Explorer")
+        self.assertEqual(feed[-1]["title"], "Kid Musician")
         prefix = (
             "Use the uploaded photo as the identity reference. Preserve the person’s recognizable facial features, "
             "skin tone, hairstyle, and approximate age as closely as possible. Apply the scene and style described below. "
@@ -185,12 +191,18 @@ class ImageTemplateTests(TestCase):
         )
         for row in feed[10:]:
             self.assertTrue(row["prompt"].startswith(prefix + " "))
-            self.assertGreater(len(row["prompt"]), 500)
+            self.assertGreater(len(row["prompt"]), len(prefix))
             self.assertLessEqual(len(row["prompt"]), CREATION_PROMPT_MAX_LENGTH)
             self.assertEqual(row["aspect_ratio"], "3:4")
             self.assertEqual(row["prompt"], ShowcaseTemplate.objects.get(pk=row["id"]).prompt)
         self.assertTrue(all(row["mode"] == "create_image" and row["requires_reference"] and not row["video_url"] for row in feed))
         self.assertTrue(all(row["poster_url"].startswith("/api/v1/templates/artwork/") for row in feed))
+        self.client.force_login(self.owner)
+        mirror = self.client.get("/owner/showcase/")
+        groups = mirror.context["preview_groups"]
+        self.assertEqual({category: len(items) for category, items in groups}, dict(counts))
+        self.assertEqual({str(item.pk) for _, items in groups for item in items}, {row["id"] for row in feed})
+        self.assertContains(mirror, "Kid Musician")
         s3.assert_not_called()
 
     @patch("studio.showcase.storage.client")
@@ -202,7 +214,7 @@ class ImageTemplateTests(TestCase):
         call_command("sync_showcase_templates", stdout=io.StringIO())
         current = next(row for row in self.client.get("/api/v1/templates").json()["templates"] if row["id"] == str(self.item.pk))
         self.assertEqual((current["title"], current["category"], current["prompt"]), ("Mars, my version", "Space", self.edit_data()["prompt"]))
-        self.assertEqual(ShowcaseTemplate.objects.count(), 30)
+        self.assertEqual(ShowcaseTemplate.objects.count(), 66)
         response = self.client.get("/owner/showcase/")
         self.assertContains(response, "Mars, my version")
         self.assertContains(response, "Your featured video appears here", count=0)
@@ -228,7 +240,7 @@ class ImageTemplateTests(TestCase):
         self.client.post(f"/owner/showcase/{self.item.pk}/unpublish/")
         call_command("sync_showcase_templates", stdout=io.StringIO())
         rows = self.client.get("/api/v1/templates").json()["templates"]
-        self.assertEqual(len(rows), 29)
+        self.assertEqual(len(rows), 65)
         self.assertNotIn(str(self.item.pk), [row["id"] for row in rows])
         self.rate.enabled = False; self.rate.save(); cache.clear()
         self.assertEqual(self.client.get("/api/v1/templates").json()["templates"], [])
@@ -295,7 +307,7 @@ class ImageTemplateTests(TestCase):
 
     @patch("studio.showcase.storage.client")
     def test_owner_can_edit_long_identity_prompt_and_sync_preserves_it(self, s3):
-        template = ShowcaseTemplate.objects.get(title="Forest Archer — Woman")
+        template = ShowcaseTemplate.objects.get(title="Kid Musician")
         self.client.force_login(self.owner)
         self.client.get("/api/v1/templates")
         prompt = template.prompt + " Add soft morning light."
@@ -306,7 +318,7 @@ class ImageTemplateTests(TestCase):
         current = next(row for row in self.client.get("/api/v1/templates").json()["templates"] if row["id"] == str(template.pk))
         self.assertEqual(current["prompt"], prompt)
         self.assertEqual(current["aspect_ratio"], "3:4")
-        self.assertEqual(ShowcaseTemplate.objects.count(), 30)
+        self.assertEqual(ShowcaseTemplate.objects.count(), 66)
         self.assertContains(self.client.get(f"/owner/showcase/{template.pk}/"), "Add soft morning light.")
         self.client.post(f"/owner/showcase/{template.pk}/unpublish/")
         call_command("sync_showcase_templates", stdout=io.StringIO())

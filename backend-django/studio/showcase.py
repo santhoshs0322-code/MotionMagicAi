@@ -19,6 +19,7 @@ from . import bundled_templates, banner_media
 from .limits import CREATION_PROMPT_MAX_LENGTH
 
 FEED_CACHE_KEY = "motion:showcase:feed:v3"
+MAX_SHOWCASE_TEMPLATES = 100
 
 
 IMAGE_TYPES = {b"\xff\xd8\xff": ("image/jpeg", "jpg"), b"\x89PNG\r\n\x1a\n": ("image/png", "png")}
@@ -192,13 +193,13 @@ def owner_templates(request, identifier=None):
                 except Exception:
                     pass
             form.add_error(None, "Upload failed. Check S3 access and retry.")
-    items = list(ShowcaseTemplate.objects.select_related("rate").order_by("category", "position", "-created_at")[:100])
+    items = list(ShowcaseTemplate.objects.select_related("rate").order_by("category", "position", "-created_at")[:MAX_SHOWCASE_TEMPLATES])
     s3 = storage.client() if any((row.poster_key and not row.poster_key.startswith("builtin:")) or row.video_key for row in items) else None
     for row in items:
         row.poster_url = media_url(row.poster_key, s3) if row.poster_key else ""
         row.video_url = media_url(row.video_key, s3) if row.video_key else ""
     preview = sorted((row for row in items if row.published and row.rate.enabled and row.poster_key and
-                      (row.mode == "create_image" or row.video_key)), key=lambda row: (row.position, -row.created_at.timestamp()))[:60]
+                      (row.mode == "create_image" or row.video_key)), key=lambda row: (row.position, -row.created_at.timestamp()))[:MAX_SHOWCASE_TEMPLATES]
     groups = {}
     for row in preview:
         groups.setdefault(row.category, []).append(row)
@@ -247,7 +248,7 @@ class ShowcaseFeed(APIView):
         ).filter(Q(mode="create_image") | ~Q(video_key=""))
         if not settings.S3_BUCKET:
             rows = rows.filter(poster_key__startswith="builtin:", video_key="", example_input_key="")
-        rows = rows.order_by("position", "-created_at")[:60]
+        rows = rows.order_by("position", "-created_at")[:MAX_SHOWCASE_TEMPLATES]
         rows = list(rows)
         s3 = storage.client() if any((row.poster_key and not row.poster_key.startswith("builtin:")) or row.video_key or row.example_input_key for row in rows) else None
         data = []

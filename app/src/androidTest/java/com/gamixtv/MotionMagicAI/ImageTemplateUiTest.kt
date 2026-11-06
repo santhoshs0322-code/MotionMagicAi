@@ -34,13 +34,17 @@ class ImageTemplateUiTest {
         bitmap.recycle()
     }
 
-    @Test fun sharedBundleContainsThirtyPromptsAndMatchingArtwork() {
+    @Test fun sharedBundleContainsSixtySixTemplatesAndFivePerCategory() {
         val templates = entries
-        assertEquals(30, templates.size)
+        assertEquals(66, templates.size)
         assertEquals("Mars Astronaut", templates.first().name)
         assertEquals("Fantasy Warrior", templates[9].name)
-        assertEquals("Forest Archer — Woman", templates.last().name)
-        assertEquals(30, templates.map { it.remoteId }.distinct().size)
+        assertEquals("Forest Archer — Woman", templates[29].name)
+        assertEquals("Orbital Explorer", templates[30].name)
+        assertEquals("Kid Musician", templates.last().name)
+        assertEquals(66, templates.map { it.remoteId }.distinct().size)
+        assertEquals(13, templates.groupBy { it.category }.size)
+        templates.groupBy { it.category }.values.forEach { assertTrue(it.size >= 5) }
         templates.forEachIndexed { index, template ->
             assertTrue(template.requiresReference)
             assertEquals(CreationMode.CREATE_IMAGE, template.mode)
@@ -77,7 +81,7 @@ class ImageTemplateUiTest {
 
     @Test fun previewExplainsUserPhotoAndCopiesExactPrompt() {
         var applied = 0
-        val template = entries[10]
+        val template = entries.last()
         assertTrue(template.prompt!!.length > 500)
         ui.setContent { MotionTheme(ThemeMode.DARK) {
             TemplatePreviewSheet(template, CreationMode.CREATE_IMAGE, {}, { applied++ })
