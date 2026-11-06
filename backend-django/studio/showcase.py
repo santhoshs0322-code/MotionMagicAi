@@ -42,7 +42,27 @@ def video_type(file):
     return "video/mp4", "mp4"
 
 
+class TemplateRateChoice(forms.ModelChoiceField):
+    def label_from_instance(self, rate):
+        config = rate.config if isinstance(rate.config, dict) else {}
+        parts = [rate.title]
+        size = config.get("resolution", config.get("image_size", ""))
+        if size and str(size).casefold() not in rate.title.casefold():
+            parts.append(str(size))
+        if rate.kind == "video":
+            parts.append("Audio" if config.get("generated_audio") else "Silent")
+        if not rate.enabled:
+            parts.append("Disabled")
+        return " · ".join(parts)
+
+
 class ShowcaseForm(forms.ModelForm):
+    category_action = forms.ChoiceField(choices=(("existing", "Choose existing"), ("new", "Create new")))
+    category = forms.ChoiceField(required=False, label="Existing category")
+    new_category = forms.CharField(required=False, max_length=40, label="New category name",
+                                   widget=forms.TextInput(attrs={"placeholder": "For example, Fantasy portraits"}))
+    rate = TemplateRateChoice(queryset=Rate.objects.filter(kind__in=("image", "video")).order_by("kind", "title", "slug"),
+                              label="Model and quality", empty_label="Choose a model and quality")
     poster = forms.FileField(required=False, help_text="Portrait or landscape JPG, PNG or WebP; up to 5 MB.")
     sample_video = forms.FileField(required=False, help_text="MP4 example shown to users; up to 50 MB. Keep it short for fast previews.")
     example_input = forms.FileField(required=False, help_text="Optional example reference image; users choose their own image.")
@@ -52,8 +72,44 @@ class ShowcaseForm(forms.ModelForm):
         fields = ("title", "category", "prompt", "mode", "rate", "aspect_ratio", "duration", "requires_reference", "position", "featured", "published")
         widgets = {"prompt": forms.Textarea(attrs={"rows": 4})}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Both CSS-switched controls submit without JavaScript; validate only the chosen branch.
+        if self.is_bound:
+            self.data = self.data.copy()
+            action = self.data.get(self.add_prefix("category_action"))
+            if action == "new":
+                self.data[self.add_prefix("category")] = ""
+            elif action == "existing":
+                self.data[self.add_prefix("new_category")] = ""
+        self.category_names = {}
+        for name in ShowcaseTemplate.objects.order_by("category").values_list("category", flat=True).distinct():
+            normalized = " ".join(name.split())
+            if normalized:
+                self.category_names.setdefault(normalized.casefold(), normalized)
+        self.fields["category"].choices = [("", "Choose a category")] + [
+            (name, name) for name in sorted(self.category_names.values(), key=str.casefold)]
+        self.initial["category_action"] = "existing" if self.category_names else "new"
+        if self.instance.category:
+            self.initial["category"] = self.category_names.get(" ".join(self.instance.category.split()).casefold(), self.instance.category)
+        self.fields["poster"].label = "Template image"
+        self.fields["poster"].widget.attrs["accept"] = "image/jpeg,image/png,image/webp"
+        self.fields["example_input"].widget.attrs["accept"] = "image/jpeg,image/png,image/webp"
+        self.fields["sample_video"].widget.attrs["accept"] = "video/mp4"
+        self.fields["mode"].label = "Creation type"
+        self.fields["prompt"].help_text = "The prompt filled in when a user chooses this template. Up to 500 characters."
+        self.fields["duration"].help_text = "Seconds for video templates; ignored for Create Image."
+
     def clean(self):
         data = super().clean()
+        if data.get("category_action") == "new":
+            name = " ".join(data.get("new_category", "").split())
+            if name:
+                data["category"] = self.category_names.get(name.casefold(), name)
+            else:
+                self.add_error("new_category", "Enter a name for the new category.")
+        elif data.get("category_action") == "existing" and not data.get("category"):
+            self.add_error("category", "Choose an existing category, or select Create new.")
         rate = data.get("rate")
         mode = data.get("mode")
         if rate:
@@ -146,8 +202,13 @@ def owner_templates(request, identifier=None):
         groups.setdefault(row.category, []).append(row)
     featured = next((row for row in preview if row.featured), next(iter(preview), None))
     banners = banner_rows()
+    form_sections = [
+        ("2", "Image and title", [form[name] for name in ("poster", "title", "example_input", "sample_video")]),
+        ("3", "Prompt and model", [form[name] for name in ("prompt", "mode", "rate", "aspect_ratio", "duration", "requires_reference")]),
+        ("4", "Publishing", [form[name] for name in ("position", "featured", "published")]),
+    ]
     return render(request, "owner/showcase.html", {"form": form, "items": items, "featured": featured,
-                  "preview_groups": list(groups.items()), "banners": banners, "editing": bool(identifier)})
+                  "preview_groups": list(groups.items()), "banners": banners, "editing": bool(identifier), "form_sections": form_sections})
 
 
 @owner_only

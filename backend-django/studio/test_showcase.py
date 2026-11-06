@@ -38,7 +38,7 @@ class ShowcaseTests(TestCase):
         self.client.force_login(staff)
         self.assertEqual(self.client.get("/owner/showcase/").status_code, 403)
         self.client.force_login(self.owner)
-        data = {"title": "Office Cat", "category": "Trending", "prompt": "A cat at work", "mode": "image_to_video",
+        data = {"title": "Office Cat", "category_action": "new", "new_category": "Trending", "prompt": "A cat at work", "mode": "image_to_video",
                 "rate": self.rate.pk, "aspect_ratio": "9:16", "duration": 5, "position": 0, "featured": "on", "published": "on"}
         response = self.client.post("/owner/showcase/", {**data, **self.files()})
         self.assertEqual(response.status_code, 302, response.content[:500])
@@ -59,7 +59,7 @@ class ShowcaseTests(TestCase):
         files = self.files()
         files["sample_video"] = SimpleUploadedFile("bad.mp4", b"not an mp4", content_type="video/mp4")
         response = self.client.post("/owner/showcase/", {
-            "title": "Office Cat", "category": "Trending", "prompt": "A cat at work", "mode": "image_to_video",
+            "title": "Office Cat", "category_action": "new", "new_category": "Trending", "prompt": "A cat at work", "mode": "image_to_video",
             "rate": self.rate.pk, "aspect_ratio": "9:16", "duration": 5, "position": 0, "published": "on", **files})
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Use an MP4 video")
@@ -84,8 +84,88 @@ class ImageTemplateTests(TestCase):
         self.item = ShowcaseTemplate.objects.order_by("position").first()
 
     def edit_data(self):
-        return dict(title="Mars, my version", category="Space", prompt="Keep the uploaded person's face. A blue sunset on Mars.",
+        return dict(title="Mars, my version", category_action="new", new_category="Space", prompt="Keep the uploaded person's face. A blue sunset on Mars.",
             mode="create_image", rate=self.rate.pk, aspect_ratio="9:16", duration=0, requires_reference="on", position=7, published="on")
+
+    def test_owner_category_picker_includes_drafts_and_preselects_current_category(self):
+        ShowcaseTemplate.objects.create(title="Private draft", category="Unpublished ideas", prompt="A portrait", mode="create_image", rate=self.rate)
+        self.client.force_login(self.owner)
+        response = self.client.get(f"/owner/showcase/{self.item.pk}/")
+        form = response.context["form"]
+        self.assertIn(("Unpublished ideas", "Unpublished ideas"), form.fields["category"].choices)
+        self.assertEqual(form["category_action"].value(), "existing")
+        self.assertEqual(form["category"].value(), self.item.category)
+        html = response.content.decode()
+        self.assertLess(html.index('id="category-existing"'), html.index('name="poster"'))
+        self.assertLess(html.index('name="poster"'), html.index('name="prompt"'))
+        self.assertLess(html.index('name="prompt"'), html.index('name="rate"'))
+        self.assertContains(response, "Qwen Image 720p</option>")
+        self.assertNotContains(response, "Rate object")
+        self.assertNotContains(response, "<script")
+
+    @patch("studio.showcase.storage.client")
+    def test_new_category_is_normalized_and_can_be_selected_for_another_template(self, s3):
+        self.client.force_login(self.owner)
+        self.client.get("/api/v1/templates")  # Warm the public catalogue before editing.
+        data = {**self.edit_data(), "new_category": "  Aurora   Stories  "}
+        response = self.client.post(f"/owner/showcase/{self.item.pk}/", data)
+        self.assertEqual(response.status_code, 302)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.category, "Aurora Stories")
+        another = ShowcaseTemplate.objects.exclude(pk=self.item.pk).first()
+        data.update(category_action="existing", category="Aurora Stories", new_category="")
+        self.assertEqual(self.client.post(f"/owner/showcase/{another.pk}/", data).status_code, 302)
+        another.refresh_from_db()
+        self.assertEqual(another.category, "Aurora Stories")
+        feed = self.client.get("/api/v1/templates").json()["templates"]
+        self.assertEqual(sum(row["category"] == "Aurora Stories" for row in feed), 2)
+        self.assertContains(self.client.get("/owner/showcase/"), "Aurora Stories")
+        s3.assert_not_called()
+
+    @patch("studio.showcase.storage.client")
+    def test_create_new_reuses_existing_name_ignoring_capitalization(self, s3):
+        self.client.force_login(self.owner)
+        original = self.item.category
+        data = {**self.edit_data(), "new_category": original.swapcase()}
+        self.assertEqual(self.client.post(f"/owner/showcase/{self.item.pk}/", data).status_code, 302)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.category, original)
+        s3.assert_not_called()
+
+    @patch("studio.showcase.storage.client")
+    def test_invalid_categories_do_not_save_or_upload_artwork(self, s3):
+        self.client.force_login(self.owner)
+        original = self.item.category
+        cases = [
+            {"category_action": "existing", "category": "Not a saved category", "new_category": ""},
+            {"category_action": "existing", "category": "", "new_category": ""},
+            {"category_action": "new", "new_category": "   "},
+            {"category_action": "new", "new_category": "x" * 41},
+            {"category_action": "invalid"},
+        ]
+        for values in cases:
+            with self.subTest(values=values):
+                poster = SimpleUploadedFile("replacement.jpg", b"\xff\xd8\xff" + b"a" * 80, content_type="image/jpeg")
+                response = self.client.post(f"/owner/showcase/{self.item.pk}/", {**self.edit_data(), **values, "poster": poster})
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.context["form"].errors)
+                self.item.refresh_from_db()
+                self.assertEqual(self.item.category, original)
+        s3.assert_not_called()
+
+    @patch("studio.showcase.storage.client")
+    def test_switching_category_choice_ignores_the_inactive_control(self, s3):
+        self.client.force_login(self.owner)
+        original = self.item.category
+        data = {**self.edit_data(), "category_action": "existing", "category": original, "new_category": "x" * 41}
+        self.assertEqual(self.client.post(f"/owner/showcase/{self.item.pk}/", data).status_code, 302)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.category, original)
+        data.update(category_action="new", category="A stale dropdown value", new_category="Fresh category")
+        self.assertEqual(self.client.post(f"/owner/showcase/{self.item.pk}/", data).status_code, 302)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.category, "Fresh category")
+        s3.assert_not_called()
 
     @patch("studio.showcase.storage.client")
     def test_ten_image_templates_publish_without_sample_video_or_s3_downloads(self, s3):
