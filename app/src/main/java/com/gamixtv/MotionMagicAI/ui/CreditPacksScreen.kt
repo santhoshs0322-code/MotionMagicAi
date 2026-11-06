@@ -180,7 +180,7 @@ private fun CreditBalanceBanner(balance: Long?) {
 private fun CreditPackCard(sku: String, amount: Long, enabled: Boolean, opening: Boolean, modifier: Modifier, buy: () -> Unit) {
     val colors = StudioColors
     val palette = packColors(sku, colors.dark)
-    val popular = sku == PlayBilling.TOPUP_500
+    val popular = sku == PlayBilling.PACK_2500
     val count = "%,d".format(amount)
     Surface(modifier.testTag("credit-pack-$sku"), color = Color.Transparent, shape = RoundedCornerShape(22.dp),
         border = BorderStroke(if(popular) 2.dp else 1.dp, palette.accent.copy(alpha = if(popular) .8f else .35f))) {
@@ -196,7 +196,7 @@ private fun CreditPackCard(sku: String, amount: Long, enabled: Boolean, opening:
                 Icon(Icons.Rounded.Bolt, null, Modifier.size(16.dp), tint = palette.accent)
                 Text("CREDIT PACK", color = palette.accent, fontSize = 9.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
             }
-            Text(if(popular) "Motion Pack" else "Credit top-up", color = palette.accent, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text(if(sku == PlayBilling.TOPUP_500) "Motion Pack" else "Credit top-up", color = palette.accent, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(count, color = colors.text, fontSize = 29.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold)
                 Text("AI credits", color = colors.muted, fontSize = 12.sp, lineHeight = 18.sp)
