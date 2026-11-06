@@ -6,6 +6,8 @@ import android.content.ContextWrapper
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -24,22 +26,20 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gamixtv.MotionMagicAI.ui.StudioColors
-import com.gamixtv.MotionMagicAI.ui.Panel
-import com.gamixtv.MotionMagicAI.ui.Ink
 import com.gamixtv.MotionMagicAI.ui.MagicGradient
 import com.gamixtv.MotionMagicAI.ui.MagicLogo
-import com.gamixtv.MotionMagicAI.ui.Muted
-import com.gamixtv.MotionMagicAI.ui.Pink
 import com.gamixtv.MotionMagicAI.ui.SplashScreen
-import com.gamixtv.MotionMagicAI.ui.Violet
 
 /** Full-screen gate: no studio content is composed until server sign-in succeeds. */
 @Composable
@@ -58,64 +58,91 @@ fun LoginGate(auth: AuthViewModel = viewModel(), onExit: () -> Unit = {}, conten
 }
 
 @Composable
-private fun LoginScreen(state: AuthUiState, signIn: (Activity) -> Unit, retry: () -> Unit, dismiss: () -> Unit) {
+internal fun LoginScreen(state: AuthUiState, signIn: (Activity) -> Unit, retry: () -> Unit, dismiss: () -> Unit) {
     val context = LocalContext.current
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Ink, Ink, StudioColors.field))).semantics { testTag = "login-screen" }) {
+    val colors = StudioColors
+    val message = state.message?.takeIf { it.isNotBlank() }
+    val notice = message ?: if(!state.configured && !state.busy) "Sign-in is being configured. Please try again shortly." else null
+    val noticeColor = when {
+        message == null -> colors.warning
+        state.messageIsError -> colors.error
+        else -> colors.primary
+    }
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(colors.background, colors.background, colors.field)))
+        .semantics { testTag = "login-screen" }) {
         MagicLoginBackdrop(Modifier.fillMaxSize())
-        Column(Modifier.fillMaxSize().padding(horizontal = 26.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.Center) {
+        val compact = maxHeight < 720.dp
+        Column(Modifier.widthIn(max = 440.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+            .heightIn(min = maxHeight).padding(horizontal = 24.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = Color(0x241C9DFF), shape = CircleShape, border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x553CBBFF))) {
-                        Icon(Icons.Rounded.AutoAwesome, null, Modifier.padding(9.dp).size(17.dp), tint = StudioColors.primary)
+                Row(Modifier.semantics { testTag = "login-brand" }, verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = colors.selected, shape = CircleShape, border = androidx.compose.foundation.BorderStroke(1.dp, colors.border)) {
+                        Icon(Icons.Rounded.AutoAwesome, null, Modifier.padding(9.dp).size(17.dp), tint = colors.primary)
                     }
                     Spacer(Modifier.width(10.dp))
-                    Text(buildAnnotatedString { append("MotionMagic "); withStyle(SpanStyle(color = Violet)) { append("AI") } }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(buildAnnotatedString { append("MotionMagic "); withStyle(SpanStyle(color = colors.primary)) { append("AI") } }, color = colors.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            Spacer(Modifier.weight(1f))
-            Box(Modifier.size(132.dp).background(Brush.radialGradient(listOf(Color(0x4AB83BFF), Color.Transparent)), CircleShape), contentAlignment = Alignment.Center) {
-                MagicLogo(Modifier.size(92.dp))
+            Spacer(Modifier.height(if(compact) 24.dp else 40.dp))
+            Box(Modifier.size(if(compact) 104.dp else 124.dp).background(Brush.radialGradient(listOf(colors.primary.copy(alpha = .22f), Color.Transparent)), CircleShape), contentAlignment = Alignment.Center) {
+                MagicLogo(Modifier.size(if(compact) 80.dp else 92.dp))
             }
             Spacer(Modifier.height(24.dp))
-            Text("Your ideas,\nmade magical.", color = StudioColors.text, style = MaterialTheme.typography.displaySmall, lineHeight = 40.sp)
+            Text("Your ideas,\nmade magical.", Modifier.fillMaxWidth().semantics { testTag = "login-heading" },
+                color = colors.text, style = MaterialTheme.typography.displaySmall, fontSize = 32.sp, lineHeight = 40.sp, textAlign = TextAlign.Center)
             Spacer(Modifier.height(10.dp))
-            Text("Sign in to create, save and share\nyour next AI masterpiece.", color = Muted, fontSize = 14.sp, lineHeight = 21.sp)
-            Spacer(Modifier.height(34.dp))
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(25.dp), colors = CardDefaults.cardColors(containerColor = Panel),
-                border = androidx.compose.foundation.BorderStroke(1.dp, StudioColors.border)) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = StudioColors.selected, shape = RoundedCornerShape(12.dp)) {
-                            Icon(Icons.Rounded.Lock, null, Modifier.padding(9.dp).size(18.dp), tint = StudioColors.primary)
+            Text("Sign in to create, save and share your next AI masterpiece.", Modifier.fillMaxWidth(), color = colors.muted,
+                fontSize = 14.sp, lineHeight = 22.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(24.dp))
+            Card(Modifier.fillMaxWidth().semantics { testTag = "login-card" }, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = colors.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colors.border)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Surface(color = colors.selected, shape = RoundedCornerShape(12.dp)) {
+                            Icon(Icons.Rounded.Lock, null, Modifier.padding(10.dp).size(20.dp), tint = colors.primary)
                         }
-                        Spacer(Modifier.width(11.dp))
-                        Column {
-                            Text("Welcome to your studio", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Sign in securely with Google", color = Muted, fontSize = 12.sp)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Welcome to your studio", Modifier.fillMaxWidth(), color = colors.text, fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp, lineHeight = 24.sp, textAlign = TextAlign.Center)
+                            Text("Sign in securely with Google", Modifier.fillMaxWidth(), color = colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
                         }
+                    if (state.busy) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth(), color = colors.primary, trackColor = colors.border)
+                        Text(when(state.status) {
+                            AuthStatus.SIGNING_IN -> "Opening Google sign-in…"
+                            AuthStatus.VERIFYING -> "Signing you in…"
+                            else -> "Please wait…"
+                        }, Modifier.fillMaxWidth(), color = colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
                     }
-                    if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Pink, trackColor = StudioColors.border)
                     Surface(onClick = { context.activity()?.let(signIn) }, enabled = !state.busy && state.configured,
-                        modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), color = Color(0xFFF9F8FC),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { testTag = "google-sign-in" }, shape = RoundedCornerShape(16.dp), color = Color(0xFFF9F8FC),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE7E2EF))) {
-                        Row(Modifier.fillMaxSize().padding(horizontal = 15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                             Surface(shape = CircleShape, color = Color(0xFFF0EAFF)) { Text("G", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = Color(0xFF5D26CD), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) }
-                            Spacer(Modifier.width(11.dp)); Text("Continue with Google", color = Color(0xFF201B29), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Spacer(Modifier.width(11.dp)); Text("Continue with Google", Modifier.weight(1f, fill = false), color = Color(0xFF201B29), fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center)
                         }
                     }
-                    if (!state.configured) Text("Sign-in is being configured. Please try again shortly.", color = StudioColors.warning, fontSize = 12.sp)
-                    if (state.status == AuthStatus.RESTORING) Text("Checking your saved sign-in…", color = Muted, fontSize = 12.sp)
-                    state.message?.let { message ->
-                        Text(message, color = StudioColors.error, fontSize = 13.sp)
-                        TextButton(onClick = dismiss) { Text("Dismiss") }
+                    if(notice != null) Surface(Modifier.fillMaxWidth().semantics { testTag = "login-notice"; liveRegion = LiveRegionMode.Polite },
+                        shape = RoundedCornerShape(14.dp), color = noticeColor.copy(alpha = .08f)) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(notice, Modifier.fillMaxWidth().semantics { testTag = "login-message" }, color = noticeColor,
+                                fontSize = 12.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
+                            if(message != null) TextButton(onClick = dismiss) { Text("Dismiss", color = noticeColor) }
+                        }
                     }
-                    if (!state.busy && state.status != AuthStatus.GUEST) TextButton(onClick = retry, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Try again", color = StudioColors.primary) }
+                    if (!state.busy && state.status != AuthStatus.GUEST) TextButton(onClick = retry) { Text("Try again", color = colors.primary) }
                 }
             }
             Spacer(Modifier.height(18.dp))
-            Text("Private by design · Your account keeps creations and credits secure", color = Muted, fontSize = 10.sp)
-            Spacer(Modifier.height(4.dp))
-            Text("By continuing, you agree to use media you have permission to upload.", color = Muted, fontSize = 10.sp)
+            Text("Private by design. Your account keeps creations and credits secure.", Modifier.fillMaxWidth(),
+                color = colors.muted, fontSize = 10.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(6.dp))
+            Text("By continuing, you agree to use media you have permission to upload.", Modifier.fillMaxWidth().semantics { testTag = "login-footer" },
+                color = colors.muted, fontSize = 10.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
+        }
         }
     }
 }

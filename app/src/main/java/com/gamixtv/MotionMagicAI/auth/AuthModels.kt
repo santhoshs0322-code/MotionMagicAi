@@ -51,6 +51,7 @@ data class AuthUiState(
     val message: String? = null,
     val busy: Boolean = false,
     val configured: Boolean = false,
+    val messageIsError: Boolean = true,
 ) {
     /** An offline cached name never counts as verified authentication. */
     val isSignedIn: Boolean get() = status == AuthStatus.SIGNED_IN

@@ -93,6 +93,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         mutable.value = AuthUiState(busy = true, configured = config.isConfigured)
         operation = viewModelScope.launch {
             var message = "Signed out. Projects remain on this device."
+            var messageIsError = false
             try {
                 withContext(Dispatchers.IO) { store.clear() }
                 runCatching { credentials.clearCredentialState(ClearCredentialStateRequest()) }
@@ -103,8 +104,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { message = "Signed out on this device. The server could not be reached to revoke the previous session." }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { message = safeMessage(e) }
-            mutable.value = AuthUiState(message = message, configured = config.isConfigured)
+            catch (e: Exception) { message = safeMessage(e); messageIsError = true }
+            mutable.value = AuthUiState(message = message, configured = config.isConfigured, messageIsError = messageIsError)
         }
     }
     fun dismissMessage() { mutable.value = mutable.value.copy(message = null) }
