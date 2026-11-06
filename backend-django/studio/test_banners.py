@@ -44,7 +44,13 @@ class BannerTests(TestCase):
         self.assertEqual((rows[-1]["id"], rows[-1]["title"], rows[-1]["display_seconds"]), (str(self.item.pk), "Updated banner", 7))
         self.assertEqual(ShowcaseBanner.objects.count(), 5)
         self.assertContains(self.client.get("/owner/showcase/banners/"), "Updated banner")
-        self.assertContains(self.client.get("/owner/showcase/"), "Manage Home banners")
+        mirror = self.client.get("/owner/showcase/")
+        self.assertContains(mirror, "Manage Home banners")
+        self.assertContains(mirror, 'class="banner-slide"', count=5)
+        self.assertEqual(mirror.context["banner_cycle"], 23)
+        self.assertEqual(mirror.context["banners"][-1]["preview_end"], "100.000000")
+        self.assertNotContains(mirror, "first slide")
+        self.assertNotContains(mirror, "<script")
 
     def test_unpublishing_does_not_restore_a_default_banner(self):
         self.client.force_login(self.owner)

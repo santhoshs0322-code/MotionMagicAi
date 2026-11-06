@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -14,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -42,6 +45,7 @@ private val posterLoads = Semaphore(3)
 @Composable
 fun ShowcasePoster(template: Template, modifier: Modifier = Modifier, description: String = template.name, contentScale: ContentScale = ContentScale.Crop) {
     val context = LocalContext.current
+    val banner = template.remoteId?.startsWith("banner:") == true
     val key = "${template.remoteId}:${template.mediaRevision}"
     val bitmap = produceState<Bitmap?>(synchronized(posters) { posters.get(key) }, key, template.posterUrl) {
         value = synchronized(posters) { posters.get(key) }
@@ -49,7 +53,7 @@ fun ShowcasePoster(template: Template, modifier: Modifier = Modifier, descriptio
             value = try { withContext(Dispatchers.IO) { posterLoads.withPermit {
                 val asset = ImageTemplateCatalogue.bundledPath(context, template.bundledPoster, template.bundledPosterHash)
                 if(asset != null) context.assets.open(asset).use { BitmapFactory.decodeStream(it) }
-                else template.posterUrl?.let { fetchPoster(it, if(template.remoteId?.startsWith("banner:") == true) 1280 else 640) }
+                else template.posterUrl?.let { fetchPoster(it, if(banner) 1280 else 640) }
             } } } catch(e: CancellationException) { throw e } catch(_: Exception) { null }
             value?.let { image -> synchronized(posters) { posters.put(key, image) } }
         }
@@ -57,6 +61,7 @@ fun ShowcasePoster(template: Template, modifier: Modifier = Modifier, descriptio
     Box(modifier) {
         if (bitmap != null) Image(bitmap.asImageBitmap(), description, Modifier.fillMaxSize(), contentScale = contentScale,
             alignment = if(template.mode == CreationMode.CREATE_IMAGE) Alignment.TopCenter else Alignment.Center)
+        else if(banner) Box(Modifier.fillMaxSize().background(MagicGradient).semantics { contentDescription = description })
         else Art(template.art, Modifier.fillMaxSize(), description)
     }
 }

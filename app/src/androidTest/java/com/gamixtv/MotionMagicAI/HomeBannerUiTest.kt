@@ -1,6 +1,8 @@
 package com.gamixtv.MotionMagicAI
 
+import android.graphics.Bitmap
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -17,6 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.security.MessageDigest
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class HomeBannerUiTest {
@@ -24,14 +27,14 @@ class HomeBannerUiTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val banners get() = HomeBannerCatalogue.bundled(context)
 
-    private fun waitForPosition(value: String) {
+    private fun waitForBanner(number: Int, count: Int = 5) {
+        val value = "Banner $number of $count"
         try {
             ui.waitUntil(6500) {
-                ui.onNodeWithTag("home-banner-position").fetchSemanticsNode().config[SemanticsProperties.Text].first().text == value
+                ui.onNodeWithTag("home-banner-carousel").fetchSemanticsNode().config[SemanticsProperties.StateDescription] == value
             }
         } catch(error: ComposeTimeoutException) {
-            throw AssertionError("Expected $value; " + ui.onNodeWithTag("home-banner-position").printToString() +
-                "\n" + ui.onNodeWithTag("home-banner-carousel").printToString(), error)
+            throw AssertionError("Expected $value; " + ui.onNodeWithTag("home-banner-carousel").printToString(), error)
         }
     }
 
@@ -45,28 +48,42 @@ class HomeBannerUiTest {
             assertEquals(it.bundledHash, MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { byte -> "%02x".format(byte) })
         }
         ui.setContent { MotionTheme(ThemeMode.DARK) { HomeBannerCarousel(rows, navigate = {}) } }
-        ui.onNodeWithTag("home-banner-position").assertTextEquals("1 / 5")
-        listOf("2 / 5", "3 / 5", "4 / 5", "5 / 5", "1 / 5", "2 / 5").forEach(::waitForPosition)
+        waitForBanner(1)
+        ui.onNodeWithTag("home-banner-position").assertDoesNotExist()
+        listOf(2, 3, 4, 5, 1, 2).forEach { waitForBanner(it) }
+        val screenshot = ui.onNodeWithTag("home-banner-carousel").captureToImage().asAndroidBitmap()
+        try {
+            File(context.filesDir, "home-banners-full-frame.png").outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        } finally { screenshot.recycle() }
     }
 
-    @Test fun manualSwipeAndDotsWorkWhilePausedAndBannerTapUsesItsDestination() {
+    @Test fun fullFrameHasNoIndicatorsAndSwipeAndBannerDestinationStillWork() {
         var destination: Screen? = null
         ui.setContent { MotionTheme(ThemeMode.LIGHT) { HomeBannerCarousel(banners, active = false, navigate = { destination = it }) } }
-        ui.onNodeWithTag("home-banner-position").assertTextEquals("1 / 5")
+        waitForBanner(1)
+        ui.onNodeWithTag("home-banner-position").assertDoesNotExist()
+        ui.onNodeWithContentDescription("Show banner 5").assertDoesNotExist()
+        val frame = ui.onNodeWithTag("home-banner-carousel").fetchSemanticsNode().boundsInRoot
+        val image = ui.onNodeWithTag("home-banner-page-1").fetchSemanticsNode().boundsInRoot
+        assertEquals(frame.width, image.width, 1f)
+        assertEquals(frame.height, image.height, 1f)
         ui.onNodeWithTag("home-banner-page-1").performTouchInput { swipeLeft(durationMillis = 350) }
-        waitForPosition("2 / 5")
+        waitForBanner(2)
         ui.onNodeWithTag("home-banner-page-2").performClick()
         assertEquals(Screen.TEXT, destination)
-        ui.onNodeWithContentDescription("Show banner 5").performClick()
-        waitForPosition("5 / 5")
+        for(number in 3..5) {
+            ui.onNodeWithTag("home-banner-page-${number - 1}").performTouchInput { swipeLeft(durationMillis = 350) }
+            waitForBanner(number)
+        }
         ui.onNodeWithTag("home-banner-page-5").performTouchInput { swipeLeft(durationMillis = 350) }
-        waitForPosition("1 / 5")
+        waitForBanner(1)
     }
 
     @Test fun singleBannerAndUnpublishedFeedDoNotShowPhantomSlides() {
         var rows by mutableStateOf(banners.take(1))
         ui.setContent { MotionTheme(ThemeMode.DARK) { HomeBannerCarousel(rows, navigate = {}) } }
-        ui.onNodeWithTag("home-banner-position").assertTextEquals("1 / 1")
+        waitForBanner(1, 1)
+        ui.onNodeWithTag("home-banner-position").assertDoesNotExist()
         ui.onNodeWithContentDescription("Show banner 2").assertDoesNotExist()
         ui.runOnIdle { rows = HomeBannerCatalogue.parse(JSONArray()) }
         ui.onNodeWithTag("home-banner-carousel").assertDoesNotExist()

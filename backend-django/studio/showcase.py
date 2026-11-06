@@ -202,13 +202,21 @@ def owner_templates(request, identifier=None):
         groups.setdefault(row.category, []).append(row)
     featured = next((row for row in preview if row.featured), next(iter(preview), None))
     banners = banner_rows()
+    durations = [max(3, min(15, row["display_seconds"])) for row in banners]
+    banner_cycle = sum(durations) or 1
+    elapsed = 0
+    for row, seconds in zip(banners, durations):
+        row["preview_start"] = f"{100 * elapsed / banner_cycle:.6f}"
+        elapsed += seconds
+        row["preview_end"] = f"{100 * elapsed / banner_cycle:.6f}"
     form_sections = [
         ("2", "Image and title", [form[name] for name in ("poster", "title", "example_input", "sample_video")]),
         ("3", "Prompt and model", [form[name] for name in ("prompt", "mode", "rate", "aspect_ratio", "duration", "requires_reference")]),
         ("4", "Publishing", [form[name] for name in ("position", "featured", "published")]),
     ]
     return render(request, "owner/showcase.html", {"form": form, "items": items, "featured": featured,
-                  "preview_groups": list(groups.items()), "banners": banners, "editing": bool(identifier), "form_sections": form_sections})
+                  "preview_groups": list(groups.items()), "banners": banners, "banner_cycle": banner_cycle,
+                  "editing": bool(identifier), "form_sections": form_sections})
 
 
 @owner_only
