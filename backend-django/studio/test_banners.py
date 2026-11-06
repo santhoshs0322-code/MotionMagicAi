@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
+from PIL import Image
 from . import bundled_templates
 from .models import ShowcaseBanner, Ledger
 
@@ -83,9 +84,12 @@ class BannerTests(TestCase):
         s3.return_value.generate_presigned_url.side_effect = lambda _, Params, ExpiresIn: "https://test-bucket.s3.amazonaws.com/" + Params["Key"]
         self.client.force_login(self.owner)
         self.client.get("/api/v1/templates")
-        data = self.data(image=SimpleUploadedFile("new.jpg", b"\xff\xd8\xff" + b"x" * 80, content_type="image/jpeg"))
+        image = io.BytesIO()
+        Image.new("RGB", (900, 300), "blue").save(image, "PNG")
+        data = self.data(image=SimpleUploadedFile("new.png", image.getvalue(), content_type="image/png"))
         self.assertEqual(self.client.post(f"/owner/showcase/banners/{self.item.pk}/", data).status_code, 302)
         row = next(row for row in self.client.get("/api/v1/templates").json()["banners"] if row["id"] == str(self.item.pk))
         self.assertIsNone(row["bundled_image"])
         self.assertIn("/banner/", row["image_url"])
+        self.assertIn("/banner/optimized-v1-", row["image_url"])
         s3.return_value.upload_fileobj.assert_called_once()

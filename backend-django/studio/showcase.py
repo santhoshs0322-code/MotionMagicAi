@@ -15,7 +15,7 @@ from rest_framework.views import APIView
 from . import storage
 from .models import OwnerAudit, Rate, ShowcaseTemplate, ShowcaseBanner
 from .owner import owner_only
-from . import bundled_templates
+from . import bundled_templates, banner_media
 
 FEED_CACHE_KEY = "motion:showcase:feed:v3"
 
@@ -159,7 +159,8 @@ def media_url(key, s3=None):
 
 def upload_media(item, name, file):
     mime, extension = video_type(file) if name == "sample_video" else image_type(file)
-    key = f"catalog/templates/{item.pk}/{name}/{uuid.uuid4()}.{extension}"
+    prefix = "optimized-v1-" if name == "banner" else ""
+    key = f"catalog/templates/{item.pk}/{name}/{prefix}{uuid.uuid4()}.{extension}"
     storage.client().upload_fileobj(file, settings.S3_BUCKET, key, ExtraArgs={"ContentType": mime, "CacheControl": "public, max-age=86400"})
     return key
 
@@ -297,7 +298,7 @@ def banner_rows():
 
 
 class BannerForm(forms.ModelForm):
-    image = forms.FileField(required=False, help_text="Wide JPG, PNG or WebP, up to 5 MB. About 3:1 matches the supplied banners.")
+    image = forms.FileField(required=False, help_text="Upload JPG, PNG or WebP up to 5 MB, ideally 3:1. Automatically resized to fit 1500 × 500 and compressed below 300 KB.")
     display_seconds = forms.IntegerField(min_value=3, max_value=15, initial=4, help_text="Seconds before the app advances to the next banner (3–15).")
 
     class Meta:
@@ -313,6 +314,7 @@ class BannerForm(forms.ModelForm):
             else:
                 try:
                     image_type(image)
+                    self.optimized_image = banner_media.optimize_banner(image)
                 except forms.ValidationError as error:
                     self.add_error("image", error)
         if data.get("published") and not (image or self.instance.image_key):
@@ -330,7 +332,7 @@ def owner_banners(request, identifier=None):
         uploaded = None
         try:
             if request.FILES.get("image"):
-                uploaded = upload_media(updated, "banner", request.FILES["image"])
+                uploaded = upload_media(updated, "banner", form.optimized_image)
                 updated.image_key = uploaded
             updated.save()
             cache.delete(FEED_CACHE_KEY)

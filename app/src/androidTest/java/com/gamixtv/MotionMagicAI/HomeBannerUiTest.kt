@@ -31,7 +31,7 @@ class HomeBannerUiTest {
         val value = "Banner $number of $count"
         try {
             ui.waitUntil(6500) {
-                ui.onNodeWithTag("home-banner-carousel").fetchSemanticsNode().config[SemanticsProperties.StateDescription] == value
+                runCatching { ui.onNodeWithTag("home-banner-carousel").fetchSemanticsNode().config[SemanticsProperties.StateDescription] == value }.getOrDefault(false)
             }
         } catch(error: ComposeTimeoutException) {
             throw AssertionError("Expected $value; " + ui.onNodeWithTag("home-banner-carousel").printToString(), error)
@@ -50,7 +50,10 @@ class HomeBannerUiTest {
         ui.setContent { MotionTheme(ThemeMode.DARK) { HomeBannerCarousel(rows, navigate = {}) } }
         waitForBanner(1)
         ui.onNodeWithTag("home-banner-position").assertDoesNotExist()
-        listOf(2, 3, 4, 5, 1, 2).forEach { waitForBanner(it) }
+        listOf(2, 3, 4, 5, 1, 2).forEach {
+            ui.mainClock.advanceTimeBy(4_100)
+            waitForBanner(it)
+        }
         val screenshot = ui.onNodeWithTag("home-banner-carousel").captureToImage().asAndroidBitmap()
         try {
             File(context.filesDir, "home-banners-full-frame.png").outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }

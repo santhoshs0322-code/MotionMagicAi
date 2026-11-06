@@ -165,7 +165,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var showcaseTemplates by mutableStateOf(savedShowcase ?: com.gamixtv.MotionMagicAI.ui.ImageTemplateCatalogue.bundled(app)); private set
     var homeBanners by mutableStateOf(runCatching { savedShowcaseJson?.optJSONArray("banners")?.let {
         com.gamixtv.MotionMagicAI.ui.HomeBannerCatalogue.parse(it)
-    } }.getOrNull() ?: com.gamixtv.MotionMagicAI.ui.HomeBannerCatalogue.bundled(app)); private set
+    } }.getOrNull() ?: emptyList()); private set
     private var showcaseCheckedAt = 0L
     private var showcaseLoading = false
     private var catalogCheckedAt = 0L
