@@ -1,7 +1,8 @@
 package com.gamixtv.MotionMagicAI.data
 
 object CreationValidation {
-    const val MAX_PROMPT_LENGTH = 500
+    const val MAX_PROMPT_LENGTH = 1000
+    const val MAX_VOICE_LENGTH = 500
     val supportedDurations: Set<Int> = setOf(5, 10, 15)
     val supportedAspects: Set<String> = setOf("9:16", "16:9", "1:1")
 
@@ -17,14 +18,14 @@ object CreationValidation {
         durations: Set<Int> = supportedDurations,
     ): ValidationResult = ValidationResult(buildList {
         if (requirePrompt && prompt.isBlank()) add("Enter a description before generating.")
-        if (prompt.length > MAX_PROMPT_LENGTH) add("Keep your description to 500 characters or fewer.")
+        if (prompt.length > MAX_PROMPT_LENGTH) add("Keep your description to $MAX_PROMPT_LENGTH characters or fewer.")
         if (duration !in durations) add("Choose a supported duration: ${durations.sorted().joinToString(", ")} seconds.")
         if (aspect !in supportedAspects) add("Choose 9:16, 16:9, or 1:1 as the aspect ratio.")
     })
 
     fun validateVoice(text: String): ValidationResult = ValidationResult(buildList {
         if (text.isBlank()) add("Enter the words you want the voice to speak.")
-        if (text.length > MAX_PROMPT_LENGTH) add("Keep your script to 500 characters or fewer.")
+        if (text.length > MAX_VOICE_LENGTH) add("Keep your script to $MAX_VOICE_LENGTH characters or fewer.")
     })
 
     fun validateVideo(

@@ -81,7 +81,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
     val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if(result.resultCode == Activity.RESULT_OK) {
             val words = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if(!words.isNullOrBlank()) update(draft.copy(prompt = (draft.prompt.trimEnd() + " " + words).trim().take(500)))
+            if(!words.isNullOrBlank()) update(draft.copy(prompt = (draft.prompt.trimEnd() + " " + words).trim().take(CreationValidation.MAX_PROMPT_LENGTH)))
         }
     }
     val hasInput = if(mode == CreationMode.IMAGE_TO_VIDEO) {
@@ -115,13 +115,13 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = colors.primary)
                     Text("Your Prompt", Modifier.weight(1f).padding(start = 8.dp), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("${draft.prompt.length}/500", color = if(draft.prompt.length > 500) colors.error else colors.muted, fontSize = 11.sp)
+                    Text("${draft.prompt.length}/${CreationValidation.MAX_PROMPT_LENGTH}", color = if(draft.prompt.length > CreationValidation.MAX_PROMPT_LENGTH) colors.error else colors.muted, fontSize = 11.sp)
                 }
-                OutlinedTextField(draft.prompt, { update(draft.copy(prompt = it.take(501))) },
+                OutlinedTextField(draft.prompt, { update(draft.copy(prompt = it.take(CreationValidation.MAX_PROMPT_LENGTH + 1))) },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 225.dp).testTag("creation-prompt"),
                     placeholder = { Text(if(still) "Describe your image, style and light…" else if(draft.modelId == "kling-o3-edit") "Replace the subject in @Video1 using @Image1. Keep the camera movement…" else if(vm.referenceVideoPath != null) "Create a new scene from @Video1 using @Image1…"
                         else "Describe the movement, scene and camera…", fontSize = 13.sp, color = colors.muted) },
-                    shape = RoundedCornerShape(14.dp), isError = draft.prompt.length > 500,
+                    shape = RoundedCornerShape(14.dp), isError = draft.prompt.length > CreationValidation.MAX_PROMPT_LENGTH,
                     textStyle = LocalTextStyle.current.copy(fontSize = 14.sp, lineHeight = 22.sp),
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = colors.field, unfocusedContainerColor = colors.field,
                         focusedBorderColor = colors.primary, unfocusedBorderColor = colors.border))

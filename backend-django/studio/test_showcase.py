@@ -7,7 +7,8 @@ from django.test import Client, TestCase, override_settings
 
 from .models import Rate, ShowcaseTemplate
 from django.core.management import call_command
-from . import bundled_templates, services
+from . import bundled_templates, fal_catalog, services
+from .limits import CREATION_PROMPT_MAX_LENGTH
 from .models import Account, Asset, Wallet, Ledger
 import hashlib
 import io
@@ -79,7 +80,7 @@ class ImageTemplateTests(TestCase):
         self.owner = User.objects.create_superuser("owner", password="owner-test-password")
         self.rate = Rate.objects.create(slug="qwen-image-720p", title="Qwen Image 720p", kind="image", provider_model="fal:qwen-image",
             unit_cost_paise=3, max_units=1, enabled=True, config={"provider": "fal", "app_model_id": "qwen-image", "image_size": "720p",
-                "aspect_ratios": ["9:16", "1:1"], "input_modes": ["text", "image_and_text"]})
+                "aspect_ratios": ["9:16", "1:1", "3:4"], "input_modes": ["text", "image_and_text"]})
         call_command("sync_showcase_templates", stdout=io.StringIO())
         self.item = ShowcaseTemplate.objects.order_by("position").first()
 
@@ -168,12 +169,26 @@ class ImageTemplateTests(TestCase):
         s3.assert_not_called()
 
     @patch("studio.showcase.storage.client")
-    def test_ten_image_templates_publish_without_sample_video_or_s3_downloads(self, s3):
+    def test_thirty_image_templates_publish_without_sample_video_or_s3_downloads(self, s3):
         rows = self.client.get("/api/v1/templates")
         self.assertEqual(rows["Cache-Control"], "public, max-age=30")
         feed = rows.json()["templates"]
-        self.assertEqual(len(feed), 10)
+        self.assertEqual(len(feed), 30)
         self.assertEqual(feed[0]["title"], "Mars Astronaut")
+        self.assertEqual(feed[10]["title"], "Lightning Hero — Man")
+        self.assertEqual(feed[-1]["title"], "Forest Archer — Woman")
+        prefix = (
+            "Use the uploaded photo as the identity reference. Preserve the person’s recognizable facial features, "
+            "skin tone, hairstyle, and approximate age as closely as possible. Apply the scene and style described below. "
+            "For children, use age-appropriate clothing and styling. Vertical 3:4 composition, clear unobstructed face, "
+            "no text, logos, buttons, or watermark."
+        )
+        for row in feed[10:]:
+            self.assertTrue(row["prompt"].startswith(prefix + " "))
+            self.assertGreater(len(row["prompt"]), 500)
+            self.assertLessEqual(len(row["prompt"]), CREATION_PROMPT_MAX_LENGTH)
+            self.assertEqual(row["aspect_ratio"], "3:4")
+            self.assertEqual(row["prompt"], ShowcaseTemplate.objects.get(pk=row["id"]).prompt)
         self.assertTrue(all(row["mode"] == "create_image" and row["requires_reference"] and not row["video_url"] for row in feed))
         self.assertTrue(all(row["poster_url"].startswith("/api/v1/templates/artwork/") for row in feed))
         s3.assert_not_called()
@@ -187,7 +202,7 @@ class ImageTemplateTests(TestCase):
         call_command("sync_showcase_templates", stdout=io.StringIO())
         current = next(row for row in self.client.get("/api/v1/templates").json()["templates"] if row["id"] == str(self.item.pk))
         self.assertEqual((current["title"], current["category"], current["prompt"]), ("Mars, my version", "Space", self.edit_data()["prompt"]))
-        self.assertEqual(ShowcaseTemplate.objects.count(), 10)
+        self.assertEqual(ShowcaseTemplate.objects.count(), 30)
         response = self.client.get("/owner/showcase/")
         self.assertContains(response, "Mars, my version")
         self.assertContains(response, "Your featured video appears here", count=0)
@@ -213,7 +228,7 @@ class ImageTemplateTests(TestCase):
         self.client.post(f"/owner/showcase/{self.item.pk}/unpublish/")
         call_command("sync_showcase_templates", stdout=io.StringIO())
         rows = self.client.get("/api/v1/templates").json()["templates"]
-        self.assertEqual(len(rows), 9)
+        self.assertEqual(len(rows), 29)
         self.assertNotIn(str(self.item.pk), [row["id"] for row in rows])
         self.rate.enabled = False; self.rate.save(); cache.clear()
         self.assertEqual(self.client.get("/api/v1/templates").json()["templates"], [])
@@ -252,11 +267,48 @@ class ImageTemplateTests(TestCase):
         account = Account.objects.create(google_sub="owned-template", email="owned@example.test", name="User")
         wallet = Wallet.objects.create(account=account, balance_paise=200)
         photo = Asset.objects.create(account=account, key=f"accounts/{account.pk}/image/uploaded/photo", mime="image/png", size=4, ready=True)
-        data = dict(service=self.rate.pk, prompt=self.item.prompt, input_kind="image", aspect_ratio="9:16", asset_id=str(photo.pk))
+        template = ShowcaseTemplate.objects.get(title="Lightning Hero — Man")
+        data = dict(service=self.rate.pk, prompt=template.prompt, input_kind="image", aspect_ratio="3:4", asset_id=str(photo.pk))
         normal = services.create_quote(account, data)
-        quote = services.create_quote(account, {**data, "template_id": str(self.item.pk)})
+        quote = services.create_quote(account, {**data, "template_id": str(template.pk)})
         job, _ = services.submit_job(account, quote.pk, "owned-template-test")
         wallet.refresh_from_db()
         self.assertEqual(quote.charge_paise, normal.charge_paise)
         self.assertEqual(job.quote.payload["asset_id"], str(photo.pk))
+        endpoint, body = fal_catalog.request(job.quote.payload, "https://example.test/owned-photo.png")
+        self.assertEqual(endpoint, "fal-ai/qwen-image-edit")
+        self.assertEqual(body["prompt"], template.prompt)
+        self.assertEqual(body["image_url"], "https://example.test/owned-photo.png")
+        self.assertEqual(job.quote.payload["aspect_ratio"], "3:4")
         self.assertEqual((wallet.balance_paise, wallet.held_paise), (200, quote.charge_paise))
+
+    def test_prompt_limit_rejects_oversized_input_without_reserving_credits(self):
+        account = Account.objects.create(google_sub="long-template", email="long@example.test", name="User")
+        wallet = Wallet.objects.create(account=account, balance_paise=200)
+        data = dict(service=self.rate.pk, prompt="a" * CREATION_PROMPT_MAX_LENGTH, input_kind="text", aspect_ratio="3:4")
+        self.assertEqual(services.create_quote(account, data).payload["prompt"], data["prompt"])
+        with self.assertRaisesMessage(services.Problem, "within the service limit"):
+            services.create_quote(account, {**data, "prompt": data["prompt"] + "a"})
+        wallet.refresh_from_db()
+        self.assertEqual(wallet.held_paise, 0)
+        self.assertFalse(Ledger.objects.exists())
+
+    @patch("studio.showcase.storage.client")
+    def test_owner_can_edit_long_identity_prompt_and_sync_preserves_it(self, s3):
+        template = ShowcaseTemplate.objects.get(title="Forest Archer — Woman")
+        self.client.force_login(self.owner)
+        self.client.get("/api/v1/templates")
+        prompt = template.prompt + " Add soft morning light."
+        data = {**self.edit_data(), "title": template.title, "prompt": prompt, "aspect_ratio": "3:4"}
+        response = self.client.post(f"/owner/showcase/{template.pk}/", data)
+        self.assertEqual(response.status_code, 302, response.content[:500])
+        call_command("sync_showcase_templates", stdout=io.StringIO())
+        current = next(row for row in self.client.get("/api/v1/templates").json()["templates"] if row["id"] == str(template.pk))
+        self.assertEqual(current["prompt"], prompt)
+        self.assertEqual(current["aspect_ratio"], "3:4")
+        self.assertEqual(ShowcaseTemplate.objects.count(), 30)
+        self.assertContains(self.client.get(f"/owner/showcase/{template.pk}/"), "Add soft morning light.")
+        self.client.post(f"/owner/showcase/{template.pk}/unpublish/")
+        call_command("sync_showcase_templates", stdout=io.StringIO())
+        self.assertNotIn(str(template.pk), [row["id"] for row in self.client.get("/api/v1/templates").json()["templates"]])
+        s3.assert_not_called()

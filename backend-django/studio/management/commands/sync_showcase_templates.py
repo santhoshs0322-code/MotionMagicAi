@@ -5,7 +5,7 @@ from studio.models import Rate, ShowcaseTemplate, ShowcaseBanner
 
 
 class Command(BaseCommand):
-    help = "Create the ten initial image templates once; preserve all subsequent owner edits."
+    help = "Import the bundled image templates once; preserve all subsequent owner edits."
 
     def handle(self, *args, **options):
         created = 0

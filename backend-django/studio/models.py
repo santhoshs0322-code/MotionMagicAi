@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from .limits import CREATION_PROMPT_MAX_LENGTH
 from django.db.models import Q
 
 class Account(models.Model):
@@ -94,7 +95,7 @@ class ShowcaseTemplate(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=90)
     category = models.CharField(max_length=40)
-    prompt = models.CharField(max_length=500)
+    prompt = models.CharField(max_length=CREATION_PROMPT_MAX_LENGTH)
     mode = models.CharField(max_length=20, choices=MODE_CHOICES)
     rate = models.ForeignKey(Rate, on_delete=models.PROTECT)
     aspect_ratio = models.CharField(max_length=10, default="9:16")

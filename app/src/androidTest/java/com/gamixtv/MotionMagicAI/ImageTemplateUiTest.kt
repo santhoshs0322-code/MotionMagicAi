@@ -2,7 +2,6 @@ package com.gamixtv.MotionMagicAI
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.*
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -29,24 +28,25 @@ class ImageTemplateUiTest {
 
     private fun screenshot(name: String) {
         ui.mainClock.advanceTimeBy(500); ui.waitForIdle()
-        val roots = ui.onAllNodes(isRoot()).fetchSemanticsNodes()
-        val largest = roots.indices.maxBy { roots[it].boundsInRoot.width * roots[it].boundsInRoot.height }
-        val bitmap = ui.onAllNodes(isRoot())[largest].captureToImage().asAndroidBitmap()
+        // Capture the composed window too: the template sheet lives above the activity root.
+        val bitmap = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
         File(context.filesDir, name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         bitmap.recycle()
     }
 
-    @Test fun sharedBundleContainsTenExactPromptsAndMatchingArtwork() {
+    @Test fun sharedBundleContainsThirtyPromptsAndMatchingArtwork() {
         val templates = entries
-        assertEquals(10, templates.size)
+        assertEquals(30, templates.size)
         assertEquals("Mars Astronaut", templates.first().name)
-        assertEquals("Fantasy Warrior", templates.last().name)
-        assertEquals(10, templates.map { it.remoteId }.distinct().size)
-        templates.forEach { template ->
+        assertEquals("Fantasy Warrior", templates[9].name)
+        assertEquals("Forest Archer — Woman", templates.last().name)
+        assertEquals(30, templates.map { it.remoteId }.distinct().size)
+        templates.forEachIndexed { index, template ->
             assertTrue(template.requiresReference)
             assertEquals(CreationMode.CREATE_IMAGE, template.mode)
-            assertEquals("9:16", template.aspect)
-            assertTrue(template.prompt!!.length <= 500)
+            assertEquals(if(index < 10) "9:16" else "3:4", template.aspect)
+            assertTrue(template.prompt!!.length <= 1000)
+            if(index >= 10) assertTrue(template.prompt!!.startsWith("Use the uploaded photo as the identity reference."))
             val path = checkNotNull(ImageTemplateCatalogue.bundledPath(context, template.bundledPoster, template.bundledPosterHash))
             val bytes = context.assets.open(path).use { it.readBytes() }
             assertEquals(template.bundledPosterHash, MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
@@ -77,13 +77,18 @@ class ImageTemplateUiTest {
 
     @Test fun previewExplainsUserPhotoAndCopiesExactPrompt() {
         var applied = 0
-        val template = entries.first()
+        val template = entries[10]
+        assertTrue(template.prompt!!.length > 500)
         ui.setContent { MotionTheme(ThemeMode.DARK) {
             TemplatePreviewSheet(template, CreationMode.CREATE_IMAGE, {}, { applied++ })
         } }
         ui.onNodeWithText("Copy prompt").performScrollTo().performClick()
         ui.onNodeWithText("Copied").assertExists()
         ui.onNodeWithText(template.prompt!!).assertExists()
+        ui.runOnIdle {
+            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+            assertEquals(template.prompt, clipboard.primaryClip!!.getItemAt(0).coerceToText(context).toString())
+        }
         screenshot("image-template-preview.png")
         ui.onNodeWithText("Use template").performScrollTo().performClick()
         assertEquals(1, applied)
@@ -92,11 +97,14 @@ class ImageTemplateUiTest {
     @Test fun referenceRequirementPersistsOnlyInTheCorrectAccountsDraft() {
         val store = MotionStore(context)
         val account = "image-template-instrumented-test"
+        val template = entries.last()
         try {
-            store.saveDraft(CreationDraft(prompt = entries.first().prompt!!, templateId = entries.first().remoteId, requiresReference = true), "image-generation", account)
+            store.saveDraft(CreationDraft(prompt = template.prompt!!, aspect = template.aspect, templateId = template.remoteId, requiresReference = true), "image-generation", account)
             val restored = store.draft("image-generation", account)
             assertTrue(restored.requiresReference)
-            assertEquals(entries.first().remoteId, restored.templateId)
+            assertEquals(template.remoteId, restored.templateId)
+            assertEquals(template.prompt, restored.prompt)
+            assertEquals("3:4", restored.aspect)
             assertFalse(store.draft("image-generation", "different-template-test-user").requiresReference)
         } finally { store.clearDraft("image-generation", account) }
     }

@@ -16,6 +16,7 @@ from . import storage
 from .models import OwnerAudit, Rate, ShowcaseTemplate, ShowcaseBanner
 from .owner import owner_only
 from . import bundled_templates, banner_media
+from .limits import CREATION_PROMPT_MAX_LENGTH
 
 FEED_CACHE_KEY = "motion:showcase:feed:v3"
 
@@ -97,7 +98,7 @@ class ShowcaseForm(forms.ModelForm):
         self.fields["example_input"].widget.attrs["accept"] = "image/jpeg,image/png,image/webp"
         self.fields["sample_video"].widget.attrs["accept"] = "video/mp4"
         self.fields["mode"].label = "Creation type"
-        self.fields["prompt"].help_text = "The prompt filled in when a user chooses this template. Up to 500 characters."
+        self.fields["prompt"].help_text = f"The prompt filled in when a user chooses this template. Up to {CREATION_PROMPT_MAX_LENGTH:,} characters."
         self.fields["duration"].help_text = "Seconds for video templates; ignored for Create Image."
 
     def clean(self):

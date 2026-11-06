@@ -960,7 +960,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             if(VideoModelCatalog.isReference(input.modelId) && screen != Screen.CREATE_IMAGE && input.prompt.isBlank()) add("Describe how to use @Video1 and your reference photos.")
             if(screen != Screen.IMAGE && input.prompt.isBlank()) add("Describe what you want to create.")
             if(input.requiresReference && photo == null) add("Upload your own photo to recreate this template.")
-            if(input.prompt.length > 500) add("Keep your prompt to 500 characters or fewer.")
+            if(input.prompt.length > CreationValidation.MAX_PROMPT_LENGTH) add("Keep your prompt to ${CreationValidation.MAX_PROMPT_LENGTH} characters or fewer.")
         }
         if(errors.isNotEmpty()) failure = errors.joinToString("\n")
         return errors.isEmpty()

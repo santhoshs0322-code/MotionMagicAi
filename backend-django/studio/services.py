@@ -11,6 +11,7 @@ from django.utils import timezone
 from .authentication import digest
 from .errors import Problem
 from .models import Wallet, Ledger, Rate, Quote, Job, Budget, Asset, Subscription, ShowcaseTemplate
+from .limits import CREATION_PROMPT_MAX_LENGTH
 from . import gemini, gemini_video, fal, fal_catalog
 
 TERMINAL = ("succeeded", "failed", "cancelled")
@@ -233,7 +234,7 @@ def create_quote(account, data):
         raise Problem("This service is not available.", 409) from None
     require_rate_access(account, rate)
     prompt = data.get("prompt", "")
-    if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= (5000 if rate.kind == "voice" else 500):
+    if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= (5000 if rate.kind == "voice" else CREATION_PROMPT_MAX_LENGTH):
         raise Problem("Enter a prompt within the service limit.")
     duration = data.get("duration", 5)
     rate_config = rate.config if isinstance(rate.config, dict) else {}

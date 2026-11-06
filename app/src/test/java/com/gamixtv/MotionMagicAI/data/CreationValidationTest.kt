@@ -11,14 +11,14 @@ class CreationValidationTest {
     }
 
     @Test fun exactPromptLimitIsAcceptedButAnExtraCharacterIsRejected() {
-        assertTrue(CreationValidation.validate("a".repeat(500), 5, "1:1").isValid)
-        assertFalse(CreationValidation.validate("a".repeat(501), 5, "1:1").isValid)
+        assertTrue(CreationValidation.validate("a".repeat(1000), 5, "1:1").isValid)
+        assertFalse(CreationValidation.validate("a".repeat(1001), 5, "1:1").isValid)
     }
 
     @Test fun photoAnimationCanOmitPromptButStillValidatesOtherOptions() {
         assertTrue(CreationValidation.validate("", 15, "16:9", requirePrompt = false).isValid)
         assertFalse(CreationValidation.validate("", 0, "16:9", requirePrompt = false).isValid)
-        assertFalse(CreationValidation.validate("x".repeat(501), 10, "9:16", requirePrompt = false).isValid)
+        assertFalse(CreationValidation.validate("x".repeat(1001), 10, "9:16", requirePrompt = false).isValid)
     }
 
     @Test fun invalidFieldsAreReportedTogetherSoUsersCanFixThemAtOnce() {
@@ -38,7 +38,7 @@ class CreationValidationTest {
         }
     }
 
-    @Test fun voiceRequiresTextAndSharesTheFiveHundredCharacterLimit() {
+    @Test fun voiceRequiresTextAndKeepsItsSeparateFiveHundredCharacterLimit() {
         assertFalse(CreationValidation.validateVoice("\n ").isValid)
         assertTrue(CreationValidation.validateVoice("नमस्ते, आपका स्वागत है।").isValid)
         assertTrue(CreationValidation.validateVoice("a".repeat(500)).isValid)
