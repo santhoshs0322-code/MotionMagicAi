@@ -68,6 +68,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         else -> CreationMode.IMAGE_TO_VIDEO
     }
     val still = mode == CreationMode.CREATE_IMAGE
+    val story = vm.screen == Screen.STORY
     val draft = if(still) vm.imageDraft else vm.draft
     val update: (CreationDraft) -> Unit = { if(still) vm.updateImageDraft(it) else vm.updateDraft(it) }
     val rate = vm.cloudRates.firstOrNull { it.matches(draft, still) }
@@ -93,7 +94,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
             IconButton(onClick = vm::back) { Icon(Icons.Rounded.ArrowBackIosNew, "Back", Modifier.size(22.dp)) }
             Row(Modifier.weight(1f).clickable { focus.clearFocus(); modes = true }.testTag("creation-mode-selector"),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                Text(mode.title, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 2, textAlign = TextAlign.Center)
+                Text(if(story) "Continue Story" else mode.title, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 2, textAlign = TextAlign.Center)
                 Icon(Icons.Rounded.ExpandMore, "Change creation mode", Modifier.size(18.dp), tint = colors.muted)
             }
             IconButton(onClick = { vm.notice("Your creation", "Add a reference or describe your scene, customize the settings, then review the credit price before creating.") }) {
@@ -106,11 +107,14 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                 Text("Your photo is required for this look", Modifier.weight(1f), color = colors.primary, fontSize = 12.sp)
                 TextButton(onClick = { update(draft.copy(templateId = null, requiresReference = false)) }) { Text("Clear template", fontSize = 11.sp) }
             }
-            if(mode == CreationMode.IMAGE_TO_VIDEO && VideoModelCatalog.isReference(draft.modelId)) {
+            if(story) {
                 VideoReferenceInput(draft.modelId, vm.cloudRates.map { it.modelId }.distinct(), vm.referenceVideoPath, vm.referenceVideoDurationMs,
                     vm.referencePhotoPaths, rate?.maxReferenceImages ?: 0, { vm.selectVideoModel(VideoModelCatalog.find(it)) }, onPickVideo,
                     vm::removeReferenceVideo, onPickReferencePhotos, vm::removeReferencePhoto)
-            } else if(mode != CreationMode.TEXT_TO_VIDEO) ReferencePhotoInput(vm, still, onPickPhoto, onPickVideo) { focus.clearFocus(); gallery = true }
+                TextButton(onClick = { vm.go(Screen.PROJECTS) }, modifier = Modifier.testTag("story-saved-video")) {
+                    Icon(Icons.Rounded.VideoLibrary, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Use a saved video")
+                }
+            } else if(mode != CreationMode.TEXT_TO_VIDEO) ReferencePhotoInput(vm, still, onPickPhoto) { focus.clearFocus(); gallery = true }
             StudioCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = colors.primary)
@@ -142,7 +146,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Settings, null, Modifier.size(20.dp))
-                        Text(if(still) "Image Settings" else "Video Settings", Modifier.weight(1f).padding(start = 8.dp), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(if(still) "Image Settings" else if(story) "Story Settings" else "Video Settings", Modifier.weight(1f).padding(start = 8.dp), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Text("Customize", color = colors.primary, fontSize = 11.sp)
                         Icon(Icons.Rounded.ChevronRight, null, Modifier.size(18.dp), tint = colors.primary)
                     }
@@ -174,7 +178,7 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
         }
         CreationButton(still, price, hasInput && price != null) { focus.clearFocus(); vm.prepareCloudGeneration() }
     }
-    if(modes) CreationModeSheet(mode, { modes = false }) { chosen -> vm.switchCreationMode(chosen); modes = false }
+    if(modes) CreationModeSheet(mode, story, { modes = false }, { vm.go(Screen.STORY); modes = false }) { chosen -> vm.switchCreationMode(chosen); modes = false }
     if(gallery) ObserveTemplateCatalogue(vm)
     LaunchedEffect(vm.showcaseTemplates) {
         selectedTemplate?.remoteId?.let { id -> selectedTemplate = vm.showcaseTemplates.firstOrNull { it.remoteId == id } }
@@ -219,40 +223,35 @@ private fun PromptAction(label: String, icon: ImageVector, action: () -> Unit) {
 }
 
 @Composable
-private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, pickPhoto: () -> Unit, pickVideo: () -> Unit, templates: () -> Unit) {
-    val reference = if(still) null else vm.referenceVideoPath
+private fun ReferencePhotoInput(vm: MotionViewModel, still: Boolean, pickPhoto: () -> Unit, templates: () -> Unit) {
     val photo = vm.photo
     val colors = StudioColors
     StudioCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(if(reference != null) Icons.Rounded.VideoLibrary else Icons.Rounded.Image, null, Modifier.size(20.dp))
-            Text(if(reference != null) "Reference Video" else "Reference Image", Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(if(still && vm.imageDraft.requiresReference) "  (Your photo required)" else if(still) "  (Optional)" else if(reference == null) "  (Starting Frame)" else "", fontSize = 10.sp, color = colors.muted)
+            Icon(Icons.Rounded.Image, null, Modifier.size(20.dp))
+            Text("Reference Image", Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(if(still && vm.imageDraft.requiresReference) "  (Your photo required)" else if(still) "  (Optional)" else "  (Starting Frame)", fontSize = 10.sp, color = colors.muted)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if(photo != null || reference != null) Box(Modifier.weight(1f).height(112.dp).clip(RoundedCornerShape(14.dp)).background(colors.field)) {
-                if(reference != null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ProjectThumbnail(reference, true, 106.dp) }
-                else photo?.let { Image(it.asImageBitmap(), "Selected reference image", Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-                IconButton(onClick = { if(reference != null) vm.removeReferenceVideo() else vm.removePhoto() }, modifier = Modifier.align(Alignment.TopEnd).size(40.dp)) {
+            if(photo != null) Box(Modifier.weight(1f).height(112.dp).clip(RoundedCornerShape(14.dp)).background(colors.field)) {
+                Image(photo.asImageBitmap(), "Selected reference image", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                IconButton(onClick = vm::removePhoto, modifier = Modifier.align(Alignment.TopEnd).size(40.dp)) {
                     Box(Modifier.size(25.dp).background(Color.Black.copy(alpha = .65f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.Close, "Remove reference", Modifier.size(17.dp), tint = Color.White)
                     }
                 }
             }
-            Surface(onClick = if(reference != null) pickVideo else pickPhoto, color = colors.field, shape = RoundedCornerShape(14.dp),
+            Surface(onClick = pickPhoto, color = colors.field, shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(1.dp, colors.border), modifier = Modifier.weight(1f).heightIn(min = 112.dp).testTag("upload-photo")) {
                 Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)) {
                     Icon(Icons.Rounded.AddPhotoAlternate, null, Modifier.size(29.dp))
-                    Text(if(reference != null) "Replace Video" else if(photo != null) "Add or Replace Image" else "Add your photo", fontSize = 12.sp,
+                    Text(if(photo != null) "Add or Replace Image" else "Add your photo", fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-                    Text(if(reference != null) "MP4 · 3–15 seconds" else "JPG, PNG, WebP", color = colors.muted, fontSize = 10.sp)
+                    Text("JPG, PNG, WebP", color = colors.muted, fontSize = 10.sp)
                 }
             }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if(!still && vm.cloudRates.any { VideoModelCatalog.isReference(it.modelId) }) OutlinedButton(onClick = pickVideo, contentPadding = PaddingValues(horizontal = 10.dp)) {
-                Icon(Icons.Rounded.VideoLibrary, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Use video + photos", fontSize = 10.sp)
-            }
             OutlinedButton(onClick = templates, contentPadding = PaddingValues(horizontal = 10.dp)) {
                 Icon(Icons.Rounded.Layers, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Templates", fontSize = 10.sp)
             }
@@ -279,18 +278,26 @@ private fun CreationButton(still: Boolean, price: Long?, enabled: Boolean, creat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CreationModeSheet(mode: CreationMode, dismiss: () -> Unit, choose: (CreationMode) -> Unit) {
+private fun CreationModeSheet(mode: CreationMode, story: Boolean, dismiss: () -> Unit, chooseStory: () -> Unit, choose: (CreationMode) -> Unit) {
     ModalBottomSheet(onDismissRequest = dismiss, containerColor = Panel) {
         Column(Modifier.padding(16.dp).padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Creation Mode", fontSize = 21.sp, fontWeight = FontWeight.Bold)
             CreationMode.entries.forEach { option ->
-                Surface(onClick = { choose(option) }, color = if(mode == option) StudioColors.selected else StudioColors.field,
-                    shape = PanelShape, border = BorderStroke(1.dp, if(mode == option) StudioColors.primary else StudioColors.border),
+                Surface(onClick = { choose(option) }, color = if(!story && mode == option) StudioColors.selected else StudioColors.field,
+                    shape = PanelShape, border = BorderStroke(1.dp, if(!story && mode == option) StudioColors.primary else StudioColors.border),
                     modifier = Modifier.fillMaxWidth().testTag("mode-${option.title}")) {
                     Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(option.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        if(mode == option) Icon(Icons.Rounded.CheckCircle, "Selected", tint = StudioColors.primary)
+                        if(!story && mode == option) Icon(Icons.Rounded.CheckCircle, "Selected", tint = StudioColors.primary)
                     }
+                }
+            }
+            Surface(onClick = chooseStory, color = if(story) StudioColors.selected else StudioColors.field,
+                shape = PanelShape, border = BorderStroke(1.dp, if(story) StudioColors.primary else StudioColors.border),
+                modifier = Modifier.fillMaxWidth().testTag("mode-Continue Story")) {
+                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Continue Story", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                    if(story) Icon(Icons.Rounded.CheckCircle, "Selected", tint = StudioColors.primary)
                 }
             }
         }
@@ -302,15 +309,15 @@ fun CreationSettingsScreen(vm: MotionViewModel) {
     val still = vm.creationSettingsMode == CreationMode.CREATE_IMAGE
     val draft = if(still) vm.imageDraft else vm.draft
     CreationSettingsPanel(draft, still, vm.cloudRates,
-        vm.creationSettingsMode == CreationMode.IMAGE_TO_VIDEO && vm.photo != null && vm.referenceVideoPath == null,
+        !vm.creationSettingsStoryOnly && vm.creationSettingsMode == CreationMode.IMAGE_TO_VIDEO && vm.photo != null,
         { if(still) vm.updateImageDraft(it) else vm.updateDraft(it) }, vm::selectVideoModel, vm::back, vm.referenceVideoHasAudio,
-        allowVideoReference = vm.creationSettingsMode == CreationMode.IMAGE_TO_VIDEO, referenceDurationMs = vm.referenceVideoDurationMs)
+        storyModelsOnly = vm.creationSettingsStoryOnly, referenceDurationMs = vm.referenceVideoDurationMs)
 }
 
 @Composable
 internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>,
     sourceRatio: Boolean, update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
-    close: () -> Unit, referenceHasAudio: Boolean? = null, allowVideoReference: Boolean = true, referenceDurationMs: Long? = null) {
+    close: () -> Unit, referenceHasAudio: Boolean? = null, storyModelsOnly: Boolean = false, referenceDurationMs: Long? = null) {
     val colors = StudioColors
     val focus = LocalFocusManager.current
     val finish = { focus.clearFocus(); close() }
@@ -318,12 +325,12 @@ internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: 
     Column(Modifier.fillMaxSize().imePadding().background(Ink)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = finish) { Icon(Icons.Rounded.ArrowBackIosNew, "Close settings", Modifier.size(22.dp)) }
-            Text(if(still) "Image Settings" else "Video Settings", Modifier.weight(1f).padding(end = 48.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(if(still) "Image Settings" else if(storyModelsOnly) "Story Settings" else "Video Settings", Modifier.weight(1f).padding(end = 48.dp), fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
         Text(if(still) "Configure model, quality and aspect ratio" else "Configure model, quality, aspect ratio and duration",
             fontSize = 11.sp, color = colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp))
         HorizontalDivider(color = colors.border)
-        ReferenceSettings(draft, still, update, selectVideo, rates, sourceRatio, referenceHasAudio, Modifier.weight(1f), allowVideoReference, referenceDurationMs)
+        ReferenceSettings(draft, still, update, selectVideo, rates, sourceRatio, referenceHasAudio, Modifier.weight(1f), storyModelsOnly, referenceDurationMs)
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(color = colors.surface, shape = PanelShape, border = BorderStroke(1.dp, colors.border)) {
                 Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -340,7 +347,7 @@ internal fun CreationSettingsPanel(draft: CreationDraft, still: Boolean, rates: 
 
 @Composable
 private fun ReferenceSettings(draft: CreationDraft, still: Boolean, update: (CreationDraft) -> Unit, selectVideo: (VideoModelOption) -> Unit,
-    rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, sourceRatio: Boolean, referenceHasAudio: Boolean?, modifier: Modifier, allowVideoReference: Boolean, referenceDurationMs: Long?) {
+    rates: List<com.gamixtv.MotionMagicAI.cloud.CloudRate>, sourceRatio: Boolean, referenceHasAudio: Boolean?, modifier: Modifier, storyModelsOnly: Boolean, referenceDurationMs: Long?) {
     val colors = StudioColors
     val id = if(still) draft.imageModelId else draft.modelId
     val title = if(still) ImageModelCatalog.find(id).title else VideoModelCatalog.find(id).title
@@ -364,8 +371,8 @@ private fun ReferenceSettings(draft: CreationDraft, still: Boolean, update: (Cre
                 }
                 DropdownMenu(choosing, { choosing = false }, containerColor = colors.surface,
                     modifier = Modifier.width((LocalConfiguration.current.screenWidthDp - 32).dp).heightIn(max = 380.dp)) {
-                    val options = if(still) ImageModelCatalog.models.map { it.id to it.title } else VideoModelCatalog.models.map { it.id to it.title }
-                    val enabled = options.filter { (modelId, _) -> (allowVideoReference || !VideoModelCatalog.isReference(modelId)) && rates.any { it.modelId == modelId && it.kind == (if(still) "image" else "video") } }
+                    val options = if(still) ImageModelCatalog.models.map { it.id to it.title } else VideoModelCatalog.forWorkflow(storyModelsOnly).map { it.id to it.title }
+                    val enabled = options.filter { (modelId, _) -> rates.any { it.modelId == modelId && it.kind == (if(still) "image" else "video") } }
                     enabled.forEach { (modelId, name) ->
                         DropdownMenuItem(text = { Text(name, fontSize = 13.sp) }, modifier = Modifier.testTag("model-option-$name"),
                             trailingIcon = { if(modelId == id) Icon(Icons.Rounded.Check, "Selected", tint = colors.primary) },

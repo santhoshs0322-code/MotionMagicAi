@@ -38,7 +38,7 @@ private val mainCatalogTools = listOf(
     CatalogTool("Create Image", "Imagine it. Create it.", Icons.Rounded.Image, Screen.CREATE_IMAGE, Artwork.Beach),
     CatalogTool("Image to Video", "Animate your photo", Icons.Rounded.SmartDisplay, Screen.IMAGE, Artwork.Cinematic),
     CatalogTool("Text to Video", "Your words, in motion", Icons.Rounded.Title, Screen.TEXT, Artwork.Anime),
-    CatalogTool("Continue Story", "Make the next scene", Icons.Rounded.VideoLibrary, Screen.PROJECTS, Artwork.Love),
+    CatalogTool("Continue Story", "Make the next scene", Icons.Rounded.VideoLibrary, Screen.STORY, Artwork.Love),
 )
 
 @Composable

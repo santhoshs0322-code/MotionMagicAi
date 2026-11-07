@@ -89,7 +89,7 @@ class VideoReferenceUiTest {
             listOf("9:16", "16:9", "1:1"), (3..15).toList(), sound, false, creditPrices = mapOf(5 to 267L), maxReferenceImages = 4, durationFromSource = true) }
         ui.setContent {
             MotionTheme(ThemeMode.DARK) {
-                CreationSettingsPanel(draft, false, rates, false, {}, {}, {}, referenceHasAudio = false, referenceDurationMs = 4210)
+                CreationSettingsPanel(draft, false, rates, false, {}, {}, {}, referenceHasAudio = false, storyModelsOnly = true, referenceDurationMs = 4210)
             }
         }
         ui.onNodeWithText("267 Credits").assertExists()

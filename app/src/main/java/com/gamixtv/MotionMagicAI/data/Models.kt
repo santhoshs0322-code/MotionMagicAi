@@ -71,6 +71,7 @@ object VideoResolutionCatalog {
  */
 object VideoModelCatalog {
     fun isReference(id: String) = id == "kling-o3-reference" || id == "kling-o3-edit"
+    fun forWorkflow(story: Boolean) = models.filter { isReference(it.id) == story }
     val models = listOf(
         VideoModelOption(
             id = "kling-o3-edit", title = "Kling O3 Video Edit",

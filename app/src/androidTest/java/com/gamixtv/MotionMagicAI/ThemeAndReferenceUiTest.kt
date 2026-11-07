@@ -60,19 +60,36 @@ class ThemeAndReferenceUiTest {
         var destination: Screen? = null
         show { ReferenceCatalogContent(1728, vm.settings.themeMode, templates, false, vm::toggleTheme, { destination = it }, {}) }
         ui.onNodeWithText("Continue Story").assertIsDisplayed()
+        ui.onNodeWithText("Continue Story").performClick()
+        assertEquals(Screen.STORY, destination)
         ui.onNodeWithTag("theme-toggle").assertIsDisplayed().performClick()
         ui.onNodeWithContentDescription("Switch to dark mode").assertIsDisplayed()
         ui.onNodeWithText("1728", substring = true).assertIsDisplayed()
         screenshot("reference-home-light.png")
         ui.runOnIdle { repeat(4) { vm.toggleTheme() } }
-        ui.waitUntil(5_000) { store.settings().themeMode == ThemeMode.LIGHT }
+        waitForSavedTheme(ThemeMode.LIGHT)
         ui.runOnIdle { assertEquals(ThemeMode.LIGHT, vm.settings.themeMode) }
         assertEquals(ThemeMode.LIGHT, MotionStore(application).settings().themeMode)
         ui.onNodeWithTag("credit-balance").performClick()
         assertEquals(Screen.PLANS, destination)
         ui.onNodeWithTag("theme-toggle").performClick()
-        ui.waitUntil(5_000) { store.settings().themeMode == ThemeMode.DARK }
+        waitForSavedTheme(ThemeMode.DARK)
         screenshot("reference-home-dark.png")
+    }
+
+    private fun waitForSavedTheme(mode: ThemeMode) {
+        // Rapid toggles can visit the expected value before the final background write.
+        var matchingSince: Long? = null
+        ui.waitUntil(5_000) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if(store.settings().themeMode != mode) {
+                matchingSince = null
+                false
+            } else {
+                if(matchingSince == null) matchingSince = now
+                now - checkNotNull(matchingSince) >= 300
+            }
+        }
     }
 
     @Test fun creationSettingsReturnToTheOriginatingModeAndPreserveDrafts() {

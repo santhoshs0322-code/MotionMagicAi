@@ -59,7 +59,7 @@ class CreationSettingsUiTest {
                             CloudRate("reference-$sound", "Kling O3 Story Reference", "kling-o3-reference", "video", "1080p",
                                 listOf("16:9", "9:16", "1:1"), (3..15).toList(), sound, false, creditPrices = (3..15).associateWith { 53L * it })
                         } else rates
-                        CreationSettingsPanel(draft, still, choices, false, { draft = it }, { draft = draft.copy(modelId = it.id) }, {}, referenceHasAudio)
+                        CreationSettingsPanel(draft, still, choices, false, { draft = it }, { draft = draft.copy(modelId = it.id) }, {}, referenceHasAudio, storyModelsOnly = reference)
                     }
                 }
             }

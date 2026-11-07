@@ -45,7 +45,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 enum class Screen(val title: String) {
-    HOME("MotionMagic AI"), IMAGE("Image to Video"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
+    HOME("MotionMagic AI"), IMAGE("Image to Video"), STORY("Continue Story"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
     REELS("AI Reels Maker"), VOICE("AI Voice Generator"), TEMPLATES("Templates"),
     PROJECTS("My Projects"), RESULT("Video Result"),
     PROFILE("My Account"), SETTINGS("Settings"), CREATION_SETTINGS("Video Settings"), PLANS("Add credits")
@@ -69,6 +69,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private var settingsRevision = 0L
     private var lastSavedSettings = settings
     var creationSettingsMode by mutableStateOf(CreationMode.IMAGE_TO_VIDEO); private set
+    var creationSettingsStoryOnly by mutableStateOf(false); private set
     var draft by mutableStateOf(CreationDraft()); private set
     var imageDraft by mutableStateOf(CreationDraft()); private set
     private var imageDraftSave: Job? = null
@@ -339,7 +340,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         if(!validateCreationInput()) return
         val image = screen == Screen.CREATE_IMAGE
         val request = if(image) imageDraft else draft
-        val withVideo = !image && screen == Screen.IMAGE && VideoModelCatalog.isReference(request.modelId) && referenceVideoPath != null
+        val withVideo = !image && screen == Screen.STORY && VideoModelCatalog.isReference(request.modelId) && referenceVideoPath != null
         val withPhoto = !withVideo && screen != Screen.TEXT && screen != Screen.REELS && photo != null
         val sourceVideo = if(withVideo) referenceVideoPath else null
         val referencePhotos = if(withVideo) referencePhotoPaths.toList() else emptyList()
@@ -735,6 +736,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         buyingProductId = null; billingLoading = false; billingError = null; billingCheckedAt = 0L; walletCheckedAt = 0L
         walletCredits = null; monthlyCredits = null; topupCredits = null; freeCredits = null
         history.clear(); screen = Screen.HOME
+        creationSettingsStoryOnly = false
         draft = accountId?.let { store.draft("video", it) } ?: CreationDraft()
         imageDraft = accountId?.let { store.draft("image-generation", it) } ?: CreationDraft()
         voiceText = accountId?.let { store.draft("voice", it).prompt }.orEmpty()
@@ -765,10 +767,23 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         if (screen == destination) return
         history.add(screen)
         screen = destination
+        alignVideoWorkflow(destination)
         refreshProjectsOnEntry()
     }
-    fun tab(destination: Screen) { history.clear(); screen = destination; refreshProjectsOnEntry() }
-    fun back() { screen = if (history.isEmpty()) Screen.HOME else history.removeAt(history.lastIndex); refreshProjectsOnEntry() }
+    fun tab(destination: Screen) { history.clear(); screen = destination; alignVideoWorkflow(destination); refreshProjectsOnEntry() }
+    private fun alignVideoWorkflow(destination: Screen) {
+        if(destination !in listOf(Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.STORY)) return
+        val story = destination == Screen.STORY
+        if(VideoModelCatalog.isReference(draft.modelId) == story) return
+        val options = VideoModelCatalog.forWorkflow(story)
+        val enabled = options.filter { model -> cloudRates.any { it.kind == "video" && it.modelId == model.id } }
+        val preferred = if(story) "kling-o3-reference" else "pixverse-v6"
+        val model = enabled.firstOrNull { it.id == preferred } ?: enabled.firstOrNull()
+            ?: options.first { it.id == preferred }
+        selectVideoModel(model)
+        if(story) updateDraft(draft.copy(templateId = null, requiresReference = false))
+    }
+    fun back() { screen = if (history.isEmpty()) Screen.HOME else history.removeAt(history.lastIndex); alignVideoWorkflow(screen); refreshProjectsOnEntry() }
     private fun refreshProjectsOnEntry() {
         if(screen == Screen.PROJECTS && !cloudWork && !projectHistoryLoaded && !projectPageLoading) activeAccountId?.let {
             startCloudMonitor(it, includeRecentOnStart = true)
@@ -839,7 +854,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         updateDraft(draft.copy(modelId = "kling-o3-reference", resolution = "1080p", duration = if(60 - total < 10) 5 else 10,
             generatedAudio = true, aspect = project.aspect,
             prompt = "Continue this story from @Video1. Keep the characters, setting and visual style consistent. "))
-        tab(Screen.IMAGE)
+        tab(Screen.STORY)
         val account = activeAccountId
         viewModelScope.launch {
             val hasAudio = readReferenceAudio(project.path)
@@ -901,6 +916,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             CreationMode.TEXT_TO_VIDEO -> Screen.TEXT
             CreationMode.CREATE_IMAGE -> Screen.CREATE_IMAGE
         }
+        alignVideoWorkflow(screen)
     }
 
     fun updateImageDraft(value: CreationDraft) {
@@ -955,8 +971,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     fun validateCreationInput(): Boolean {
         val input = if(screen == Screen.CREATE_IMAGE) imageDraft else draft
         val errors = buildList {
-            if(screen == Screen.IMAGE && photo == null && referenceVideoPath == null) add("Add a photo or reference video.")
-            if(VideoModelCatalog.isReference(input.modelId) && screen != Screen.CREATE_IMAGE && (screen != Screen.IMAGE || referenceVideoPath == null)) add("Choose a base video in Image to Video for this model.")
+            if(screen == Screen.IMAGE && photo == null) add("Add a starting photo.")
+            if(screen == Screen.STORY && !VideoModelCatalog.isReference(input.modelId)) add("Choose a story model.")
+            if(VideoModelCatalog.isReference(input.modelId) && screen != Screen.CREATE_IMAGE && (screen != Screen.STORY || referenceVideoPath == null)) add("Choose a base video in Continue Story for this model.")
             if(VideoModelCatalog.isReference(input.modelId) && screen != Screen.CREATE_IMAGE && input.prompt.isBlank()) add("Describe how to use @Video1 and your reference photos.")
             if(screen != Screen.IMAGE && input.prompt.isBlank()) add("Describe what you want to create.")
             if(input.requiresReference && photo == null) add("Upload your own photo to recreate this template.")
@@ -1003,11 +1020,11 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 duration = duration.takeIf { it in model.durations } ?: model.durations.min(), templateId = templateId, requiresReference = requiresReference))
         }
         val target = when(mode) {
-            CreationMode.IMAGE_TO_VIDEO -> Screen.IMAGE
+            CreationMode.IMAGE_TO_VIDEO -> if(VideoModelCatalog.isReference(draft.modelId)) Screen.STORY else Screen.IMAGE
             CreationMode.TEXT_TO_VIDEO -> Screen.TEXT
             CreationMode.CREATE_IMAGE -> Screen.CREATE_IMAGE
         }
-        if(screen !in listOf(Screen.IMAGE, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE)) go(target) else switchCreationMode(mode)
+        if(screen != target) go(target) else alignVideoWorkflow(target)
     }
     fun saveSettings(value: AppSettings) {
         val revision = ++settingsRevision
@@ -1030,6 +1047,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun openCreationSettings(mode: CreationMode) {
         creationSettingsMode = mode
+        creationSettingsStoryOnly = screen == Screen.STORY
         go(Screen.CREATION_SETTINGS)
     }
 
