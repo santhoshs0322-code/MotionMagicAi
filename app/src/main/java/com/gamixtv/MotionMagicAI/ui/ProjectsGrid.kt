@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.gamixtv.MotionMagicAI.MotionViewModel
 import com.gamixtv.MotionMagicAI.Screen
 import com.gamixtv.MotionMagicAI.cloud.CloudThumbnailSource
+import com.gamixtv.MotionMagicAI.cloud.CloudJob
 import com.gamixtv.MotionMagicAI.data.*
 import java.io.File
 
@@ -62,9 +64,11 @@ fun ProjectsScreen(vm: MotionViewModel) {
                 Text(item.title, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 val job = (item as? LibraryItem.Cloud)?.job
                 val project = (item as? LibraryItem.Device)?.project
-                ProjectThumbnail(project?.path ?: job?.previewPath, item.kind == MediaKind.VIDEO,
+                if(job?.isContentBlocked == true) BlockedProjectPreview(job, Modifier.fillMaxWidth().height(240.dp))
+                else ProjectThumbnail(project?.path ?: job?.previewPath, item.kind == MediaKind.VIDEO,
                     modifier = Modifier.fillMaxWidth().height(240.dp), remote = item.remoteThumbnail(account))
                 Text(job?.statusLabel ?: "Saved on this device", color = Muted, fontSize = 12.sp)
+                if(job?.isContentBlocked == true) Text("Try a different photo or prompt.", color = StudioColors.muted, fontSize = 13.sp)
                 when {
                     project != null -> {
                         GradientButton("Open creation", { selectedKey = null; vm.open(project) }, icon = Icons.Rounded.OpenInNew)
@@ -148,7 +152,8 @@ private fun ProjectGridTile(item: LibraryItem, account: String?, open: () -> Uni
     val colors = StudioColors
     Column(Modifier.testTag("project-${item.key}")) {
         Box(Modifier.fillMaxWidth().aspectRatio(.8f).clip(RoundedCornerShape(12.dp)).clickable(onClick = open)) {
-            ProjectThumbnail(project?.path ?: job?.previewPath, item.kind == MediaKind.VIDEO,
+            if(job?.isContentBlocked == true) BlockedProjectPreview(job, Modifier.fillMaxSize())
+            else ProjectThumbnail(project?.path ?: job?.previewPath, item.kind == MediaKind.VIDEO,
                 modifier = Modifier.fillMaxSize(), remote = item.remoteThumbnail(account))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .7f)))))
             Text(when(item.kind) { MediaKind.IMAGE -> "IMAGE"; MediaKind.VIDEO -> "VIDEO"; MediaKind.AUDIO -> "VOICE" },
@@ -161,6 +166,7 @@ private fun ProjectGridTile(item: LibraryItem, account: String?, open: () -> Uni
                 Text(when {
                     job?.state == "downloading" -> "Saving · ${job.progressPercent}%"
                     job?.isGenerating == true -> "Creating · ${job.progressPercent}%"
+                    job?.isContentBlocked == true -> "Content blocked · credits released"
                     job?.state == "failed" -> "Failed · credits released"
                     job?.state == "cancelled" -> "Cancelled"
                     job?.isReady == true && job.thumbnailState in setOf("pending", "processing") -> "Saved · preview preparing"
@@ -173,5 +179,19 @@ private fun ProjectGridTile(item: LibraryItem, account: String?, open: () -> Uni
         }
         Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, lineHeight = 15.sp,
             color = colors.text, modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp))
+    }
+}
+
+@Composable
+internal fun BlockedProjectPreview(job: CloudJob, modifier: Modifier = Modifier) {
+    Box(modifier.testTag("blocked-preview-${job.id}")) {
+        ProjectThumbnail(job.previewPath, job.previewVideo, modifier = Modifier.fillMaxSize(), obscured = true)
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .38f)))
+        Surface(color = Color(0xDD34203F), shape = CircleShape, border = BorderStroke(1.dp, Color.White.copy(alpha = .3f)),
+            modifier = Modifier.align(Alignment.Center).size(48.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Block, "Content blocked", tint = Color.White, modifier = Modifier.size(27.dp))
+            }
+        }
     }
 }

@@ -29,6 +29,12 @@ class Response:
 
 
 class ContractTests(SimpleTestCase):
+    def test_moderation_uses_typed_errors_not_prompt_or_message_words(self):
+        self.assertTrue(fal.content_blocked({"detail": [{"type": "content_policy_violation", "categories": ["model_moderated"]}]}))
+        self.assertTrue(fal.content_blocked({"error": {"detail": [{"type": "content_policy_violation"}]}}))
+        self.assertFalse(fal.content_blocked({"prompt": "content_policy_violation", "msg": "content_policy_violation", "type": "value_error"}))
+        self.assertFalse(fal.content_blocked({"detail": [{"type": "image_too_large"}]}))
+
     def test_safety_cannot_be_disabled_by_payload_or_rate_configuration(self):
         for slug, model, config, _ in fal_catalog.variants():
             video = "resolution" in config
@@ -325,6 +331,7 @@ class FalFlowTests(TestCase):
         worker.run_one()
         job.refresh_from_db(); self.wallet.refresh_from_db()
         self.assertEqual((job.state, job.output_id, job.charged_paise), ("failed", None, 0))
+        self.assertEqual(job.error_code, "content_policy_violation")
         self.assertEqual((self.wallet.balance_paise, self.wallet.held_paise), (100_000, 0))
         self.assertEqual(get.call_count, 2)  # Only queue status/result; never GET the flagged image.
         self.assertFalse(Asset.objects.filter(account=self.account).exists())
@@ -399,3 +406,35 @@ class FalFlowTests(TestCase):
     def test_provider_rejection_releases_daily_budget(self, post):
         job = self.job(); worker.run_one(); job.refresh_from_db(); job.budget.refresh_from_db()
         self.assertEqual((job.state, job.actual_cost_paise, job.budget.reserved_paise, job.budget.spent_paise), ("failed", 0, 0, 0))
+
+    @patch("studio.fal.requests.post")
+    def test_submit_policy_rejection_is_final_and_releases_credits_without_retry(self, post):
+        post.return_value = Response({"detail": [{"loc": ["body"], "type": "content_policy_violation", "categories": ["model_moderated"]}]}, status=422)
+        job = self.job()
+        worker.run_one()
+        job.refresh_from_db(); self.wallet.refresh_from_db()
+        self.assertEqual((job.state, job.error_code, job.charged_paise), ("failed", "content_policy_violation", 0))
+        self.assertEqual((self.wallet.balance_paise, self.wallet.held_paise), (100_000, 0))
+        self.assertIsNone(job.output_id)
+        self.assertFalse(worker.run_one())
+        self.assertFalse(Ledger.objects.filter(kind="charge").exists())
+        post.assert_called_once()
+
+    @patch("studio.fal.requests.post", return_value=Response({"request_id": "moderated-result"}, status=202))
+    @patch("studio.fal.requests.get")
+    @patch("studio.fal.storage.existing_generated_image", return_value=None)
+    @patch("studio.fal.storage.put_generated_stream")
+    def test_result_policy_rejection_survives_worker_and_never_downloads_blocked_media(self, put, existing, get, post):
+        job = self.job()
+        worker.run_one()
+        get.side_effect = [Response({"status": "COMPLETED"}), Response([{"type": "content_policy_violation"}], status=422)]
+        Job.objects.filter(pk=job.pk).update(next_attempt_at=timezone.now())
+        worker.run_one()
+        job.refresh_from_db(); self.wallet.refresh_from_db()
+        self.assertEqual((job.state, job.error_code, job.charged_paise), ("failed", "content_policy_violation", 0))
+        self.assertEqual((self.wallet.balance_paise, self.wallet.held_paise), (100_000, 0))
+        self.assertIsNone(job.output_id)
+        self.assertEqual(get.call_count, 2)
+        self.assertFalse(worker.run_one())
+        post.assert_called_once()
+        put.assert_not_called()

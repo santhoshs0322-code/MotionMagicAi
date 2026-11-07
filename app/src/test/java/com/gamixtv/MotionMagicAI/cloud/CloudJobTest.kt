@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CloudJobTest {
+    @Test fun moderatedFailuresAreBlockedTerminalAndCannotBeDownloaded() {
+        val blocked = job("blocked", "failed").copy(errorCode = "content_policy_violation", chargedPaise = 0)
+        assertTrue(blocked.isContentBlocked)
+        assertFalse(blocked.isReady)
+        assertFalse(blocked.isActive)
+        assertTrue(blocked.statusLabel.contains("Content blocked"))
+        assertFalse(blocked.copy(errorCode = "provider_failed").isContentBlocked)
+        assertFalse(blocked.copy(state = "running").isContentBlocked)
+        val merged = mergeCloudJobs(listOf(job("blocked", "running")), listOf(blocked), emptySet())
+        assertEquals(blocked, merged.single())
+    }
     private fun job(id: String, state: String = "succeeded", time: Long = 1) =
         CloudJob(id, "Scene", "video", state, 10, "9:16", "asset", 25, "", createdAt = time)
 

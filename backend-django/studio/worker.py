@@ -48,7 +48,9 @@ def run_one():
             asset = storage.provider_output(job, result.get("output", {})) if result["state"] == "succeeded" else None
             if asset is not None:
                 thumbnails.generate(asset.pk)
-            error = "invalid_reference" if result.get("error_code") == "invalid_reference" else "provider_failed"
+            error = result.get("error_code")
+            if not isinstance(error, str) or error not in {"invalid_reference", "content_policy_violation"}:
+                error = "provider_failed"
             finish_job(job.pk, result["state"], cost, asset, error if result["state"] == "failed" else "", lease)
             log.info("generation_job_terminal job_id=%s state=%s attempts=%s", job.pk, result["state"], job.attempts)
         else:

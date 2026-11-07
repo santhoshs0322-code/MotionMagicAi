@@ -24,6 +24,7 @@ data class CloudJob(
     val isGenerating: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain")
     val isActive: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain", "downloading")
     val isReady: Boolean get() = state == "succeeded" && !outputAssetId.isNullOrBlank()
+    val isContentBlocked: Boolean get() = state == "failed" && errorCode == "content_policy_violation"
     val statusLabel: String get() = when(state) {
         "queued" -> "Waiting for generation"
         "submitting" -> "Sending to AI model"
@@ -32,7 +33,11 @@ data class CloudJob(
         "downloading" -> "Completed · downloading to this device"
         "succeeded" -> "Completed · saved to your account"
         "cancelled" -> "Cancelled"
-        "failed" -> if(errorCode == "invalid_reference") "Check reference format, length and size · credits released" else "Generation failed · credits released"
+        "failed" -> when {
+            isContentBlocked -> "Content blocked by safety check · credits released"
+            errorCode == "invalid_reference" -> "Check reference format, length and size · credits released"
+            else -> "Generation failed · credits released"
+        }
         else -> "Checking generation"
     }
 

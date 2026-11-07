@@ -1,6 +1,7 @@
 package com.gamixtv.MotionMagicAI
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
@@ -16,6 +17,7 @@ import com.gamixtv.MotionMagicAI.cloud.CloudJob
 import com.gamixtv.MotionMagicAI.data.*
 import com.gamixtv.MotionMagicAI.ui.*
 import java.io.File
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -32,6 +34,49 @@ class ProjectsGridUiTest {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
         }
         bitmap.recycle()
+    }
+
+    @Test fun moderationShowsCenteredBlockAndKeepsOnlyAnAccountScopedBlurredPreview() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val source = File(context.cacheDir, "moderation-source-fixture.jpg")
+        context.assets.open("image_templates/31_orbital_explorer.jpg").use { input -> source.outputStream().use { input.copyTo(it) } }
+        val account = "moderation-ui-test-account"
+        val id = "moderation-ui-test-job"
+        val retained = checkNotNull(BlockedPreviewStore.save(context, account, id, source.path, false))
+        try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(retained, bounds)
+            assertTrue(maxOf(bounds.outWidth, bounds.outHeight) <= 12)
+            assertNotEquals(retained, BlockedPreviewStore.path(context, "different-account", id))
+            assertFalse(File(BlockedPreviewStore.path(context, "different-account", id)).exists())
+            assertTrue(source.delete())
+            assertTrue(File(retained).isFile)
+            val blocked = CloudJob(id, "Blocked portrait", "image", "failed", 0, "3:4", null, 0,
+                "content_policy_violation", previewPath = retained)
+            val ordinary = blocked.copy(id = "ordinary-failure", title = "Network failure", errorCode = "provider_failed")
+            val theme = mutableStateOf(ThemeMode.DARK)
+            ui.setContent { MotionTheme(theme.value) {
+                Box(Modifier.fillMaxSize().background(Ink).testTag("capture-root")) {
+                    ProjectLibraryGrid(listOf(LibraryItem.Cloud(blocked), LibraryItem.Cloud(ordinary)), "", {}, ProjectFilter.ALL, {},
+                        account, 0, false, null, false, {}, {}, {}, {}, {})
+                }
+            } }
+            ui.onNodeWithTag("blocked-preview-$id", useUnmergedTree = true).assertIsDisplayed()
+            ui.onNodeWithTag("blocked-preview-ordinary-failure", useUnmergedTree = true).assertDoesNotExist()
+            ui.onNodeWithText("Content blocked · credits released", useUnmergedTree = true).assertIsDisplayed()
+            val preview = ui.onNodeWithTag("blocked-preview-$id", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val icon = ui.onNodeWithContentDescription("Content blocked", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertEquals(preview.center.x, icon.center.x, 2f)
+            assertEquals(preview.center.y, icon.center.y, 2f)
+            ui.onNodeWithText("Download to device").assertDoesNotExist()
+            screenshot("projects-blocked-dark.png")
+            ui.runOnIdle { theme.value = ThemeMode.LIGHT }
+            ui.onNodeWithContentDescription("Content blocked", useUnmergedTree = true).assertIsDisplayed()
+            screenshot("projects-blocked-light.png")
+        } finally {
+            source.delete()
+            File(retained).delete()
+        }
     }
 
     @Test fun mixedGridFiltersByMediaTypeSearchesAndOpensTheSelectedCreation() {

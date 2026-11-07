@@ -21,16 +21,42 @@ def configured():
     return bool(settings.FAL_KEY and settings.S3_BUCKET)
 
 
-def read_json(response):
+def read_json(response, allow_errors=False):
     content = bytearray()
     for chunk in response.iter_content(64 * 1024):
         content.extend(chunk)
         if len(content) > 1024**2:
             raise ValueError("Provider response too large")
     data = json.loads(content)
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) and not (allow_errors and isinstance(data, list)):
         raise ValueError("Invalid provider response")
     return data
+
+
+def content_blocked(data, depth=0):
+    """Use typed provider errors, never prompt text or human error-message matching."""
+    if depth > 5:
+        return False
+    if isinstance(data, dict):
+        if data.get("type") == "content_policy_violation" or data.get("code") == "content_policy_violation":
+            return True
+        return any(content_blocked(data.get(key), depth + 1) for key in ("detail", "error", "errors"))
+    if isinstance(data, list):
+        return any(content_blocked(item, depth + 1) for item in data[:100])
+    return data == "content_policy_violation"
+
+
+def blocked_result(job, rejected=False):
+    return {**terminal(job, rejected=rejected), "error_code": "content_policy_violation"}
+
+
+def rejected_result(job, response, rejected=False):
+    try:
+        if content_blocked(read_json(response, allow_errors=True)):
+            return blocked_result(job, rejected=rejected)
+    except (ValueError, requests.RequestException):
+        pass
+    return terminal(job, rejected=rejected)
 
 
 def terminal(job, output=None, rejected=False):
@@ -85,8 +111,10 @@ def submit(job):
         with requests.post(f"{QUEUE}/{endpoint}", json=body, headers={"Authorization": f"Key {settings.FAL_KEY}"},
                            timeout=(5, 30), allow_redirects=False, stream=True) as response:
             if response.status_code not in (200, 201, 202):
-                return terminal(job, rejected=response.status_code in (400, 401, 403, 404, 422, 429))
+                return rejected_result(job, response, rejected=response.status_code in (400, 401, 403, 404, 422, 429))
             data = read_json(response)
+        if content_blocked(data):
+            return blocked_result(job)
         identifier = data.get("request_id", "")
         if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", identifier):
             return terminal(job)
@@ -111,7 +139,7 @@ def media_url(value):
 
 def download(job, data):
     if any(data.get("has_nsfw_concepts", [])):
-        return terminal(job)
+        return blocked_result(job)
     video = job.quote.payload["kind"] == "video"
     output = data.get("video") if video else (data.get("images") or [None])[0]
     if not isinstance(output, dict):
@@ -148,6 +176,8 @@ def reconcile(job):
     base = f"{QUEUE}/{root}/requests/{job.provider_id}"
     headers = {"Authorization": f"Key {settings.FAL_KEY}"}
     with requests.get(base + "/status", headers=headers, timeout=(5, 30), stream=True, allow_redirects=False) as response:
+        if response.status_code in (400, 422):
+            return rejected_result(job, response)
         response.raise_for_status()
         state = read_json(response).get("status")
     if state in ("IN_QUEUE", "IN_PROGRESS"):
@@ -156,9 +186,11 @@ def reconcile(job):
         raise ValueError("Unknown provider queue status")
     with requests.get(base, headers=headers, timeout=(5, 30), stream=True, allow_redirects=False) as response:
         if response.status_code in (400, 422):
-            return terminal(job)
+            return rejected_result(job, response)
         response.raise_for_status()
         result = read_json(response)
+    if content_blocked(result):
+        return blocked_result(job)
     if result.get("error") or result.get("detail"):
         return terminal(job)
     return download(job, result)

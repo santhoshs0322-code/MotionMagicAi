@@ -29,6 +29,7 @@ import com.gamixtv.MotionMagicAI.media.MediaAccess
 import com.gamixtv.MotionMagicAI.ui.ArtRepository
 import com.gamixtv.MotionMagicAI.ui.Artwork
 import com.gamixtv.MotionMagicAI.ui.Template
+import com.gamixtv.MotionMagicAI.ui.BlockedPreviewStore
 import java.io.File
 import java.io.IOException
 import java.net.URLEncoder
@@ -581,7 +582,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 val row = rows.getJSONObject(index)
                 val serverJob = CloudJob.from(row).copy(previewPath = previews[row.getString("id")]?.optString("preview")?.ifBlank { null },
                     previewVideo = previews[row.getString("id")]?.optBoolean("preview_video") ?: false)
-                cloudJobs.firstOrNull { it.id == serverJob.id && it.state == "downloading" && serverJob.isReady } ?: serverJob
+                cloudJobs.firstOrNull { it.id == serverJob.id && it.state == "downloading" && serverJob.isReady } ?: blockedPreviewFallback(serverJob, account)
             }
             val latestById = latest.associateBy { it.id }
             for(id in trackedIds.filterNot { it in latestById }.takeIf { response.optBoolean("tracked_supported") }.orEmpty()) {
@@ -610,10 +611,21 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
             for(job in latest.filter { it.state == "failed" || it.state == "cancelled" }) {
+                if(job.isContentBlocked) {
+                    try {
+                        val blurred = BlockedPreviewStore.save(app, account, job.id, job.previewPath, job.previewVideo)
+                        if(blurred != null && activeAccountId == account) cloudJobs = cloudJobs.map {
+                            if(it.id == job.id) it.copy(previewPath = blurred, previewVideo = false) else it
+                        }
+                    } catch(e: CancellationException) { throw e }
+                    catch(_: Exception) { /* A missing preview must not delay credit release or status updates. */ }
+                }
                 pinned.firstOrNull { it.optString("job_id") == job.id }?.let { request ->
                     withContext(Dispatchers.IO) { updateCloudPending(session, null, pendingId(request)) }
                 }
-                if(previews[job.id]?.optBoolean("preview_temp") == true) job.previewPath?.let { withContext(Dispatchers.IO) { File(it).delete() } }
+                if(previews[job.id]?.optBoolean("preview_temp") == true) previews[job.id]?.optString("preview")?.takeIf { it.isNotBlank() }?.let {
+                    withContext(Dispatchers.IO) { File(it).delete() }
+                }
             }
             observedActiveJobIds.removeAll(latest.filter { it.state in setOf("succeeded", "failed", "cancelled") }.map { it.id }.toSet())
             if(terminalChanged) refreshWallet()
@@ -624,6 +636,9 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
             throw e
         } finally { if(includeRecent && activeAccountId == account) projectPageLoading = false }
     }
+
+    private fun blockedPreviewFallback(job: CloudJob, account: String): CloudJob =
+        if(job.isContentBlocked && job.previewPath == null) job.copy(previewPath = BlockedPreviewStore.path(app, account, job.id), previewVideo = false) else job
 
     fun loadMoreProjects() {
         val account = activeAccountId ?: return
@@ -646,7 +661,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                     if(activeAccountId != account) return@withLock
                     val rows = response.getJSONArray("results")
                     val downloaded = projects.filter { it.id.startsWith("cloud_") && File(it.path).isFile }.map { it.id.removePrefix("cloud_") }.toSet()
-                    val page = (0 until rows.length()).map { CloudJob.from(rows.getJSONObject(it)) }
+                    val page = (0 until rows.length()).map { blockedPreviewFallback(CloudJob.from(rows.getJSONObject(it)), account) }
                     cloudJobs = mergeCloudJobs(cloudJobs, page, downloaded, retainMissingActive = true)
                     projectNextCursor = response.optString("next_cursor").takeUnless { it.isBlank() || it == "null" }
                     projectHasMore = projectNextCursor != null
