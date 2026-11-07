@@ -94,12 +94,20 @@ internal fun ProjectLibraryGrid(items: List<LibraryItem>, query: String, changeQ
     LazyVerticalGrid(GridCells.Fixed(columns), modifier = Modifier.fillMaxSize().testTag("projects-grid"),
         contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+            val compact = LocalConfiguration.current.screenWidthDp < 360 || LocalConfiguration.current.fontScale > 1.2f
+            val heading: @Composable (Modifier) -> Unit = { modifier ->
+                Column(modifier) {
                     Text("Your creations", fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     Text(if(active > 0) "$active of 3 generating" else "Images, videos and voice · made by you", fontSize = 11.sp, color = colors.muted)
                 }
-                IconButton(onClick = onRefresh, enabled = !loading) { Icon(Icons.Rounded.Refresh, "Refresh projects") }
+            }
+            if(compact) Column(Modifier.fillMaxWidth().padding(horizontal = 3.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                heading(Modifier.fillMaxWidth())
+                ProjectRefreshButton(loading, onRefresh, Modifier.fillMaxWidth())
+            } else Row(Modifier.fillMaxWidth().padding(horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                heading(Modifier.weight(1f))
+                ProjectRefreshButton(loading, onRefresh)
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -135,6 +143,21 @@ internal fun ProjectLibraryGrid(items: List<LibraryItem>, query: String, changeQ
                 else if(items.isNotEmpty() && !loading) Text("You're all caught up", color = colors.muted, fontSize = 11.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun ProjectRefreshButton(loading: Boolean, refresh: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = StudioColors
+    FilledTonalButton(onClick = refresh, enabled = !loading, modifier = modifier.heightIn(min = 48.dp).testTag("projects-refresh"),
+        shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, colors.primary.copy(alpha = .4f)),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.selected, contentColor = colors.primary,
+            disabledContainerColor = colors.selected, disabledContentColor = colors.muted)) {
+        if(loading) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp, color = colors.muted)
+        else Icon(Icons.Rounded.Refresh, null, Modifier.size(19.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(if(loading) "Refreshing…" else "Refresh", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

@@ -90,16 +90,24 @@ class ProjectsGridUiTest {
         val entries = projectLibrary(listOf(first, second), listOf(video), setOf(first.id, second.id))
         var selected: LibraryItem? = null
         val theme = mutableStateOf(ThemeMode.DARK)
+        val loading = mutableStateOf(false)
+        var refreshes = 0
         ui.setContent {
             var filter by remember { mutableStateOf(ProjectFilter.ALL) }
             var query by remember { mutableStateOf("") }
             MotionTheme(theme.value) {
                 Box(Modifier.fillMaxSize().background(Ink).testTag("capture-root")) {
                     ProjectLibraryGrid(entries.filter { it.matches(filter, query) }, query, { query = it }, filter, { filter = it },
-                        null, 0, false, null, false, {}, {}, { selected = it }, {}, {})
+                        null, 0, loading.value, null, false, { refreshes++; loading.value = true }, {}, { selected = it }, {}, {})
                 }
             }
         }
+        ui.onNodeWithTag("projects-refresh").assertIsDisplayed().assertIsEnabled().performClick()
+        assertEquals(1, refreshes)
+        ui.onNodeWithTag("projects-refresh").assertIsNotEnabled()
+        ui.onNodeWithText("Refreshing…").assertIsDisplayed()
+        ui.runOnIdle { loading.value = false }
+        ui.onNodeWithText("Refresh").assertIsDisplayed()
         ui.onNodeWithTag("project-image-one").assertIsDisplayed()
         ui.onNodeWithTag("project-image-two").assertIsDisplayed()
         ui.onNodeWithTag("project-cloud_video-one").assertIsDisplayed()
