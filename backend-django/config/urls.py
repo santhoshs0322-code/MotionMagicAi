@@ -2,9 +2,12 @@ from django.urls import path
 from studio import views as v
 from studio import owner
 from studio import showcase
+from studio import owner_credits
 
 urlpatterns = [
     path("owner/", owner.dashboard, name="owner-dashboard"),
+    path("owner/credits/", owner_credits.grant_credits, name="owner-credit-grant"),
+    path("owner/credits/<uuid:identifier>/", owner_credits.receipt, name="owner-credit-receipt"),
     path("owner/showcase/", showcase.owner_templates, name="owner-templates"),
     path("owner/showcase/banners/", showcase.owner_banners, name="owner-banners"),
     path("owner/showcase/banners/<uuid:identifier>/", showcase.owner_banners, name="owner-banner-edit"),

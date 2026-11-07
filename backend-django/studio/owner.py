@@ -22,7 +22,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from .authentication import rate_limit
 from .errors import Problem
 from . import finance, fal_billing
-from .models import Account, CashEntry, Job, Ledger, OwnerAudit, Purchase, Rate, Wallet
+from .models import Account, CashEntry, Job, Ledger, OwnerAudit, OwnerCreditGrant, Purchase, Rate, Wallet
 
 
 def allowed(user):
@@ -127,6 +127,9 @@ def records(request, kind):
         if term: query = query.filter(email__icontains=term)
     elif kind == "audit":
         query = OwnerAudit.objects.select_related("owner").filter(created_at__gte=filters["from"], created_at__lt=filters["until"]).order_by("-created_at", "-pk")
+    elif kind == "credits":
+        query = OwnerCreditGrant.objects.select_related("account", "recorded_by").filter(created_at__gte=filters["from"], created_at__lt=filters["until"]).order_by("-created_at", "-pk")
+        if filters["user"]: query = query.filter(account_id=filters["user"])
     elif kind == "purchases":
         query = Purchase.objects.defer("token_encrypted", "token_hash").select_related("account", "product").filter(created_at__gte=filters["from"], created_at__lt=filters["until"]).order_by("-created_at", "-pk")
         if filters["user"]: query = query.filter(account_id=filters["user"])

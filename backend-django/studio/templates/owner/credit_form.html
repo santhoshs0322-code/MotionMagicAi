@@ -1,0 +1,10 @@
+{% extends 'owner/base.html' %}{% block content %}
+<section class="panel form-page">
+  <h1>Add custom credits</h1>
+  <p>Grant non-expiring bonus credits to one app user. Their existing balance and reserved credits are preserved.</p>
+  <p>These are complimentary credits, not a Google Play purchase or cash receipt. They are used after any active monthly credits and before purchased top-ups.</p>
+  <p><a href="{% url 'owner-records' 'users' %}">Find a user</a> · <a href="{% url 'owner-records' 'credits' %}">Credit grant history</a></p>
+  {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post">{% csrf_token %}{{ form.as_p }}<button name="action" value="review">Review credit grant</button></form>
+</section>
+{% endblock %}

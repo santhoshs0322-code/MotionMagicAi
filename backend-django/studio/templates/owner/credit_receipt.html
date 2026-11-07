@@ -1,0 +1,15 @@
+{% extends 'owner/base.html' %}{% load money %}{% block content %}
+<section class="panel form-page">
+  <h1>Credits added</h1>
+  <p class="notice"><strong>{{ grant.credits|credits }} bonus credits</strong> were added to {{ grant.account.email }}.</p>
+  <dl>
+    <dt>User</dt><dd>{{ grant.account.name }} · <code>{{ grant.account_id }}</code></dd>
+    <dt>Reason</dt><dd>{{ grant.note|linebreaksbr }}</dd>
+    <dt>Recorded by</dt><dd>{{ grant.recorded_by.username }} · {{ grant.created_at }}</dd>
+    <dt>Grant reference</dt><dd><code>{{ grant.pk }}</code></dd>
+    <dt>Current available balance</dt><dd>{{ wallet.available_paise|credits }} credits · {{ wallet.held_paise|credits }} reserved</dd>
+  </dl>
+  <p>The app receives the new balance on its next wallet refresh. This grant was not recorded as purchase revenue.</p>
+  <div class="toolbar"><a class="button" href="{% url 'owner-records' 'credits' %}?user={{ grant.account_id|urlencode }}">View grant history</a><a href="{% url 'owner-records' 'ledger' %}?user={{ grant.account_id|urlencode }}">View wallet ledger</a><a href="{% url 'owner-credit-grant' %}?user={{ grant.account_id|urlencode }}">Add another grant</a></div>
+</section>
+{% endblock %}

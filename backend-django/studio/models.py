@@ -291,3 +291,17 @@ class OwnerAudit(models.Model):
     action = models.CharField(max_length=40)
     reference = models.CharField(max_length=250, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+
+class OwnerCreditGrant(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    account = models.ForeignKey(Account, on_delete=models.PROTECT)
+    credits = models.PositiveIntegerField()
+    note = models.CharField(max_length=500)
+    ledger = models.OneToOneField(Ledger, on_delete=models.PROTECT)
+    recorded_by = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=Q(credits__gte=1, credits__lte=1_000_000), name="owner_credit_grant_amount_valid")]
+        indexes = [models.Index(fields=["account", "-created_at", "-id"], name="owner_credit_grant_user_idx")]

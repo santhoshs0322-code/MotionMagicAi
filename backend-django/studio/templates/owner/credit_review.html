@@ -1,0 +1,15 @@
+{% extends 'owner/base.html' %}{% load money %}{% block content %}
+<section class="panel form-page">
+  <h1>Confirm credit grant</h1>
+  <dl>
+    <dt>App user</dt><dd>{{ account.name }} · {{ account.email }}</dd>
+    <dt>User ID</dt><dd><code>{{ account.pk }}</code></dd>
+    <dt>Credits to add</dt><dd><strong>{{ credits|credits }} bonus credits</strong></dd>
+    <dt>Current available balance</dt><dd>{{ wallet.available_paise|default:0|credits }} credits</dd>
+    <dt>Reason</dt><dd>{{ note|linebreaksbr }}</dd>
+  </dl>
+  <p>The grant does not expire. A wallet entry and owner audit record will be saved. No payment or revenue will be recorded.</p>
+  <form method="post">{% csrf_token %}<input type="hidden" name="review_token" value="{{ review_token }}"><button name="action" value="confirm">Confirm and add {{ credits|credits }} credits</button></form>
+  <p><a href="{% url 'owner-credit-grant' %}?user={{ account.pk|urlencode }}">Cancel and edit</a></p>
+</section>
+{% endblock %}
