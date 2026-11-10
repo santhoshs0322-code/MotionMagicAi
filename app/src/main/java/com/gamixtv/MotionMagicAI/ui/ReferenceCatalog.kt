@@ -76,12 +76,13 @@ internal fun ReferenceCatalogContent(credits: Long?, theme: ThemeMode, entries: 
         if(searching) OutlinedTextField(query, { query = it }, label = { Text("Search templates") }, singleLine = true,
             trailingIcon = { IconButton(onClick = { query = ""; searching = false }) { Icon(Icons.Rounded.Close, "Close search") } },
             shape = PanelShape, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
-        LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.weight(1f).testTag("home-catalog"), state = listState, contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if(entries.isEmpty()) item {
                 Text("Templates are currently unavailable. Try again shortly.", color = Muted, modifier = Modifier.padding(16.dp))
             }
             if(!templatePage && query.isBlank()) {
                 item(key = "home-banners") { HomeBannerCarousel(bannerRows, bannersActive && bannerVisible && !searching, navigate) }
+                item(key = "home-long-story") { LongStoryHomeCard(Modifier.padding(horizontal = 16.dp)) { navigate(Screen.LONG_STORY) } }
                 item {
                     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         mainCatalogTools.chunked(2).forEach { row ->
@@ -89,11 +90,6 @@ internal fun ReferenceCatalogContent(credits: Long?, theme: ThemeMode, entries: 
                                 row.forEach { tool -> CatalogCreationCard(tool, Modifier.weight(1f)) { navigate(tool.destination) } }
                             }
                         }
-                    }
-                }
-                item {
-                    OutlinedButton(onClick = { navigate(Screen.LONG_STORY) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("home-long-story")) {
-                        Icon(Icons.Rounded.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Long Story · 1–5 minutes with dialogue")
                     }
                 }
                 item {

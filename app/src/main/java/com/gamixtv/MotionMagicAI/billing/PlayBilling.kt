@@ -2,6 +2,8 @@ package com.gamixtv.MotionMagicAI.billing
 
 import android.app.Activity
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
@@ -28,6 +30,9 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
         private fun type(sku: String) = if (sku in creditPacks) BillingClient.ProductType.INAPP else BillingClient.ProductType.SUBS
     }
 
+    private val main = Handler(Looper.getMainLooper())
+    private var pendingPrices: Pair<Set<String>, (Map<String, String>) -> Unit>? = null
+    private var connecting = true
     private val client = BillingClient.newBuilder(context.applicationContext)
         .setListener(this)
         .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
@@ -36,10 +41,42 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
 
     init {
         client.startConnection(object : BillingClientStateListener {
-            override fun onBillingSetupFinished(result: BillingResult) = Unit
+            override fun onBillingSetupFinished(result: BillingResult) {
+                main.post {
+                    connecting = false
+                    val pending = pendingPrices
+                    pendingPrices = null
+                    if(pending != null) {
+                        if(result.responseCode == BillingClient.BillingResponseCode.OK) loadPrices(pending.first, pending.second)
+                        else pending.second(emptyMap())
+                    }
+                }
+            }
             override fun onBillingServiceDisconnected() = Unit // Auto reconnection handles the next request.
         })
     }
+
+    /** Display-only prices; checkout still requests fresh, eligible product details. */
+    fun loadPrices(products: Set<String>, loaded: (Map<String, String>) -> Unit) {
+        val allowed = products.intersect(creditPacks)
+        if(allowed.isEmpty()) { loaded(emptyMap()); return }
+        if(!client.isReady && connecting) { pendingPrices = allowed to loaded; return }
+        val request = QueryProductDetailsParams.newBuilder().setProductList(allowed.map {
+            QueryProductDetailsParams.Product.newBuilder().setProductId(it).setProductType(BillingClient.ProductType.INAPP).build()
+        }).build()
+        client.queryProductDetailsAsync(request) { result, details ->
+            val prices = if(result.responseCode != BillingClient.BillingResponseCode.OK) emptyMap() else
+                details.productDetailsList.filter { it.productId in allowed }.mapNotNull { item ->
+                    val offer = buyOffer(item)
+                    offer?.formattedPrice?.takeIf { it.isNotBlank() }?.let { item.productId to it }
+                }.toMap()
+            main.post { loaded(prices) }
+        }
+    }
+
+    private fun buyOffer(item: ProductDetails) =
+        item.oneTimePurchaseOfferDetailsList.orEmpty().firstOrNull { it.rentalDetails == null && it.offerId == null }
+            ?: item.oneTimePurchaseOfferDetails?.takeIf { it.rentalDetails == null && it.offerId == null }
 
     fun buy(activity: Activity, sku: String, accountId: String, onFinished: () -> Unit) {
         if (sku !in creditPacks) {
@@ -63,8 +100,7 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
                         return@runOnUiThread
                     }
                     // Credit packs use a standard outright buy, never a rental or pre-order.
-                    val offer = item.oneTimePurchaseOfferDetailsList.orEmpty().firstOrNull { it.rentalDetails == null && it.offerId == null }
-                        ?: item.oneTimePurchaseOfferDetails?.takeIf { it.rentalDetails == null && it.offerId == null }
+                    val offer = buyOffer(item)
                     val offerToken = offer?.offerToken?.takeIf { it.isNotBlank() }
                     if(offerToken == null) {
                         onMessage("This credit pack has no available buy option in Google Play yet.")
@@ -110,5 +146,8 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
         }
     }
 
-    fun close() = client.endConnection()
+    fun close() {
+        pendingPrices = null
+        client.endConnection()
+    }
 }

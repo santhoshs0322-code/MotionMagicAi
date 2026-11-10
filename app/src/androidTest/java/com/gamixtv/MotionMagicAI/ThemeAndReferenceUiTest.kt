@@ -59,6 +59,7 @@ class ThemeAndReferenceUiTest {
     @Test fun homeToggleKeepsCreditsAndPersistsTheLastRapidSelection() {
         var destination: Screen? = null
         show { ReferenceCatalogContent(1728, vm.settings.themeMode, templates, false, vm::toggleTheme, { destination = it }, {}) }
+        ui.onNodeWithTag("home-catalog").performScrollToNode(hasText("Continue Story"))
         ui.onNodeWithText("Continue Story").assertIsDisplayed()
         ui.onNodeWithText("Continue Story").performClick()
         assertEquals(Screen.STORY, destination)

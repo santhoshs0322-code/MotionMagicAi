@@ -198,6 +198,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     private var billingCheckedAt = 0L
     private var walletCheckedAt = 0L
     var creditProducts by mutableStateOf<List<Pair<String, Long>>>(emptyList()); private set
+    var creditProductPrices by mutableStateOf<Map<String, String>>(emptyMap()); private set
     var walletCredits by mutableStateOf<Long?>(null); private set
     var monthlyCredits by mutableStateOf<Long?>(null); private set
     var topupCredits by mutableStateOf<Long?>(null); private set
@@ -243,6 +244,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshBilling(recoverPurchases: Boolean = true, force: Boolean = false) {
         val account = activeAccountId ?: return
+        if(creditProducts.isNotEmpty() && (force || creditProductPrices.isEmpty())) refreshCreditPrices(account)
         // Pack availability and wallet balance are independent requests. Start
         // both without making the pack list wait for the wallet response.
         refreshWallet(force = force)
@@ -259,6 +261,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 creditProducts = (0 until products.length()).map { index ->
                     products.getJSONObject(index).getString("sku") to products.getJSONObject(index).getLong("credits")
                 }.filter { it.first in PlayBilling.creditPacks }
+                refreshCreditPrices(account)
                 billingReady = true
                 billingCheckedAt = android.os.SystemClock.elapsedRealtime()
                 if (recoverPurchases) playBilling.recover()
@@ -268,6 +271,13 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 billingError = "Could not load credit packs. Check your connection and retry."
             } }
             finally { if(activeAccountId == account) billingLoading = false }
+        }
+    }
+
+    private fun refreshCreditPrices(account: String) {
+        val products = creditProducts.map { it.first }.toSet()
+        playBilling.loadPrices(products) { prices ->
+            if(activeAccountId == account && creditProducts.map { it.first }.toSet() == products) creditProductPrices = prices
         }
     }
 
@@ -766,7 +776,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         photo = null; photoName = ""; referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0; cloudQuote = null
         referencePhotoPaths = emptyList(); referenceVideoDurationMs = null
         selectedProject = null; selectedArt = Artwork.Garden; failure = null; info = null
-        currentPlan = PlanTier.FREE; billingReady = false; billingBusy = false; billingAccountId = null; creditProducts = emptyList()
+        currentPlan = PlanTier.FREE; billingReady = false; billingBusy = false; billingAccountId = null; creditProducts = emptyList(); creditProductPrices = emptyMap()
         buyingProductId = null; billingLoading = false; billingError = null; billingCheckedAt = 0L; walletCheckedAt = 0L
         walletCredits = null; monthlyCredits = null; topupCredits = null; freeCredits = null
         history.clear(); screen = Screen.HOME

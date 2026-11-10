@@ -4,6 +4,9 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -13,6 +16,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.gamixtv.MotionMagicAI.billing.PlayBilling
@@ -38,23 +44,29 @@ class CreditPacksUiTest {
         CloudRate("pixverse", "PixVerse V6", "pixverse-v6", "video", "720p", listOf("9:16"), listOf(5), false, false,
             minimumPricePaise = 250, minimumUnits = 5),
     )
-    private val state = mutableStateOf(CreditPacksState(2050, products, rates, ready = true))
+    private val state = mutableStateOf(CreditPacksState(2050, products, rates, ready = true,
+        prices = mapOf(PlayBilling.PACK_2500 to "\u20b9199.00", PlayBilling.PACK_10000 to "\u20b9999.00")))
     private val theme = mutableStateOf(ThemeMode.DARK)
     private val fontScale = mutableFloatStateOf(1f)
+    private val pageWidth = mutableIntStateOf(411)
     private var purchases = emptyList<String>()
     private var retries = 0
+    private var accounts = 0
 
     private fun show() {
         ui.setContent {
-            val configuration = Configuration(LocalConfiguration.current).apply { fontScale = this@CreditPacksUiTest.fontScale.floatValue }
+            val configuration = Configuration(LocalConfiguration.current).apply {
+                fontScale = this@CreditPacksUiTest.fontScale.floatValue
+                screenWidthDp = pageWidth.intValue
+            }
             CompositionLocalProvider(LocalConfiguration provides configuration,
                 LocalDensity provides Density(LocalDensity.current.density, fontScale.floatValue)) {
                 MotionTheme(theme.value) {
-                    Box(Modifier.fillMaxSize().testTag("pricing-capture")) {
+                    Box(Modifier.width(pageWidth.intValue.dp).fillMaxHeight().systemBarsPadding().testTag("pricing-capture")) {
                         CreditPacksContent(state.value, { sku ->
                             purchases = purchases + sku
                             state.value = state.value.copy(busy = true, openingSku = sku)
-                        }, { retries++ }, {})
+                        }, { retries++ }, {}, { accounts++ })
                     }
                 }
             }
@@ -85,6 +97,10 @@ class CreditPacksUiTest {
         show()
         screenshot("pricing-hero-dark.png")
         ui.onNodeWithTag("pricing-credit-balance").assertTextEquals("2,050")
+        ui.onNodeWithTag("credit-shop-account").performClick()
+        assertEquals(1, accounts)
+        scrollTo("buy-${PlayBilling.PACK_2500}")
+        ui.onNodeWithText("\u20b9199.00").assertIsDisplayed()
         scrollTo("popular-${PlayBilling.PACK_10000}")
         ui.onNodeWithTag("popular-${PlayBilling.PACK_10000}").assertIsDisplayed()
         ui.onAllNodesWithText("Most popular").assertCountEquals(1)
@@ -100,6 +116,8 @@ class CreditPacksUiTest {
         ui.runOnIdle { state.value = state.value.copy(busy = false, openingSku = null); theme.value = ThemeMode.LIGHT }
         ui.onNodeWithTag("credit-packs-page").performScrollToIndex(0)
         screenshot("pricing-light.png")
+        scrollTo("credit-cost-toggle")
+        ui.onNodeWithTag("credit-cost-toggle").performClick()
         ui.onNodeWithTag("credit-packs-page").performScrollToNode(hasText("Qwen Image"))
         ui.onNodeWithText("Qwen Image").assertIsDisplayed()
         ui.onNodeWithTag("credit-packs-page").performScrollToNode(hasText("From 35 credits per image"))
@@ -131,5 +149,18 @@ class CreditPacksUiTest {
         ui.runOnIdle { state.value = state.value.copy(products = emptyList()) }
         ui.onNodeWithTag("credit-packs-page").performScrollToNode(hasText("Credit packs are currently unavailable."))
         ui.onNodeWithText("Credit packs are currently unavailable.").assertIsDisplayed()
+    }
+
+    @Test fun compactPackCountsStayOnOneLineWithoutClipping() {
+        pageWidth.intValue = 360
+        show()
+        for(count in listOf("2,500", "5,000", "10,000", "20,000")) {
+            ui.onNodeWithTag("credit-packs-page").performScrollToNode(hasText(count))
+            val results = mutableListOf<TextLayoutResult>()
+            ui.onNodeWithText(count).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+            assertEquals("$count must stay on one line", 1, results.single().lineCount)
+            assertFalse("$count must fit its card", results.single().hasVisualOverflow)
+        }
+        screenshot("pricing-compact.png")
     }
 }

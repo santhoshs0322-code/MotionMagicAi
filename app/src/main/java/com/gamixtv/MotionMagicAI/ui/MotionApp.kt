@@ -92,11 +92,11 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
     BackHandler(enabled = vm.screen != Screen.HOME && work == null) { vm.back() }
     val roots = listOf(Screen.HOME, Screen.TEMPLATES, Screen.PROJECTS, Screen.PROFILE)
     val creating = vm.screen in listOf(Screen.IMAGE, Screen.STORY, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE)
-    Scaffold(containerColor = Ink, snackbarHost = {
+    Scaffold(containerColor = if(vm.screen == Screen.PLANS && StudioColors.dark) Color(0xFF03031B) else Ink, snackbarHost = {
         SnackbarHost(snackbar, Modifier.padding(bottom = if(creating) 128.dp else 0.dp))
     },
         topBar = {
-            if(vm.screen !in listOf(Screen.HOME, Screen.TEMPLATES, Screen.IMAGE, Screen.STORY, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE, Screen.CREATION_SETTINGS)) CenterAlignedTopAppBar(
+            if(vm.screen !in listOf(Screen.HOME, Screen.TEMPLATES, Screen.PLANS, Screen.IMAGE, Screen.STORY, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE, Screen.CREATION_SETTINGS)) CenterAlignedTopAppBar(
                 title = {
                     if(vm.screen == Screen.HOME) Text(buildAnnotatedString {
                         append("MotionMagic ")
