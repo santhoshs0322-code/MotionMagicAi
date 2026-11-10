@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.utils import timezone
 from .limits import CREATION_PROMPT_MAX_LENGTH
 from django.db.models import Q
 
@@ -202,6 +203,17 @@ class Job(models.Model):
                                 condition=Q(state__in=("queued", "submitting", "running", "uncertain"))),
                    models.Index(fields=["next_attempt_at", "lease_until"], name="job_claim_pending_idx",
                                 condition=Q(state__in=("queued", "submitting", "running", "uncertain")))]
+
+class StoryWorkSlot(models.Model):
+    """Database-wide limits, independent of worker count and customer account."""
+    name = models.CharField(primary_key=True, max_length=80)
+    job = models.ForeignKey(Job, null=True, on_delete=models.PROTECT)
+    token = models.UUIDField(null=True)
+    request_id = models.CharField(max_length=200, blank=True)
+    acquired_at = models.DateTimeField(null=True)
+    expires_at = models.DateTimeField(null=True)
+    next_check_at = models.DateTimeField(default=timezone.now)
+
 
 class Product(models.Model):
     sku = models.CharField(primary_key=True, max_length=150)

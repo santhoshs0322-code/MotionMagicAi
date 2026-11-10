@@ -30,7 +30,9 @@ def download(s3, job, item, target, deadline=None):
         raise ValueError("Incomplete story scene")
 
 
-def run(args, timeout):
+def run(args, timeout, job):
+    from .story_slots import require_assembly_lease
+    require_assembly_lease(job, timeout)
     subprocess.run(args, check=True, timeout=timeout, stdin=subprocess.DEVNULL,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -68,7 +70,7 @@ def assemble(job, scenes):
                  "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,tpad=stop_mode=clone:stop_duration=1",
                  "-af", "apad,aresample=48000", "-t", "15", "-c:v", "libx264", "-preset", "veryfast",
                  "-pix_fmt", "yuv420p", "-b:v", "4M", "-maxrate", "5M", "-bufsize", "8M",
-                 "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-threads", "1", str(target)], 240)
+                 "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-threads", "1", str(target)], 240, job)
             key = f"accounts/{job.account_id}/video/story-parts/{job.pk}/{index:02d}.mp4"
             s3.upload_file(str(target), settings.S3_BUCKET, key, ExtraArgs={"ContentType": "video/mp4"},
                            Config=TransferConfig(max_concurrency=1, use_threads=False))
@@ -87,6 +89,6 @@ def assemble(job, scenes):
         manifest.write_text("\n".join(f"file '{path.name}'" for path in files), encoding="utf-8")
         result = folder / "film.mp4"
         run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-protocol_whitelist", "file,pipe",
-             "-f", "concat", "-safe", "1", "-i", str(manifest), "-t", str(job.quote.payload["units"]), "-c", "copy", "-movflags", "+faststart", str(result)], 120)
+             "-f", "concat", "-safe", "1", "-i", str(manifest), "-t", str(job.quote.payload["units"]), "-c", "copy", "-movflags", "+faststart", str(result)], 120, job)
         with result.open("rb") as source:
             return storage.put_generated_stream(job, source, "video/mp4", settings.GEMINI_MAX_VIDEO_BYTES, result.stat().st_size)

@@ -29,9 +29,11 @@ def claim():
     return job.pk, job.lease_id, was_queued
 
 def run_one():
+    from . import story_slots
+    reaped = story_slots.reap_one()
     claimed = claim()
     if claimed is None:
-        return thumbnails.generate()
+        return reaped or thumbnails.generate()
     job_id, lease, fresh = claimed
     job = Job.objects.select_related("quote").get(pk=job_id)
     try:
@@ -68,15 +70,15 @@ def run_one():
             Job.objects.filter(pk=job.pk, lease_id=lease).update(provider_id=provider_id)
             if fresh:
                 log.info("generation_job_submitted job_id=%s provider=%s", job.pk, job.quote.rate.provider_model)
-            reschedule(job, lease, "running")
+            reschedule(job, lease, "running", delay=result.get("poll_after_seconds", 15))
     except Exception:
         # Keep the hold until the provider gives a definitive result. Alert on old uncertain jobs.
         log.exception("generation_job_poll_failed job_id=%s state=%s attempts=%s", job.pk, job.state, job.attempts)
         reschedule(job, lease, "uncertain", "provider_status_unknown")
     return True
 
-def reschedule(job, lease, state, error=""):
+def reschedule(job, lease, state, error="", delay=None):
     # Provider generation duration is outside our control. Check known running
     # requests frequently; use exponential backoff only when status is unknown.
-    delay = 15 if state == "running" else min(900, 15 * 2 ** min(job.attempts, 6))
+    delay = (delay if type(delay) is int and 1 <= delay <= 15 else 15) if state == "running" else min(900, 15 * 2 ** min(job.attempts, 6))
     Job.objects.filter(pk=job.pk, lease_id=lease).exclude(state__in=TERMINAL).update(state=state, error_code=error, lease_id=None, lease_until=None, next_attempt_at=timezone.now() + timedelta(seconds=delay))

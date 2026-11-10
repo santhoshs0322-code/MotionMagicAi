@@ -75,13 +75,17 @@ cd ~/MotionMagicAi
 git pull origin dev
 cd backend-django
 nano .env
+docker compose -f compose.aws.yaml stop -t 60 worker
 docker compose -f compose.aws.yaml up -d --build
 docker compose -f compose.aws.yaml logs --tail=60 setup worker
 ```
 
 Setup automatically runs `sync_provider_rates`. Rebuild the Android app to see
-the new screen. No database migration is needed; bounded scene checkpoints use
-the existing Job JSON context. Existing short-video workflows remain available.
+the new screen. Parallel scheduling itself is backend-only: an app already using
+Long Story does not need another APK for this change. Migration
+`0022_story_work_slots` creates the shared permits and adopts existing in-flight
+scene requests. Compose setup applies it automatically before starting workers.
+Scene checkpoints still use bounded Job JSON. Existing short-video workflows remain available.
 
 ## Durable pipeline and storage
 
@@ -89,17 +93,30 @@ the existing Job JSON context. Existing short-video workflows remain available.
 2. Confirm binds only this account's uploaded assets, reserves the complete price
    and daily provider allowance, and creates **one** parent generation.
 3. Worker requests a structured beginning/middle/ending screenplay, validates the
-   exact scene count, then generates 4/8/12/16/20 scenes sequentially.
+   exact scene count, then generates 4/8/12/16/20 scenes with **two fal scene jobs
+   in flight globally** across all users and worker processes. This is an initial
+   shared capacity limit for Long Story, not two permits per user. Ordinary
+   standalone image/video generation retains its existing limits.
+   Submissions are asynchronous; even one worker can keep two remote jobs running.
+   Polling one scene never requires the preceding scene to finish. Completion
+   updates a separate checkpoint and releases that scene's shared permit.
 4. Each paid POST has a saved intent and each accepted request ID is checkpointed.
    An ambiguous POST is never retried; the film fails and credits are released.
    Known provider IDs resume after a worker restart without repaying for scenes.
+   The slot and paid intent commit in one transaction before each paid POST.
 5. Each scene is streamed to private account-owned S3 storage. Assembly normalizes
    **one scene per worker turn**, at one encoder thread, and saves its checkpoint
    in `accounts/<user>/video/story-parts/<parent>/`. Final concatenation uses stream
-   copy, not a second encode. Local scratch files are cleaned on each turn.
+   copy, not a second encode. A separate global permit allows **one assembly task**
+   across worker processes. Scene indexes preserve narrative order even when
+   scenes finish in reverse order. Local scratch files are cleaned on each turn.
 6. The final MP4 is verified and saved to S3/Asset, then the parent completes and
    charges once. A failed film releases the complete user hold, even if the
    provider charged for completed scenes. That provider spend still consumes budget.
+   A failure stops further submissions. Already accepted sibling requests keep
+   their permits until the worker confirms they have ended; it does not download
+   or publish their results. Parallel failure can incur a sibling scene's provider
+   cost even though the customer receives a full refund.
 7. My Projects reads only account-scoped DB rows, displays scene progress, and
    shows one final film. No provider calls on project browsing.
 
@@ -109,6 +126,41 @@ assembly can delay its other worker tasks. Use one worker on that instance;
 increase rendering capacity before running multiple heavy stories concurrently.
 Generation time depends on fal queue times and scene count; 5 minutes of final
 video does not mean 5 minutes of waiting. The phone does not retain all scenes.
+Successful quotes and scene counts are unchanged by parallelism; there is no
+second planning call or extra generation for the same scene. Short continuation
+scenes share the original fixed character references and full screenplay, so
+parallel work does not depend on a previous scene's result.
+
+Production permit locking requires PostgreSQL. The row limit is enforced by a
+transactional control row, not a process-local semaphore or a Redis TTL that might
+expire while fal is still rendering. Worker checkpoint leases prevent concurrent
+writes to the same story. CPU commands check their lease and assembly permit
+before starting; a crashed assembly permit recovers after its lease plus a
+300-second grace period (longer than the maximum 240-second CPU command).
+
+## Recovering an ambiguous paid submission
+
+If a process dies between a paid POST and saving its returned request ID, the
+customer's hold is released and that scene is never automatically submitted again.
+Its global permit stays quarantined because the server cannot prove whether fal
+is still processing it. Known requests on failed stories drain automatically.
+Inspect permits with this server-only command:
+
+```sh
+docker compose -f compose.aws.yaml exec -T api python manage.py story_slots
+```
+
+If a permit remains held, first reconcile the attempt in fal and confirm no
+matching request is still running. Then use the displayed slot name and exact
+token, which prevents releasing a newer attempt accidentally:
+
+```sh
+docker compose -f compose.aws.yaml exec -T api python manage.py story_slots \
+  --release scene-1 --token DISPLAYED_TOKEN --confirmed-provider-idle
+```
+
+This cannot release permits for active stories and never changes customer credits.
+Do not add more workers to work around a quarantined paid request.
 
 Intermediate generated clips are private S3 objects, not additional user projects.
 The worker removes recorded scene files, normalized parts and its validated input

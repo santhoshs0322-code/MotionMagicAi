@@ -1,9 +1,11 @@
 import json
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
+from django.conf import settings
 from django.utils import timezone
 
 from . import long_story, services, worker, story_planner, fal_billing
@@ -32,7 +34,8 @@ class LongStoryTests(TestCase):
         quote = self.quote()
         job, _ = services.submit_job(self.account, quote.pk, "story-request-123", reference_image_ids=[str(self.photo.pk)])
         job.lease_id = uuid.uuid4()
-        job.save(update_fields=["lease_id"])
+        job.lease_until = timezone.now() + timedelta(seconds=settings.GENERATION_LEASE_SECONDS)
+        job.save(update_fields=["lease_id", "lease_until"])
         return job
 
     def test_quote_includes_every_scene_and_planning(self):
@@ -80,6 +83,9 @@ class LongStoryTests(TestCase):
                 job.refresh_from_db()
                 self.assertEqual(fal_billing.request_contracts(job), {"scene-test": expected})
                 services.finish_job(job.pk, "failed", 0)
+                # The fake provider request is finished; release this test's permit.
+                from .story_slots import release_scene
+                release_scene(job, job.provider_context["steps"][-1])
 
     def test_prompt_only_rejects_missing_character_tags_and_video_only_accepts_element_one(self):
         with self.assertRaises(Problem): self.quote(reference_image_count=0, prompt="@Element1 explores a castle.")
@@ -262,6 +268,7 @@ class LongStoryTests(TestCase):
     def test_worker_persists_final_asset_before_success_and_charge(self, submit):
         job = self.job()
         job.lease_id = None
+        job.lease_until = None
         job.save()
         output = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/video/generated/{job.pk}/generated.mp4", mime="video/mp4", size=1000, ready=True)
         submit.return_value = dict(state="succeeded", cost_paise=1820, currency="INR", output={})

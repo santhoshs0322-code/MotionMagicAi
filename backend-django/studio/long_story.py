@@ -2,7 +2,7 @@
 
 Contracts reviewed 2026-11-10: OpenAI Responses and Kling O3 Pro reference-to-video.
 Every paid POST is preceded by a committed intent. An ambiguous POST is never retried.
-Worker leases serialize each story; there is no scene fan-out on a micro instance.
+Worker leases serialize checkpoint writes; database permits allow two scenes globally.
 """
 import json
 import re
@@ -16,7 +16,7 @@ from django.conf import settings
 from django.utils import timezone
 from datetime import timedelta
 
-from . import fal, storage, reference_media
+from . import fal, storage, reference_media, story_slots
 from .models import Job, Rate, Asset
 
 MODEL = "motion:long-story"
@@ -173,6 +173,53 @@ def proxy(job, step):
             payload={"kind": "video", "storage_layout": "media-v1"}))
 
 
+def poll_scene(job, current):
+    """Poll/download one scene without blocking the other in-flight scene."""
+    context = job.provider_context
+    identifier = current["id"]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", identifier):
+        return outcome(job)
+    base = f"{fal.QUEUE}/fal-ai/kling-video/requests/{identifier}"
+    headers = {"Authorization": f"Key {settings.FAL_KEY}"}
+    recovered = storage.existing_generated_video(proxy(job, current))
+    if recovered:
+        current.update(state="done", output=recovered)
+    else:
+        with requests.get(base + "/status", headers=headers, timeout=(5, 30), stream=True, allow_redirects=False) as response:
+            if response.status_code in (400, 422):
+                data = fal.read_json(response, allow_errors=True)
+                return fail_scene(job, current, "content_policy_violation" if fal.content_blocked(data) else "provider_failed")
+            response.raise_for_status()
+            state = fal.read_json(response).get("status")
+        if state in ("IN_QUEUE", "IN_PROGRESS"):
+            current["next_poll_at"] = timezone.now().timestamp() + 15
+            save(job)
+            return {"state": "running", "id": identifier, "poll_after_seconds": 1}
+        if state != "COMPLETED":
+            raise ValueError("Unknown story provider state")
+        with requests.get(base, headers=headers, timeout=(5, 30), stream=True, allow_redirects=False) as response:
+            if response.status_code in (400, 422):
+                data = fal.read_json(response, allow_errors=True)
+                return fail_scene(job, current, "content_policy_violation" if fal.content_blocked(data) else "provider_failed")
+            response.raise_for_status()
+            data = fal.read_json(response)
+        if fal.content_blocked(data):
+            return fail_scene(job, current, "content_policy_violation")
+        result = fal.download(proxy(job, current), data)
+        if result["state"] != "succeeded":
+            return fail_scene(job, current, result.get("error_code", "provider_failed"))
+        current.update(state="done", output=result["output"])
+    story_slots.complete_scene(job, current)
+    return {"state": "running", "id": identifier, "poll_after_seconds": 1}
+
+
+def fail_scene(job, step, error):
+    step["state"] = "failed"
+    job.provider_context["failure_code"] = error
+    story_slots.complete_scene(job, step)
+    return outcome(job, error=error)
+
+
 def advance(job):
     context = job.provider_context
     if job.quote.payload.get("units") not in DURATIONS:
@@ -184,10 +231,11 @@ def advance(job):
         return outcome(job)
     steps = context["steps"]
     count = job.quote.payload["units"] // 15
-    current = steps[-1] if steps else None
-    if current and current["state"] == "posting":
+    scenes = [row for row in steps if row["kind"] == "scene"]
+    current = next((row for row in steps if row["kind"] == "plan" and row["state"] == "running"), None)
+    if any(row["state"] in ("posting", "failed") for row in steps):
         # The process died or timed out during a paid POST. Refund; never send it twice.
-        return outcome(job)
+        return outcome(job, error=context.get("failure_code", "provider_failed"))
     if current and current["state"] == "running" and current["kind"] == "plan":
         from . import story_planner
         result = story_planner.poll(current["id"])
@@ -203,75 +251,73 @@ def advance(job):
         context["planner_usage"] = result["usage"]
         current["state"] = "done"
         save(job)
-        return {"state": "running", "id": current["id"]}
-    if current and current["state"] == "running":
-        root = "fal-ai/kling-video"
-        identifier = current["id"]
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", identifier):
-            return outcome(job)
-        base = f"{fal.QUEUE}/{root}/requests/{identifier}"
-        headers = {"Authorization": f"Key {settings.FAL_KEY}"}
-        # Recover a saved clip before fetching the provider again after a crash.
-        recovered = storage.existing_generated_video(proxy(job, current)) if current["kind"] == "scene" else None
-        if recovered:
-            current.update(state="done", output=recovered)
-        else:
-            with requests.get(base + "/status", headers=headers, timeout=(5, 30), stream=True, allow_redirects=False) as response:
-                if response.status_code in (400, 422):
-                    data = fal.read_json(response, allow_errors=True)
-                    return outcome(job, error="content_policy_violation" if fal.content_blocked(data) else "provider_failed")
-                response.raise_for_status()
-                state = fal.read_json(response).get("status")
-            if state in ("IN_QUEUE", "IN_PROGRESS"):
-                return {"state": "running", "id": identifier}
-            if state != "COMPLETED":
-                raise ValueError("Unknown story provider state")
-            with requests.get(base, headers=headers, timeout=(5, 30), stream=True, allow_redirects=False) as response:
-                if response.status_code in (400, 422):
-                    data = fal.read_json(response, allow_errors=True)
-                    return outcome(job, error="content_policy_violation" if fal.content_blocked(data) else "provider_failed")
-                response.raise_for_status()
-                data = fal.read_json(response)
-            if fal.content_blocked(data):
-                return outcome(job, error="content_policy_violation")
-            result = fal.download(proxy(job, current), data)
-            if result["state"] != "succeeded":
-                return outcome(job, error=result.get("error_code", "provider_failed"))
-            current.update(state="done", output=result["output"])
-        context["scenes_done"] = sum(step["kind"] == "scene" and step["state"] == "done" for step in steps)
-        save(job)
-        return {"state": "running", "id": identifier}
+        return {"state": "running", "id": current["id"], "poll_after_seconds": 1}
+    running = [row for row in scenes if row["state"] == "running"]
+    if running:
+        due = min(running, key=lambda row: row.get("next_poll_at", 0))
+        if due.get("next_poll_at", 0) <= timezone.now().timestamp():
+            return poll_scene(job, due)
+    # Fill a second permit while the first request is still running remotely.
+    if "scene_prompts" in context and len(scenes) < count and story_slots.available():
+        return submit_step(job, planning=False, scene_index=len(scenes))
+    if running:
+        current = min(running, key=lambda row: row.get("next_poll_at", 0))
+        remaining = current.get("next_poll_at", 0) - timezone.now().timestamp()
+        if remaining > 0:
+            return {"state": "running", "id": job.provider_id, "poll_after_seconds": min(15, max(1, int(remaining) + 1))}
+        return poll_scene(job, current)
     if context["scenes_done"] == count:
         from .story_assembly import assemble
         output = storage.existing_generated_video(job)
         if output is None:
+            if not story_slots.acquire_assembly(job):
+                return {"state": "running", "id": job.provider_id}
             try:
-                output = assemble(job, [step["output"] for step in steps if step["kind"] == "scene"])
+                ordered = sorted(enumerate(scenes), key=lambda pair: pair[1].get("scene_index", pair[0]))
+                output = assemble(job, [step["output"] for _, step in ordered])
             except (ValueError, subprocess.SubprocessError):
                 return outcome(job)
+            finally:
+                story_slots.release_assembly(job)
             if output is None:
                 return {"state": "running", "id": job.provider_id}
         return outcome(job, output)
-    planning = not steps
+    if not steps:
+        return submit_step(job, planning=True)
+    return {"state": "running", "id": job.provider_id}
+
+
+def submit_step(job, planning, scene_index=0):
+    context = job.provider_context
+    count = job.quote.payload["units"] // 15
     from . import story_planner
     endpoint = PLAN_ENDPOINT if planning else (VIDEO_ENDPOINT if job.quote.payload.get("reference_images") or job.quote.payload.get("input_key") else TEXT_VIDEO_ENDPOINT)
     try:
-        body = story_planner.body(job, plan_body(job)) if planning else scene_body(job, context["scene_prompts"][context["scenes_done"]])
+        body = story_planner.body(job, plan_body(job)) if planning else scene_body(job, context["scene_prompts"][scene_index])
     except (ValueError, KeyError, OSError, subprocess.SubprocessError, Asset.DoesNotExist):
         return outcome(job, error="invalid_reference")
     cost = job.quote.payload["config"]["plan_cost"] if planning else (
         job.quote.provider_cost_paise - job.quote.payload["config"]["plan_cost"]) // count
     step = dict(kind="plan" if planning else "scene", state="posting", cost=cost, asset_job_id=str(uuid.uuid4()), endpoint=endpoint)
-    steps.append(step)
-    context["spent_allowance"] += cost
-    save(job)  # Paid-request intent is durable BEFORE the network call.
+    if planning:
+        context["steps"].append(step)
+        context["spent_allowance"] += cost
+        save(job)
+    else:
+        step["scene_index"] = scene_index
+        if not story_slots.reserve_scene(job, step):
+            return {"state": "running", "id": job.provider_id}
     try:
         with requests.post(story_planner.URL if planning else f"{fal.QUEUE}/{endpoint}", json=body,
                 headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}" if planning else f"Key {settings.FAL_KEY}"}, timeout=(5, 30), stream=True, allow_redirects=False) as response:
             if response.status_code not in (200, 201, 202):
                 if response.status_code in (400, 401, 403, 404, 422, 429):
                     context["spent_allowance"] -= cost
-                    save(job)
+                    step.update(state="failed", cost=0)
+                    if planning:
+                        save(job)
+                    else:
+                        story_slots.complete_scene(job, step)
                 data = fal.read_json(response, allow_errors=True)
                 return outcome(job, error="content_policy_violation" if fal.content_blocked(data) else "provider_failed")
             data = fal.read_json(response)
@@ -280,6 +326,6 @@ def advance(job):
     identifier = data.get("id" if planning else "request_id", "")
     if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", identifier):
         return outcome(job)
-    step.update(state="running", id=identifier)
-    save(job)
-    return {"state": "running", "id": identifier}
+    step.update(state="running", id=identifier, next_poll_at=timezone.now().timestamp() + 15)
+    story_slots.record_request(job, step)
+    return {"state": "running", "id": identifier, "poll_after_seconds": 1}
