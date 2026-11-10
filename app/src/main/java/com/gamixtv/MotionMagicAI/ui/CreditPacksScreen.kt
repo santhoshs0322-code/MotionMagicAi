@@ -1,6 +1,10 @@
 package com.gamixtv.MotionMagicAI.ui
 
 import androidx.activity.compose.LocalActivity
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -79,16 +83,7 @@ internal fun CreditPacksContent(state: CreditPacksState, onBuy: (String) -> Unit
     val background = Brush.verticalGradient(listOf(if(colors.dark) Color(0xFF251A38) else Color(0xFFF0E4FF), colors.background, colors.background))
     LazyColumn(Modifier.fillMaxSize().background(background).testTag("credit-packs-page"), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(17.dp), tint = colors.primary)
-                    Text("MOTIONMAGIC STUDIO", color = colors.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                }
-                Text("Fuel your next idea", fontSize = 28.sp, lineHeight = 35.sp, fontWeight = FontWeight.Bold, color = colors.text)
-                Text("One-time credit packs. More room to create.", color = colors.muted, fontSize = 13.sp, lineHeight = 20.sp)
-            }
-        }
+        item { CreditStudioHero() }
         item { CreditBalanceBanner(state.balance) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -136,9 +131,17 @@ internal fun CreditPacksContent(state: CreditPacksState, onBuy: (String) -> Unit
             Text("Credit packs are currently unavailable.", color = colors.muted, fontSize = 13.sp)
         }
         if(products.isNotEmpty()) item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Icon(Icons.Rounded.VerifiedUser, null, Modifier.size(17.dp), tint = colors.primary)
-                Text("Payments processed by Google Play", color = colors.muted, fontSize = 11.sp)
+            Surface(color = colors.surface, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, colors.border)) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    listOf(Icons.Rounded.Bolt to "Ready to create", Icons.Rounded.VerifiedUser to "Google Play payments",
+                        Icons.Rounded.AllInclusive to "Credits never expire").forEach { (icon, label) ->
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(icon, null, tint = colors.primary, modifier = Modifier.size(23.dp))
+                            Text(label, color = colors.muted, fontSize = 10.sp, lineHeight = 15.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                    }
+                }
             }
         }
         item {
@@ -158,21 +161,72 @@ internal fun CreditPacksContent(state: CreditPacksState, onBuy: (String) -> Unit
 }
 
 @Composable
+private fun CreditStudioHero() {
+    val colors = StudioColors
+    Surface(shape = RoundedCornerShape(26.dp), color = colors.surface,
+        border = BorderStroke(1.dp, colors.primary.copy(alpha = .25f))) {
+        Column(Modifier.background(Brush.linearGradient(listOf(colors.selected, colors.surface)))) {
+            Box(Modifier.fillMaxWidth().height(175.dp)) {
+                Art(Artwork.Banner, Modifier.fillMaxSize())
+                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xFF120828), Color.Transparent))))
+                Column(Modifier.align(Alignment.CenterStart).padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("DREAM / CREATE / EXPLORE", color = Color(0xFFDDC2FF), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text("Fuel your\ncreativity", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Icon(Icons.Rounded.AutoAwesome, null, Modifier.align(Alignment.TopEnd).padding(16.dp), tint = Color(0xFFFFD976))
+            }
+            Text("Bring your next world to life. AI images, videos and stories, made by you.",
+                Modifier.padding(18.dp), color = colors.muted, fontSize = 13.sp, lineHeight = 20.sp)
+        }
+    }
+}
+
+/** Small vector artwork: no network request or bitmap allocation for pack illustrations. */
+@Composable
+private fun CreditCoins(accent: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width; val h = size.height
+        drawOval(Brush.radialGradient(listOf(accent.copy(alpha = .3f), Color.Transparent)),
+            topLeft = Offset(w * .1f, h * .1f), size = Size(w * .8f, h * .9f))
+        for(stack in 0..1) {
+            val x = w * (if(stack == 0) .18f else .46f)
+            val coinW = w * .37f; val coinH = h * .25f
+            for(layer in 0..(if(stack == 0) 2 else 4)) {
+                val y = h * .72f - layer * h * .115f
+                drawOval(Brush.verticalGradient(listOf(accent, accent.copy(alpha = .35f))), Offset(x, y), Size(coinW, coinH))
+                drawOval(Color.White.copy(alpha = .32f), Offset(x, y), Size(coinW, coinH), style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
+            }
+            val y = h * .72f - (if(stack == 0) 2 else 4) * h * .115f
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(x + coinW * .27f, y + coinH * .7f)
+                lineTo(x + coinW * .37f, y + coinH * .28f)
+                lineTo(x + coinW * .5f, y + coinH * .57f)
+                lineTo(x + coinW * .68f, y + coinH * .28f)
+                lineTo(x + coinW * .74f, y + coinH * .7f)
+            }
+            drawPath(path, Color.White, style = androidx.compose.ui.graphics.drawscope.Stroke(2.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+    }
+}
+
+@Composable
 private fun CreditBalanceBanner(balance: Long?) {
     val count = balance?.let { "%,d".format(it) } ?: "…"
-    Surface(color = Color.Transparent, shape = RoundedCornerShape(26.dp)) {
-        Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF722BC5), Color(0xFF4641B7), Color(0xFF215EA6))))
-            .padding(20.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Icon(Icons.Rounded.Bolt, null, Modifier.size(22.dp), tint = Color(0xFFFFE296))
-                Text("YOUR BALANCE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+    Surface(color = Color.Transparent, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Color(0xFFAA74FF).copy(alpha = .6f))) {
+        Row(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF6027A4), Color(0xFF262C85))))
+            .padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Rounded.Bolt, null, Modifier.size(32.dp), tint = Color(0xFFFFD976))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Your balance", color = Color.White.copy(alpha = .8f), fontSize = 12.sp)
+                Text(count, color = Color.White, fontSize = if(count.length > 8) 23.sp else 32.sp,
+                    fontWeight = FontWeight.Bold, modifier = Modifier.testTag("pricing-credit-balance"))
+                Text("credits available", color = Color.White.copy(alpha = .8f), fontSize = 11.sp)
             }
-            Text(count, color = Color.White, fontSize = if(count.length > 15) 23.sp else 34.sp,
-                fontWeight = FontWeight.Bold, lineHeight = if(count.length > 15) 31.sp else 42.sp,
-                modifier = Modifier.fillMaxWidth().testTag("pricing-credit-balance"))
-            Text("credits available", color = Color.White, fontSize = 13.sp)
-            HorizontalDivider(color = Color.White.copy(alpha = .2f), modifier = Modifier.padding(vertical = 2.dp))
-            Text("200 welcome credits on your first sign-in", color = Color.White, fontSize = 11.sp, lineHeight = 17.sp)
+            Column(Modifier.widthIn(max = 105.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Icon(Icons.Rounded.CardGiftcard, null, tint = Color(0xFFE1A0FF))
+                Text("200 welcome credits", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("On your first sign-in", color = Color.White.copy(alpha = .75f), fontSize = 10.sp)
+            }
         }
     }
 }
@@ -197,7 +251,13 @@ private fun CreditPackCard(sku: String, amount: Long, enabled: Boolean, opening:
                 Icon(Icons.Rounded.Bolt, null, Modifier.size(16.dp), tint = palette.accent)
                 Text("CREDIT PACK", color = palette.accent, fontSize = 9.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
             }
-            Text("Credit top-up", color = palette.accent, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+            CreditCoins(palette.accent, Modifier.fillMaxWidth().height(78.dp))
+            Text(when(sku) {
+                PlayBilling.PACK_2500 -> "Creator Pack"
+                PlayBilling.PACK_5000 -> "Pro Pack"
+                PlayBilling.PACK_10000 -> "Studio Pack"
+                else -> "Ultimate Pack"
+            }, color = palette.accent, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(count, color = colors.text, fontSize = 29.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold)
                 Text("AI credits", color = colors.muted, fontSize = 12.sp, lineHeight = 18.sp)
@@ -214,7 +274,7 @@ private fun CreditPackCard(sku: String, amount: Long, enabled: Boolean, opening:
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).background(buttonBrush, RoundedCornerShape(13.dp))
                     .testTag("buy-$sku").semantics { contentDescription = "Buy $count credits" }) {
                 if(opening) CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 2.dp, color = colors.muted)
-                else Icon(Icons.Rounded.Add, null, Modifier.size(15.dp))
+                else Icon(Icons.Rounded.ShoppingCart, null, Modifier.size(15.dp))
                 Spacer(Modifier.width(5.dp))
                 Text(if(opening) "Opening Play…" else "Buy credits", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }

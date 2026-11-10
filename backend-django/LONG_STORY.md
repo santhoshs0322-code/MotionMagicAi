@@ -1,5 +1,10 @@
 # Long Story (1–5 minutes)
 
+Lengths use 30-second increments: 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5 and 5 minutes.
+Each scene remains 15 seconds; half-minute lengths use 6, 10, 14 or 18 scenes.
+The Android slider updates the local catalogue estimate immediately. Create still requests an authoritative quote.
+Deploy the backend and run `python manage.py sync_provider_rates` to publish these lengths, then rebuild Android.
+
 Home → Long Story, or Continue Story → Create a 1–5 minute story.
 One required prompt, optional one or two character photos and/or a 3–15 second MP4 character reference,
 1080p, 9:16 / 16:9 / 1:1, and 1 / 2 / 3 / 4 / 5 minutes. Character dialogue and

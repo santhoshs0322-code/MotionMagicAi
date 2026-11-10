@@ -83,6 +83,7 @@ class CreditPacksUiTest {
 
     @Test fun bothThemesShowPacksAndOpeningPlayDisablesDuplicatePurchases() {
         show()
+        screenshot("pricing-hero-dark.png")
         ui.onNodeWithTag("pricing-credit-balance").assertTextEquals("2,050")
         scrollTo("popular-${PlayBilling.PACK_10000}")
         ui.onNodeWithTag("popular-${PlayBilling.PACK_10000}").assertIsDisplayed()

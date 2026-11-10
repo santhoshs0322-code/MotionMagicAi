@@ -23,7 +23,7 @@ MODEL = "motion:long-story"
 PLAN_ENDPOINT = "openai/responses"
 VIDEO_ENDPOINT = "fal-ai/kling-video/o3/pro/reference-to-video"
 TEXT_VIDEO_ENDPOINT = "fal-ai/kling-video/o3/pro/text-to-video"
-DURATIONS = [60, 120, 180, 240, 300]
+DURATIONS = list(range(60, 301, 30))
 
 
 def sync_rate(configured):

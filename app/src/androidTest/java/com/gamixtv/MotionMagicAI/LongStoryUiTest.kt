@@ -9,6 +9,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import com.gamixtv.MotionMagicAI.cloud.CloudRate
 import com.gamixtv.MotionMagicAI.data.CreationDraft
 import com.gamixtv.MotionMagicAI.data.ThemeMode
+import com.gamixtv.MotionMagicAI.data.StoryDurations
+import androidx.compose.ui.semantics.SemanticsActions
 import com.gamixtv.MotionMagicAI.ui.LongStoryContent
 import com.gamixtv.MotionMagicAI.ui.MotionTheme
 import org.junit.Assert.*
@@ -22,8 +24,8 @@ class LongStoryUiTest {
 
     private fun show(enabled: Boolean, theme: ThemeMode) {
         val rates = if(enabled) listOf(CloudRate("long", "Long Story", "long-story", "video", "1080p",
-            listOf("9:16", "16:9", "1:1"), listOf(60,120,180,240,300), true, false,
-            creditPrices = (1..5).associate { it * 60 to it * 1000L })) else emptyList()
+            listOf("9:16", "16:9", "1:1"), StoryDurations.seconds, true, false,
+            creditPrices = StoryDurations.seconds.associateWith { it * 1000L / 60 })) else emptyList()
         ui.setContent {
             var draft by remember { mutableStateOf(CreationDraft(modelId="long-story", resolution="1080p", duration=60, generatedAudio=true)) }
             MotionTheme(theme) {
@@ -54,5 +56,16 @@ class LongStoryUiTest {
         ui.onNodeWithText("Add character photo").assertIsDisplayed()
         ui.onNodeWithText("Add reference video").performScrollTo().assertIsDisplayed()
         assertFalse(created)
+    }
+
+    @Test fun halfMinuteSliderUpdatesPriceAndSceneCount() {
+        show(true, ThemeMode.LIGHT)
+        ui.onNodeWithTag("story-duration-slider").performScrollTo()
+        for(seconds in listOf(90,150,210,270)) {
+            ui.onNodeWithTag("story-duration-slider").performSemanticsAction(SemanticsActions.SetProgress) { it(seconds.toFloat()) }
+            ui.onNodeWithText(StoryDurations.label(seconds)).assertIsDisplayed()
+            ui.onNodeWithText("${seconds * 1000L / 60} credits").assertIsDisplayed()
+            assertEquals(seconds, updated?.duration)
+        }
     }
 }

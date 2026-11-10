@@ -88,7 +88,7 @@ class MotionStore(context: Context) {
         if(key == "long-story") return CreationDraft(
             modelId = "long-story", resolution = "1080p", generatedAudio = true,
             prompt = json.optString("prompt", ""),
-            duration = json.optInt("duration", 60).takeIf { it in listOf(60,120,180,240,300) } ?: 60,
+            duration = json.optInt("duration", 60).takeIf { it in StoryDurations.seconds } ?: 60,
             aspect = json.optString("aspect", "9:16").takeIf { it in listOf("9:16", "16:9", "1:1") } ?: "9:16",
         )
         val model = VideoModelCatalog.find(json.optString("modelId", fallback.modelId))

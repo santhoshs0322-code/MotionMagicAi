@@ -353,7 +353,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
 
     fun prepareCloudGeneration() {
         val longStory = screen == Screen.LONG_STORY
-        if(longStory && (longStoryDraft.prompt.isBlank() || referencePhotoPaths.size !in 0..2 || longStoryDraft.duration !in listOf(60,120,180,240,300))) {
+        if(longStory && (longStoryDraft.prompt.isBlank() || referencePhotoPaths.size !in 0..2 || longStoryDraft.duration !in com.gamixtv.MotionMagicAI.data.StoryDurations.seconds)) {
             failure = "Enter a story prompt and choose 1 to 5 minutes. References are optional; you can add up to two photos and one video."
             return
         }

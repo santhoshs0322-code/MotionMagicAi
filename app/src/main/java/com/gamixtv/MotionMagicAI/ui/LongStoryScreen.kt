@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gamixtv.MotionMagicAI.MotionViewModel
 import com.gamixtv.MotionMagicAI.data.CreationDraft
+import com.gamixtv.MotionMagicAI.data.StoryDurations
+import kotlin.math.roundToInt
 import com.gamixtv.MotionMagicAI.cloud.CloudRate
 
 @Composable
@@ -80,9 +82,22 @@ internal fun LongStoryContent(draft: CreationDraft, photos: List<String>, video:
             }
             StoryPanel {
                 Text("Story length", fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(StoryDurations.label(draft.duration), Modifier.weight(1f), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = colors.primary)
+                    Text("${draft.duration / 15} scenes", color = colors.muted)
+                }
+                Slider(value = draft.duration.toFloat(), onValueChange = {
+                    update(draft.copy(duration = (it / 30f).roundToInt().times(30).coerceIn(60, 300)))
+                }, valueRange = 60f..300f, steps = 7, modifier = Modifier.testTag("story-duration-slider"))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("1 min", color = colors.muted, fontSize = 12.sp)
+                    Text("30-second precision", color = colors.primary, fontSize = 12.sp)
+                    Text("5 min", color = colors.muted, fontSize = 12.sp)
+                }
+                // Whole-minute shortcuts remain easy to reach; the slider adds every half-minute.
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     (1..5).forEach { minutes -> FilterChip(selected = draft.duration == minutes * 60,
-                        onClick = { update(draft.copy(duration = minutes * 60)) }, label = { Text("$minutes min", fontSize = 12.sp) }, modifier = Modifier.weight(1f).testTag("story-minutes-$minutes")) }
+                        onClick = { update(draft.copy(duration = minutes * 60)) }, label = { Text("${minutes}m", fontSize = 12.sp) }, modifier = Modifier.weight(1f).testTag("story-minutes-$minutes")) }
                 }
                 Text("Frame", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

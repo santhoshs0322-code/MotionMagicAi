@@ -39,6 +39,7 @@ class LongStoryTests(TestCase):
         return job
 
     def test_quote_includes_every_scene_and_planning(self):
+        self.assertEqual(long_story.DURATIONS, [60,90,120,150,180,210,240,270,300])
         for duration in long_story.DURATIONS:
             quote = self.quote(duration=duration)
             self.assertEqual(quote.provider_cost_paise, 30 * duration + 20)
