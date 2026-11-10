@@ -167,7 +167,7 @@ private fun CreditStudioHero() {
         border = BorderStroke(1.dp, colors.primary.copy(alpha = .25f))) {
         Column(Modifier.background(Brush.linearGradient(listOf(colors.selected, colors.surface)))) {
             Box(Modifier.fillMaxWidth().height(175.dp)) {
-                Art(Artwork.Banner, Modifier.fillMaxSize())
+                Art(Artwork.Portrait, Modifier.fillMaxSize())
                 Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xFF120828), Color.Transparent))))
                 Column(Modifier.align(Alignment.CenterStart).padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("DREAM / CREATE / EXPLORE", color = Color(0xFFDDC2FF), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
