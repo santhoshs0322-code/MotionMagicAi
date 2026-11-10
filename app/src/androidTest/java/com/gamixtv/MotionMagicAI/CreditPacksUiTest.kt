@@ -31,8 +31,8 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class CreditPacksUiTest {
     @get:Rule val ui = createComposeRule()
-    private val products = listOf(PlayBilling.TOPUP_500 to 500L, PlayBilling.PACK_2500 to 2500L,
-        PlayBilling.PACK_5000 to 5000L, PlayBilling.PACK_10000 to 10000L)
+    private val products = listOf(PlayBilling.PACK_2500 to 2500L, PlayBilling.PACK_5000 to 5000L,
+        PlayBilling.PACK_10000 to 10000L, PlayBilling.PACK_20000 to 20000L)
     private val rates = listOf(
         CloudRate("qwen", "Qwen Image", "qwen-image", "image", "720p", listOf("1:1"), emptyList(), null, false, minimumPricePaise = 35),
         CloudRate("pixverse", "PixVerse V6", "pixverse-v6", "video", "720p", listOf("9:16"), listOf(5), false, false,
@@ -84,12 +84,15 @@ class CreditPacksUiTest {
     @Test fun bothThemesShowPacksAndOpeningPlayDisablesDuplicatePurchases() {
         show()
         ui.onNodeWithTag("pricing-credit-balance").assertTextEquals("2,050")
+        scrollTo("popular-${PlayBilling.PACK_10000}")
+        ui.onNodeWithTag("popular-${PlayBilling.PACK_10000}").assertIsDisplayed()
         ui.onAllNodesWithText("Most popular").assertCountEquals(1)
+        ui.onNodeWithTag("credit-pack-${PlayBilling.TOPUP_500}").assertDoesNotExist()
         screenshot("pricing-dark.png")
-        scrollTo("buy-${PlayBilling.TOPUP_500}")
-        ui.onNodeWithTag("buy-${PlayBilling.TOPUP_500}").assertIsEnabled().performClick()
-        assertEquals(listOf(PlayBilling.TOPUP_500), purchases)
-        ui.onNodeWithTag("buy-${PlayBilling.TOPUP_500}").assertIsNotEnabled()
+        scrollTo("buy-${PlayBilling.PACK_20000}")
+        ui.onNodeWithTag("buy-${PlayBilling.PACK_20000}").assertIsEnabled().performClick()
+        assertEquals(listOf(PlayBilling.PACK_20000), purchases)
+        ui.onNodeWithTag("buy-${PlayBilling.PACK_20000}").assertIsNotEnabled()
         ui.onNodeWithText("Opening Play…").assertIsDisplayed()
         scrollTo("buy-${PlayBilling.PACK_10000}")
         ui.onNodeWithTag("buy-${PlayBilling.PACK_10000}").assertIsNotEnabled()

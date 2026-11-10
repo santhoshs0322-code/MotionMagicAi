@@ -3,6 +3,7 @@ from urllib.parse import quote
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
@@ -10,6 +11,8 @@ from .models import Product, Purchase, Subscription
 from .authentication import digest
 from .services import wallet_for_update, entry, expire_monthly
 from .errors import Problem
+
+RETIRED_CREDIT_SKUS = frozenset(("motion_topup_500", "motion_credits_500_k7p4"))
 
 def cipher():
     return Fernet(settings.BILLING_ENCRYPTION_KEY.encode())
@@ -161,7 +164,9 @@ def verify_purchase(account, sku, token):
         existing.refresh_from_db()
         return existing
     try:
-        product = Product.objects.get(pk=sku, enabled=True, credit_paise__gt=0)
+        # Retiring a product must not strand a legitimate completed/pending payment
+        # from an older app. These receipts still need full Google verification.
+        product = Product.objects.get(Q(enabled=True) | Q(pk__in=RETIRED_CREDIT_SKUS), pk=sku, credit_paise__gt=0)
     except Product.DoesNotExist:
         raise Problem("Product is unavailable.", 404) from None
     receipt = play_request(sku, token)

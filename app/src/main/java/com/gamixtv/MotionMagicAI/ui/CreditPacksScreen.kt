@@ -73,7 +73,8 @@ internal fun CreditPacksContent(state: CreditPacksState, onBuy: (String) -> Unit
     val colors = StudioColors
     val configuration = LocalConfiguration.current
     val columns = if(configuration.screenWidthDp < 360 || configuration.fontScale > 1.2f) 1 else 2
-    val rows = remember(state.products, columns) { state.products.chunked(columns) }
+    val products = remember(state.products) { state.products.filter { it.first in PlayBilling.creditPacks } }
+    val rows = remember(products, columns) { products.chunked(columns) }
     val models = remember(state.rates) { state.rates.groupBy { it.modelId }.values.toList() }
     val background = Brush.verticalGradient(listOf(if(colors.dark) Color(0xFF251A38) else Color(0xFFF0E4FF), colors.background, colors.background))
     LazyColumn(Modifier.fillMaxSize().background(background).testTag("credit-packs-page"), contentPadding = PaddingValues(16.dp),
@@ -104,14 +105,14 @@ internal fun CreditPacksContent(state: CreditPacksState, onBuy: (String) -> Unit
                 if(row.size < columns) Spacer(Modifier.weight(1f))
             }
         }
-        if(state.loading && state.products.isEmpty()) item {
+        if(state.loading && products.isEmpty()) item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.primary)
                     Text("Loading credit packs…", color = colors.muted, fontSize = 12.sp)
                 }
                 repeat(2) { index ->
-                    val palette = packColors(if(index == 0) PlayBilling.TOPUP_500 else PlayBilling.PACK_2500, colors.dark)
+                    val palette = packColors(if(index == 0) PlayBilling.PACK_20000 else PlayBilling.PACK_2500, colors.dark)
                     Surface(color = palette.start, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, palette.accent.copy(alpha = .25f))) {
                         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Box(Modifier.width(110.dp).height(16.dp).background(palette.accent.copy(alpha = .2f), RoundedCornerShape(5.dp)))
@@ -131,10 +132,10 @@ internal fun CreditPacksContent(state: CreditPacksState, onBuy: (String) -> Unit
                 }
             }
         } }
-        if(state.ready && state.products.isEmpty() && !state.loading) item {
+        if(state.ready && products.isEmpty() && !state.loading) item {
             Text("Credit packs are currently unavailable.", color = colors.muted, fontSize = 13.sp)
         }
-        if(state.products.isNotEmpty()) item {
+        if(products.isNotEmpty()) item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 Icon(Icons.Rounded.VerifiedUser, null, Modifier.size(17.dp), tint = colors.primary)
                 Text("Payments processed by Google Play", color = colors.muted, fontSize = 11.sp)
@@ -180,13 +181,13 @@ private fun CreditBalanceBanner(balance: Long?) {
 private fun CreditPackCard(sku: String, amount: Long, enabled: Boolean, opening: Boolean, modifier: Modifier, buy: () -> Unit) {
     val colors = StudioColors
     val palette = packColors(sku, colors.dark)
-    val popular = sku == PlayBilling.PACK_2500
+    val popular = sku == PlayBilling.PACK_10000
     val count = "%,d".format(amount)
     Surface(modifier.testTag("credit-pack-$sku"), color = Color.Transparent, shape = RoundedCornerShape(22.dp),
         border = BorderStroke(if(popular) 2.dp else 1.dp, palette.accent.copy(alpha = if(popular) .8f else .35f))) {
         Column(Modifier.fillMaxHeight().background(Brush.linearGradient(listOf(palette.start, palette.end))).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if(popular) Surface(color = Color(0xFFFFE3A0), shape = RoundedCornerShape(8.dp)) {
+            if(popular) Surface(color = Color(0xFFFFE3A0), shape = RoundedCornerShape(8.dp), modifier = Modifier.testTag("popular-$sku")) {
                 Row(Modifier.padding(horizontal = 7.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Rounded.Star, null, Modifier.size(12.dp), tint = Color(0xFF613A00))
@@ -196,7 +197,7 @@ private fun CreditPackCard(sku: String, amount: Long, enabled: Boolean, opening:
                 Icon(Icons.Rounded.Bolt, null, Modifier.size(16.dp), tint = palette.accent)
                 Text("CREDIT PACK", color = palette.accent, fontSize = 9.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
             }
-            Text(if(sku == PlayBilling.TOPUP_500) "Motion Pack" else "Credit top-up", color = palette.accent, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text("Credit top-up", color = palette.accent, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(count, color = colors.text, fontSize = 29.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold)
                 Text("AI credits", color = colors.muted, fontSize = 12.sp, lineHeight = 18.sp)
@@ -228,7 +229,7 @@ private fun ModelCreditCard(variants: List<CloudRate>) {
     val image = cheapest.kind == "image"
     val title = if(image) ImageModelCatalog.models.firstOrNull { it.id == cheapest.modelId }?.title
         else VideoModelCatalog.models.firstOrNull { it.id == cheapest.modelId }?.title
-    val palette = packColors(if(image) PlayBilling.TOPUP_500 else PlayBilling.PACK_2500, colors.dark)
+    val palette = packColors(if(image) PlayBilling.PACK_20000 else PlayBilling.PACK_2500, colors.dark)
     Surface(color = palette.start, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, palette.accent.copy(alpha = .3f))) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

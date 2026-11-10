@@ -304,7 +304,7 @@ class AssetThumbnail(Private):
 
 class Products(Private):
     def get(self, request):
-        products = Product.objects.filter(enabled=True, credit_paise__gt=0).order_by("credit_paise")[:30] if settings.PLAY_ENABLED else []
+        products = Product.objects.filter(enabled=True, credit_paise__gt=0).exclude(pk__in=billing.RETIRED_CREDIT_SKUS).order_by("credit_paise")[:30] if settings.PLAY_ENABLED else []
         return ok(currency="CREDITS", products=[{"sku": p.pk, "title": p.title, "credit_paise": p.credit_paise, "credits": p.credit_paise} for p in products])
 
 def purchase_public(purchase):

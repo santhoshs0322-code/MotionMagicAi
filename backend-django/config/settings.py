@@ -143,11 +143,12 @@ BUDGET_SHARDS = int(env("BUDGET_SHARDS", "64"))
 MAX_ACTIVE_JOBS = int(env("MAX_ACTIVE_JOBS", "3"))
 GENERATION_LEASE_SECONDS = int(env("GENERATION_LEASE_SECONDS", "1200"))
 PLAY_ENABLED = flag("PLAY_ENABLED")
-ENABLE_CREDIT_PACKS = flag("ENABLE_CREDIT_PACKS")  # Legacy name; use ENABLE_TOPUPS for new deployments.
-ENABLE_TOPUPS = flag("ENABLE_TOPUPS")
+ENABLE_CREDIT_PACKS = flag("ENABLE_CREDIT_PACKS")  # Retired 500-credit flag; retained for environment compatibility.
+ENABLE_TOPUPS = flag("ENABLE_TOPUPS")  # Retired 500-credit flag; packs now use their individual switches.
 ENABLE_PACK_2500 = flag("ENABLE_PACK_2500")
 ENABLE_PACK_5000 = flag("ENABLE_PACK_5000")
 ENABLE_PACK_10000 = flag("ENABLE_PACK_10000")
+ENABLE_PACK_20000 = flag("ENABLE_PACK_20000")
 SUBSCRIPTIONS_ENABLED = flag("SUBSCRIPTIONS_ENABLED") and not CREDIT_ONLY_MODE
 CURRENT_SITE_URL = env("CURRENT_SITE_URL").rstrip("/")
 if CURRENT_SITE_URL and not CURRENT_SITE_URL.startswith("https://"):

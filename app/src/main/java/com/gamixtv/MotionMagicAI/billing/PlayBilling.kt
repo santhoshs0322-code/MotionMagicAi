@@ -22,7 +22,9 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
         const val PACK_2500 = "motion_pack_2500"
         const val PACK_5000 = "motion_pack_5000"
         const val PACK_10000 = "motion_pack_10000"
-        private val creditPacks = setOf(TOPUP_500, PACK_2500, PACK_5000, PACK_10000)
+        const val PACK_20000 = "motion_pack_20000"
+        val creditPacks = setOf(PACK_2500, PACK_5000, PACK_10000, PACK_20000)
+        val recoverableCreditPacks = creditPacks + setOf(TOPUP_500, "motion_topup_500")
         private fun type(sku: String) = if (sku in creditPacks) BillingClient.ProductType.INAPP else BillingClient.ProductType.SUBS
     }
 
@@ -55,12 +57,20 @@ class PlayBilling(context: Context, private val onPurchased: (String, String) ->
                         onMessage("Google Play is unavailable. Please try again.")
                         return@runOnUiThread
                     }
-                    val item = details.productDetailsList.firstOrNull()
+                    val item = details.productDetailsList.firstOrNull { it.productId == sku }
                     if (item == null) {
                         onMessage("This credit pack is not active in Google Play yet.")
                         return@runOnUiThread
                     }
-                    val detail = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(item).build()
+                    // Credit packs use a standard outright buy, never a rental or pre-order.
+                    val offer = item.oneTimePurchaseOfferDetailsList.orEmpty().firstOrNull { it.rentalDetails == null && it.offerId == null }
+                        ?: item.oneTimePurchaseOfferDetails?.takeIf { it.rentalDetails == null && it.offerId == null }
+                    val offerToken = offer?.offerToken?.takeIf { it.isNotBlank() }
+                    if(offerToken == null) {
+                        onMessage("This credit pack has no available buy option in Google Play yet.")
+                        return@runOnUiThread
+                    }
+                    val detail = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(item).setOfferToken(offerToken).build()
                     val params = BillingFlowParams.newBuilder().setProductDetailsParamsList(listOf(detail))
                         .setObfuscatedAccountId(accountId).build()
                     val launched = client.launchBillingFlow(activity, params)
