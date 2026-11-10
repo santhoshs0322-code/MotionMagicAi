@@ -148,6 +148,12 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when(vm.screen) {
                 Screen.HOME -> HomeScreen(vm)
+                Screen.LONG_STORY -> LongStoryScreen(vm,
+                    pickVideo = { videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                    pickPhoto = { index -> vm.activeAccountId?.let { account ->
+                        referencePick = account to index
+                        referencePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    } })
                 Screen.CREATION_SETTINGS -> CreationSettingsScreen(vm)
                 Screen.IMAGE, Screen.STORY, Screen.TEXT, Screen.REELS, Screen.CREATE_IMAGE -> CreateScreen(vm,
                     onPickPhoto = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
@@ -209,6 +215,7 @@ private fun AuthenticatedMotionApp(vm: MotionViewModel) {
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Maximum charge: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.chargePaise)}", fontWeight = FontWeight.SemiBold)
                 Text("Available balance: ${com.gamixtv.MotionMagicAI.cloud.credits(quote.availablePaise)}")
+                if(quote.draft.modelId == "long-story") Text("${quote.draft.duration / 60} minute story · ${quote.draft.duration / 15} scenes · character dialogue with native lip sync. Voices and faces may vary between scenes. The finished film is saved to your account before completion.", fontSize = 12.sp)
                 if(VideoModelCatalog.isReference(quote.draft.modelId) && !quote.image) {
                     Text(if(quote.draft.modelId == "kling-o3-edit") "Edit this video · ${quote.draft.duration} billed seconds · ${quote.draft.resolution}"
                         else "Create a new scene · ${quote.draft.duration}s output · ${quote.draft.resolution}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)

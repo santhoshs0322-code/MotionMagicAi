@@ -46,7 +46,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 enum class Screen(val title: String) {
-    HOME("MotionMagic AI"), IMAGE("Image to Video"), STORY("Continue Story"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
+    HOME("MotionMagic AI"), IMAGE("Image to Video"), STORY("Continue Story"), LONG_STORY("Long Story"), TEXT("Text to Video"), CREATE_IMAGE("Create Image"),
     REELS("AI Reels Maker"), VOICE("AI Voice Generator"), TEMPLATES("Templates"),
     PROJECTS("My Projects"), RESULT("Video Result"),
     PROFILE("My Account"), SETTINGS("Settings"), CREATION_SETTINGS("Video Settings"), PLANS("Add credits")
@@ -73,6 +73,20 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     var creationSettingsStoryOnly by mutableStateOf(false); private set
     var draft by mutableStateOf(CreationDraft()); private set
     var imageDraft by mutableStateOf(CreationDraft()); private set
+    var longStoryDraft by mutableStateOf(CreationDraft(modelId = "long-story", resolution = "1080p", duration = 60, generatedAudio = true)); private set
+    private var longStorySave: Job? = null
+    fun updateLongStory(value: CreationDraft) {
+        val account = activeAccountId ?: return
+        longStoryDraft = value.copy(modelId = "long-story", resolution = "1080p", generatedAudio = true)
+        longStorySave?.cancel()
+        val saved = longStoryDraft
+        longStorySave = viewModelScope.launch {
+            delay(250)
+            try { withContext(Dispatchers.IO) { store.saveDraft(saved, "long-story", account) } }
+            catch(e: CancellationException) { throw e }
+            catch(e: Exception) { if(activeAccountId == account) failure = "Could not save your story draft." }
+        }
+    }
     private var imageDraftSave: Job? = null
     var currentPlan by mutableStateOf(PlanTier.FREE); private set
     val selectedVideoModel: VideoModelOption get() = VideoModelCatalog.find(draft.modelId)
@@ -338,18 +352,23 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun prepareCloudGeneration() {
-        if(!validateCreationInput()) return
+        val longStory = screen == Screen.LONG_STORY
+        if(longStory && (longStoryDraft.prompt.isBlank() || referencePhotoPaths.size !in 1..2 || longStoryDraft.duration !in listOf(60,120,180,240,300))) {
+            failure = "Add one or two character photos, a story prompt and a length from 1 to 5 minutes."
+            return
+        }
+        if(!longStory && !validateCreationInput()) return
         val image = screen == Screen.CREATE_IMAGE
-        val request = if(image) imageDraft else draft
-        val withVideo = !image && screen == Screen.STORY && VideoModelCatalog.isReference(request.modelId) && referenceVideoPath != null
-        val withPhoto = !withVideo && screen != Screen.TEXT && screen != Screen.REELS && photo != null
+        val request = if(longStory) longStoryDraft else if(image) imageDraft else draft
+        val withVideo = (longStory || !image && screen == Screen.STORY && VideoModelCatalog.isReference(request.modelId)) && referenceVideoPath != null
+        val withPhoto = !longStory && !withVideo && screen != Screen.TEXT && screen != Screen.REELS && photo != null
         val sourceVideo = if(withVideo) referenceVideoPath else null
-        val referencePhotos = if(withVideo) referencePhotoPaths.toList() else emptyList()
+        val referencePhotos = if(withVideo || longStory) referencePhotoPaths.toList() else emptyList()
         if(!image && request.modelId == "kling-o3-edit" && referenceVideoDurationMs == null) {
             failure = "Choose your base video again so its length can be checked."
             return
         }
-        if(withVideo && request.generatedAudio && referenceVideoHasAudio == false) {
+        if(!longStory && withVideo && request.generatedAudio && referenceVideoHasAudio == false) {
             failure = "This reference has no audio track. Turn off Use reference audio. Choose Kling O3 with a photo or text prompt to generate new sound."
             return
         }
@@ -371,7 +390,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 .put("prompt", request.prompt.trim().ifBlank { "Animate this photo with gentle natural movement." })
             if(!image) payload.put("duration", request.duration).put("generated_audio", request.generatedAudio)
             request.templateId?.let { payload.put("template_id", it) }
-            if(withVideo) payload.put("reference_image_count", referencePhotos.size)
+            if(withVideo || longStory) payload.put("reference_image_count", referencePhotos.size)
             coroutineScope {
                 val deferred = cloud.deferredInputQuotes
                 // New servers quote the input type without transferring media.
@@ -390,7 +409,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 walletCredits = available
                 cloudQuote = CloudQuote(quote.getString("id"), quote.getLong("maximum_charge_paise"), available,
                     quote.getString("title"), session, request.copy(outputCount = 1), image, withPhoto,
-                    sourceVideo, if(withVideo) storyRoot else null, if(withVideo) storyPart else 0,
+                    sourceVideo, if(withVideo && !longStory) storyRoot else null, if(withVideo && !longStory) storyPart else 0,
                     deferredInput = deferred, sourcePhotoRevision = selectedPhotoRevision, referencePhotoPaths = referencePhotos)
             }
         }
@@ -410,7 +429,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
                 val session = cloud.session()
                 require(session.user.id == quote.session.user.id && activeAccountId == session.user.id) { "Your account changed. Request a new price." }
                 require(!quote.sourcePhoto || photoRevision == quote.sourcePhotoRevision) { "Your photo changed. Review the new creation price." }
-                require(quote.sourceVideoPath == null || quote.sourceVideoPath == referenceVideoPath && quote.referencePhotoPaths == referencePhotoPaths) { "Your references changed. Review your creation again." }
+                require((quote.sourceVideoPath == null || quote.sourceVideoPath == referenceVideoPath) && (quote.draft.modelId != "long-story" && quote.sourceVideoPath == null || quote.referencePhotoPaths == referencePhotoPaths)) { "Your references changed. Review your creation again." }
                 var assetId: String? = null
                 val referenceIds = JSONArray()
                 if(quote.deferredInput && (quote.sourcePhoto || quote.sourceVideoPath != null)) {
@@ -740,7 +759,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         cloudJobs = emptyList(); observedActiveJobIds.clear()
         projects = emptyList()
         completedJobNotice = null; completionQueue.clear()
-        draftSave?.cancel(); imageDraftSave?.cancel()
+        draftSave?.cancel(); imageDraftSave?.cancel(); longStorySave?.cancel()
         photoRevision++
         removeReferenceVideo()
         activeAccountId = accountId
@@ -754,6 +773,8 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         creationSettingsStoryOnly = false
         draft = accountId?.let { store.draft("video", it) } ?: CreationDraft()
         imageDraft = accountId?.let { store.draft("image-generation", it) } ?: CreationDraft()
+        val savedLong = accountId?.let { store.draft("long-story", it) }
+        longStoryDraft = if(savedLong?.modelId == "long-story") savedLong else CreationDraft(modelId = "long-story", resolution = "1080p", duration = 60, generatedAudio = true)
         voiceText = accountId?.let { store.draft("voice", it).prompt }.orEmpty()
         if (accountId != null) {
             refreshCloudCatalog()
@@ -952,12 +973,14 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         photoName = ""
         selectedPhotoFile.delete()
     }
-    fun removeReferenceVideo() {
+    fun removeReferenceVideo(keepPhotos: Boolean = false) {
         discardDraftVideo(referenceVideoPath)
         referenceVideoPath = null; referenceVideoName = ""; referenceVideoHasAudio = null; storyRoot = null; storyPart = 0
         referenceVideoDurationMs = null
-        referencePhotoPaths.forEach { File(it).delete() }
-        referencePhotoPaths = emptyList()
+        if(!keepPhotos) {
+            referencePhotoPaths.forEach { File(it).delete() }
+            referencePhotoPaths = emptyList()
+        }
         cloudQuote = null
     }
 
@@ -1112,9 +1135,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun importReferencePhotos(uris: List<Uri>, replaceIndex: Int? = null) = startWork("Opening reference photos") {
+        val maximum = if(screen == Screen.LONG_STORY) 2 else 4
         val account = checkNotNull(activeAccountId)
         require(VideoModelCatalog.isReference(draft.modelId) && referenceVideoPath != null) { "Add a base video first." }
-        require(uris.isNotEmpty() && (replaceIndex == null && referencePhotoPaths.size + uris.size <= 4 ||
+        require(uris.isNotEmpty() && (replaceIndex == null && referencePhotoPaths.size + uris.size <= maximum ||
             replaceIndex != null && replaceIndex in referencePhotoPaths.indices && uris.size == 1)) { "You can use up to four reference photos." }
         val added = mutableListOf<String>()
         try {
@@ -1138,6 +1162,7 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun importReferenceVideo(uri: Uri) = startWork("Opening reference video") {
+        val longStory = screen == Screen.LONG_STORY
         val account = checkNotNull(activeAccountId) { "Sign in before choosing a video." }
         val target = File(app.filesDir, "sources/${accountHash(account)}/${UUID.randomUUID()}.mp4")
         var hasAudio = false
@@ -1170,6 +1195,10 @@ class MotionViewModel(application: Application) : AndroidViewModel(application) 
         referenceVideoHasAudio = hasAudio
         referenceVideoDurationMs = durationMs
         cloudQuote = null
+        if(longStory) {
+            message("Character video added. Your story will generate new dialogue.")
+            return@startWork
+        }
         photo = null; photoName = ""; storyRoot = null; storyPart = 0
         val modelId = if(VideoModelCatalog.isReference(draft.modelId)) draft.modelId
             else cloudRates.firstOrNull { VideoModelCatalog.isReference(it.modelId) }?.modelId ?: "kling-o3-reference"

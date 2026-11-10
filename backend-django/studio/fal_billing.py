@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 import requests
 from django.conf import settings
 from django.db.models import F, Q
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -16,13 +17,25 @@ from .models import Job
 URL = "https://api.fal.ai/v1/models/billing-events"
 
 
+def request_contracts(job):
+    if job.quote.payload.get("model") == "motion:long-story":
+        from .long_story import VIDEO_ENDPOINT
+        return {step["id"]: VIDEO_ENDPOINT
+                for step in job.provider_context.get("steps", []) if step.get("id") and step["kind"] == "scene"}
+    endpoint = job.provider_context.get("endpoint")
+    if not endpoint:
+        endpoint, _ = fal_catalog.request(job.quote.payload, "source-present" if job.quote.payload.get("input_key") else None)
+    return {job.provider_id: endpoint}
+
+
 def configured():
     return bool(settings.FAL_BILLING_KEY and settings.USD_INR_RATE > 0)
 
 
 def fetch_events(jobs, start, end):
-    identifiers = {job.provider_id for job in jobs}
-    if len(identifiers) != len(jobs):
+    rows = [identifier for job in jobs for identifier in request_contracts(job)]
+    identifiers = set(rows)
+    if len(identifiers) != len(rows):
         raise ValueError("Duplicate provider request IDs require manual reconciliation")
     params = {"request_id": ",".join(sorted(identifiers)), "start": start.isoformat(), "end": end.isoformat(), "limit": 200}
     seen, cursors = {}, set()
@@ -64,26 +77,45 @@ def sync_recent(days=7, limit=100):
     if not configured(): raise ValueError("Set MOTION_AI_FAL_BILLING_KEY and a verified MOTION_AI_USD_INR_RATE first.")
     if not 1 <= days <= 89 or not 1 <= limit <= 1000: raise ValueError("Use 1–89 days and 1–1000 jobs.")
     end = timezone.now(); start = end - timedelta(days=days)
-    jobs = list(Job.objects.filter(created_at__gte=start, settled_at__isnull=False, quote__payload__model__startswith="fal:")
+    jobs = list(Job.objects.filter(Q(quote__payload__model__startswith="fal:") | Q(quote__payload__model="motion:long-story"), created_at__gte=start, settled_at__isnull=False)
                 .exclude(provider_id="").exclude(cost_record__source="invoice")
                 .filter(Q(cost_checked_at__isnull=True) | Q(cost_checked_at__lt=end - timedelta(hours=6)))
                 .select_related("quote", "cost_record").order_by(F("cost_checked_at").asc(nulls_first=True), "created_at")[:limit])
     added = missing = 0
-    for offset in range(0, len(jobs), 50):
-        batch = jobs[offset:offset + 50]
+    batches, batch, size = [], [], 0
+    for job in jobs:
+        count = len(request_contracts(job))
+        if not count:
+            missing += 1
+            continue
+        if batch and size + count > 50:
+            batches.append(batch); batch, size = [], 0
+        batch.append(job); size += count
+    if batch: batches.append(batch)
+    for batch in batches:
         events = fetch_events(batch, start - timedelta(hours=1), end)
         for job in batch:
-            matched = sorted([event for event in events if event["request_id"] == job.provider_id], key=lambda item: (item["timestamp"], item["endpoint"], item["unit"]))
-            if matched:
-                endpoint = job.provider_context.get("endpoint")
-                if not endpoint:
-                    endpoint, _ = fal_catalog.request(job.quote.payload, "source-present" if job.quote.payload.get("input_key") else None)
-                if any(row["endpoint"] != endpoint for row in matched):
+            contracts = request_contracts(job)
+            matched = sorted([event for event in events if event["request_id"] in contracts], key=lambda item: (item["timestamp"], item["endpoint"], item["unit"]))
+            ambiguous = any(step.get("cost", 0) > 0 and not step.get("id") for step in job.provider_context.get("steps", []))
+            if matched and set(contracts) == {row["request_id"] for row in matched} and not ambiguous:
+                if any(row["endpoint"] != contracts[row["request_id"]] for row in matched):
                     raise ValueError("Provider endpoint mismatch; no cost was attributed to this job")
                 # Preserve the original FX valuation on later refreshes. Manual invoice cost wins.
                 fx = job.cost_record.usd_inr if job.cost_record and job.cost_record.usd_inr else settings.USD_INR_RATE
                 usd = sum((Decimal(row["cost"]) for row in matched), Decimal(0))
                 paise = int((usd * fx * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+                if job.quote.payload.get("model") == "motion:long-story":
+                    # fal invoices cannot prove the separate OpenAI planning charge.
+                    # Save the video subtotal, but keep the complete bill unreconciled
+                    # until an owner adds both provider statements. Never underreport cost.
+                    with transaction.atomic():
+                        saved = Job.objects.select_for_update().get(pk=job.pk)
+                        saved.provider_context = {**saved.provider_context, "fal_billed_usd": str(usd), "fal_billed_inr_paise": paise}
+                        saved.cost_checked_at = end
+                        saved.save(update_fields=["provider_context", "cost_checked_at"])
+                    missing += 1
+                    continue
                 fingerprint = hashlib.sha256(json.dumps([matched, str(fx.normalize())], sort_keys=True).encode()).hexdigest()
                 _, created = finance.record_cost(job.pk, paise, "fal request " + job.provider_id, source="fal_billing", original_usd=usd, usd_inr=fx, fingerprint=fingerprint)
                 added += int(created)

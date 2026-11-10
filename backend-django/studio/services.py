@@ -45,14 +45,15 @@ def enabled_rates():
     if not settings.S3_BUCKET or settings.DAILY_PROVIDER_BUDGET_PAISE <= 0:
         return Rate.objects.none()
     providers = Q(pk__in=[])
+    long_models = {"motion:long-story"} if settings.OPENAI_API_KEY and settings.GENERATION_LEASE_SECONDS >= 900 else set()
     if settings.FAL_ONLY:
-        return Rate.objects.filter(provider_model__in=fal_catalog.LAUNCH_MODELS, enabled=True, unit_cost_paise__gt=0, max_units__gt=0) if fal.configured() else Rate.objects.none()
+        return Rate.objects.filter(provider_model__in=fal_catalog.LAUNCH_MODELS | long_models, enabled=True, unit_cost_paise__gt=0, max_units__gt=0) if fal.configured() else Rate.objects.none()
     if settings.GATEWAY_URL and settings.GATEWAY_TOKEN:
-        providers |= ~Q(provider_model__in=gemini.MODELS | gemini_video.MODELS | fal_catalog.PROVIDER_MODELS)
+        providers |= ~Q(provider_model__in=gemini.MODELS | gemini_video.MODELS | fal_catalog.PROVIDER_MODELS | {"motion:long-story"})
     if gemini.configured():
         providers |= Q(provider_model__in=gemini.MODELS | gemini_video.MODELS)
     if fal.configured():
-        providers |= Q(provider_model__in=fal_catalog.PROVIDER_MODELS)
+        providers |= Q(provider_model__in=fal_catalog.PROVIDER_MODELS | long_models)
     return Rate.objects.filter(providers, enabled=True, unit_cost_paise__gt=0, max_units__gt=0)
 
 def wallet_for_update(account):
@@ -276,6 +277,16 @@ def create_quote(account, data):
         if input_kind == "video" and not rate_config.get("reference_video"):
             raise Problem("This model does not support reference video input.")
         payload["input_kind"] = input_kind
+    if rate.provider_model == "motion:long-story":
+        refs = data.get("reference_image_ids", [])
+        count = data.get("reference_image_count", len(refs) if isinstance(refs, list) else -1)
+        if type(count) is not int or not 1 <= count <= 2:
+            raise Problem("Add one or two character photos for your long story.")
+        if payload.get("generated_audio") is not True:
+            raise Problem("Long Story includes generated character dialogue.")
+        maximum = count + (1 if input_kind == "video" else 0)
+        if any(not 1 <= int(tag) <= maximum for tag in re.findall(r"@Element([0-9]+)\b", prompt)):
+            raise Problem("The character numbers in your prompt must match your photos and optional video.")
     if data.get("asset_id"):
         asset = source_asset(account, data["asset_id"], rate.kind, rate_config)
         actual_kind = "video" if asset.mime == "video/mp4" else "image"
@@ -284,7 +295,7 @@ def create_quote(account, data):
         payload["input_kind"] = actual_kind
         payload["input_key"] = asset.key
         payload["asset_id"] = str(asset.pk)
-    elif rate_config.get("reference_video") and input_kind != "video":
+    elif rate_config.get("reference_video") and not rate_config.get("optional_reference_video") and input_kind != "video":
         raise Problem("Select a reference video for this model.")
     if data.get("template_id"):
         template = published_template(data["template_id"])
@@ -303,7 +314,7 @@ def create_quote(account, data):
         for tag in re.findall(r"@Image([0-9]+)\b", prompt):
             if not 1 <= int(tag) <= count:
                 raise Problem(f"Your prompt refers to @Image{tag}. Add that reference photo or update the prompt.")
-    cost = rate.unit_cost_paise * units
+    cost = rate.unit_cost_paise * units + (rate_config.get("plan_cost", 0) if rate.provider_model == "motion:long-story" else 0)
     charge = price(cost + rate.overhead_paise)
     ttl_minutes = 15 if input_kind in ("image", "video") and not data.get("asset_id") else 5
     return Quote.objects.create(account=account, rate=rate, payload=payload, payload_hash=digest(json.dumps(payload, sort_keys=True)), provider_cost_paise=cost, overhead_paise=rate.overhead_paise, markup_bps=settings.MARKUP_BPS, fee_bps=settings.STORE_FEE_BPS, charge_paise=charge, expires_at=timezone.now() + timedelta(minutes=ttl_minutes))

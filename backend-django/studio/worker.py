@@ -52,6 +52,14 @@ def run_one():
             if not isinstance(error, str) or error not in {"invalid_reference", "content_policy_violation"}:
                 error = "provider_failed"
             finish_job(job.pk, result["state"], cost, asset, error if result["state"] == "failed" else "", lease)
+            if job.quote.payload.get("model") == "motion:long-story":
+                try:
+                    # Only the worker that actually settled the job may remove its parts.
+                    if Job.objects.filter(pk=job.pk, state__in=TERMINAL).exists():
+                        from .long_story import cleanup
+                        cleanup(job)
+                except Exception:
+                    log.exception("story_intermediate_cleanup_delayed job_id=%s", job.pk)
             log.info("generation_job_terminal job_id=%s state=%s attempts=%s", job.pk, result["state"], job.attempts)
         else:
             provider_id = result.get("id", "")

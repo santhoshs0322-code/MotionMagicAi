@@ -20,6 +20,8 @@ data class CloudJob(
     val createdAt: Long = 0,
     val thumbnailUrl: String? = null,
     val thumbnailState: String = "none",
+    val storyScenesDone: Int = 0,
+    val storyScenesTotal: Int = 0,
 ) {
     val isGenerating: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain")
     val isActive: Boolean get() = state in setOf("queued", "submitting", "running", "uncertain", "downloading")
@@ -28,7 +30,9 @@ data class CloudJob(
     val statusLabel: String get() = when(state) {
         "queued" -> "Waiting for generation"
         "submitting" -> "Sending to AI model"
-        "running" -> "AI model is generating"
+        "running" -> if(storyScenesTotal > 0) {
+            if(storyScenesDone >= storyScenesTotal) "Assembling your story" else "Creating scene ${storyScenesDone + 1} of $storyScenesTotal"
+        } else "AI model is generating"
         "uncertain" -> "Checking provider status"
         "downloading" -> "Completed · downloading to this device"
         "succeeded" -> "Completed · saved to your account"
@@ -65,6 +69,10 @@ data class CloudJob(
             createdAt = runCatching { OffsetDateTime.parse(json.optString("created_at")).toInstant().toEpochMilli() }.getOrDefault(0),
             thumbnailUrl = json.optString("thumbnail_url").takeUnless { it.isBlank() || it == "null" },
             thumbnailState = json.optString("thumbnail_state", "none"),
+            storyScenesDone = json.optInt("story_scenes_done"),
+            storyScenesTotal = json.optInt("story_scenes_total"),
+            progressPercent = if(json.optInt("story_scenes_total") > 0 && json.optString("state") in listOf("running", "uncertain"))
+                (5 + json.optInt("story_scenes_done") * 80 / json.optInt("story_scenes_total")).coerceIn(5, 85) else stagePercent(json.getString("state")),
         )
     }
 }

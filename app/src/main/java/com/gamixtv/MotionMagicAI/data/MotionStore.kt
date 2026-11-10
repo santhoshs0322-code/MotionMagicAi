@@ -85,6 +85,12 @@ class MotionStore(context: Context) {
     fun draft(key: String = "video", accountId: String? = null): CreationDraft {
         val fallback = CreationDraft(aspect = settings().defaultAspect)
         val json = accountId?.let { readObject(draftKey(key, it)) } ?: return fallback
+        if(key == "long-story") return CreationDraft(
+            modelId = "long-story", resolution = "1080p", generatedAudio = true,
+            prompt = json.optString("prompt", ""),
+            duration = json.optInt("duration", 60).takeIf { it in listOf(60,120,180,240,300) } ?: 60,
+            aspect = json.optString("aspect", "9:16").takeIf { it in listOf("9:16", "16:9", "1:1") } ?: "9:16",
+        )
         val model = VideoModelCatalog.find(json.optString("modelId", fallback.modelId))
         val imageModel = ImageModelCatalog.find(json.optString("imageModelId", fallback.imageModelId))
         return CreationDraft(

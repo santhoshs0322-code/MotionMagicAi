@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CloudJobTest {
+    @Test fun longStoryDistinguishesSceneGenerationFromAssembly() {
+        val story = job("story", "running").copy(storyScenesDone = 3, storyScenesTotal = 20)
+        assertEquals("Creating scene 4 of 20", story.statusLabel)
+        assertEquals("Assembling your story", story.copy(storyScenesDone = 20).statusLabel)
+        assertEquals("Completed · saved to your account", story.copy(state = "succeeded").statusLabel)
+    }
     @Test fun moderatedFailuresAreBlockedTerminalAndCannotBeDownloaded() {
         val blocked = job("blocked", "failed").copy(errorCode = "content_policy_violation", chargedPaise = 0)
         assertTrue(blocked.isContentBlocked)

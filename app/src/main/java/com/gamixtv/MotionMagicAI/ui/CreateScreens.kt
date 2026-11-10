@@ -108,9 +108,12 @@ fun CreateScreen(vm: MotionViewModel, onPickPhoto: () -> Unit, onPickVideo: () -
                 TextButton(onClick = { update(draft.copy(templateId = null, requiresReference = false)) }) { Text("Clear template", fontSize = 11.sp) }
             }
             if(story) {
+                Button(onClick = { vm.go(Screen.LONG_STORY) }, modifier = Modifier.fillMaxWidth().testTag("open-long-story")) {
+                    Icon(Icons.Rounded.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Create a 1–5 minute story")
+                }
                 VideoReferenceInput(draft.modelId, vm.cloudRates.map { it.modelId }.distinct(), vm.referenceVideoPath, vm.referenceVideoDurationMs,
                     vm.referencePhotoPaths, rate?.maxReferenceImages ?: 0, { vm.selectVideoModel(VideoModelCatalog.find(it)) }, onPickVideo,
-                    vm::removeReferenceVideo, onPickReferencePhotos, vm::removeReferencePhoto)
+                    { vm.removeReferenceVideo() }, onPickReferencePhotos, vm::removeReferencePhoto)
                 TextButton(onClick = { vm.go(Screen.PROJECTS) }, modifier = Modifier.testTag("story-saved-video")) {
                     Icon(Icons.Rounded.VideoLibrary, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Use a saved video")
                 }

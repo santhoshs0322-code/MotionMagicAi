@@ -12,6 +12,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         call_command("sync_gemini_rates", stdout=self.stdout)
         configured = fal.configured() and settings.DAILY_PROVIDER_BUDGET_PAISE > 0
+        from studio.long_story import sync_rate
+        sync_rate(configured)
         for slug, model, config, _ in fal_catalog.variants():
             video = "resolution" in config
             cost = settings.FAL_RATE_COSTS.get(slug, 0)

@@ -101,6 +101,10 @@ GATEWAY_TOKEN = env("GATEWAY_TOKEN")
 GEMINI_API_KEY = env("GEMINI_API_KEY")
 FAL_KEY = env("FAL_KEY")
 FAL_OVERHEAD_PAISE = int(env("FAL_OVERHEAD_PAISE", "0"))
+LONG_STORY_SECOND_COST = int(env("LONG_STORY_COST_PAISE_PER_SECOND", "0"))
+LONG_STORY_PLAN_COST = int(env("LONG_STORY_PLAN_COST_PAISE", "0"))
+OPENAI_API_KEY = env("OPENAI_API_KEY")
+OPENAI_STORY_MODEL = env("OPENAI_STORY_MODEL", "gpt-5.6-terra")
 from studio.fal_catalog import variants as fal_variants
 FAL_RATE_COSTS = {slug: int(env(cost_env, "0")) for slug, _, _, cost_env in fal_variants()}
 GEMINI_BASE_URL = env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1").rstrip("/")
@@ -183,5 +187,5 @@ if not 1024**2 <= GEMINI_MAX_VIDEO_BYTES <= MAX_UPLOAD_BYTES:
     raise ImproperlyConfigured("Invalid Gemini video byte limit")
 if GEMINI_OVERHEAD_PAISE < 0 or any(value < 0 for value in (*GEMINI_RATE_COSTS.values(), *GEMINI_VIDEO_RATE_COSTS.values())):
     raise ImproperlyConfigured("Gemini costs must be non-negative integer paise")
-if FAL_OVERHEAD_PAISE < 0 or any(value < 0 for value in FAL_RATE_COSTS.values()):
+if FAL_OVERHEAD_PAISE < 0 or min(LONG_STORY_SECOND_COST, LONG_STORY_PLAN_COST) < 0 or any(value < 0 for value in FAL_RATE_COSTS.values()):
     raise ImproperlyConfigured("fal costs must be non-negative integer paise")

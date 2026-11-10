@@ -63,7 +63,7 @@ class ShowcaseForm(forms.ModelForm):
     category = forms.ChoiceField(required=False, label="Existing category")
     new_category = forms.CharField(required=False, max_length=40, label="New category name",
                                    widget=forms.TextInput(attrs={"placeholder": "For example, Fantasy portraits"}))
-    rate = TemplateRateChoice(queryset=Rate.objects.filter(kind__in=("image", "video")).order_by("kind", "title", "slug"),
+    rate = TemplateRateChoice(queryset=Rate.objects.filter(kind__in=("image", "video")).exclude(provider_model="motion:long-story").order_by("kind", "title", "slug"),
                               label="Model and quality", empty_label="Choose a model and quality")
     poster = forms.FileField(required=False, help_text="Portrait or landscape JPG, PNG or WebP; up to 5 MB.")
     sample_video = forms.FileField(required=False, help_text="MP4 example shown to users; up to 50 MB. Keep it short for fast previews.")

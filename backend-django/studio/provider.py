@@ -2,6 +2,9 @@ from . import gateway, gemini, gemini_video, fal, fal_catalog
 
 
 def submit(job):
+    if job.quote.payload.get("model") == "motion:long-story":
+        from . import long_story
+        return long_story.advance(job)
     if job.quote.payload.get("model") in fal_catalog.PROVIDER_MODELS:
         return fal.submit(job)
     if job.quote.payload.get("model") in gemini_video.MODELS:
@@ -12,6 +15,9 @@ def submit(job):
 
 
 def reconcile(job):
+    if job.quote.payload.get("model") == "motion:long-story":
+        from . import long_story
+        return long_story.advance(job)
     if job.quote.payload.get("model") in fal_catalog.PROVIDER_MODELS:
         return fal.reconcile(job)
     if job.quote.payload.get("model") in gemini_video.MODELS:

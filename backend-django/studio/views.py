@@ -152,8 +152,8 @@ class Capabilities(Public):
             "id": r.pk, "title": r.title, "kind": r.kind, "model": r.provider_model, "max_units": r.max_units, "config": r.config,
             "required_plan": services.minimum_plan(r),
             "minimum_units": min(r.config.get("durations", [5])) if r.kind == "video" else 1,
-            "minimum_charge_paise": services.price(r.unit_cost_paise * (min(r.config.get("durations", [5])) if r.kind == "video" else 1) + r.overhead_paise),
-            "credit_prices": {str(units): services.price(r.unit_cost_paise * units + r.overhead_paise)
+            "minimum_charge_paise": services.price(r.unit_cost_paise * (min(r.config.get("durations", [5])) if r.kind == "video" else 1) + r.overhead_paise + r.config.get("plan_cost", 0)),
+            "credit_prices": {str(units): services.price(r.unit_cost_paise * units + r.overhead_paise + r.config.get("plan_cost", 0))
                               for units in (r.config.get("durations", [5]) if r.kind == "video" else [1])},
         } for r in rates], deferred_input_quotes=True, billing=settings.PLAY_ENABLED and bool(rates), subscriptions=settings.PLAY_ENABLED and settings.SUBSCRIPTIONS_ENABLED, currency="CREDITS", credit_value_usd_cents=0.5, markup_bps=settings.MARKUP_BPS)
 
@@ -192,6 +192,8 @@ def job_public(job, thumbnail_s3=None):
             pass  # Preview availability must not make history unavailable.
     return {"id": str(job.pk), "state": job.state, "maximum_charge_paise": job.quote.charge_paise, "charged_paise": job.charged_paise, "output_asset_id": str(job.output_id) if job.output_id else None, "error_code": job.error_code, "created_at": job.created_at, "poll_after_seconds": 30 if job.state not in services.TERMINAL else None,
             "thumbnail_url": thumbnail, "thumbnail_state": job.output.thumbnail_state if job.output_id and job.output.account_id == job.account_id and not job.output.deleted else "none",
+            "story_scenes_done": job.provider_context.get("scenes_done", 0),
+            "story_scenes_total": payload.get("units", 0) // 15 if payload.get("model") == "motion:long-story" else 0,
             "title": payload.get("prompt", "AI creation")[:55], "kind": payload.get("kind"), "aspect_ratio": payload.get("aspect_ratio"), "duration": payload.get("units", 0) if payload.get("kind") == "video" else 0}
 
 

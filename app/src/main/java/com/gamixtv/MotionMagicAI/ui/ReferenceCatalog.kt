@@ -92,6 +92,11 @@ internal fun ReferenceCatalogContent(credits: Long?, theme: ThemeMode, entries: 
                     }
                 }
                 item {
+                    OutlinedButton(onClick = { navigate(Screen.LONG_STORY) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("home-long-story")) {
+                        Icon(Icons.Rounded.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Long Story · 1–5 minutes with dialogue")
+                    }
+                }
+                item {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         RoundCatalogTool("Voice", Icons.Rounded.Mic) { navigate(Screen.VOICE) }
                         RoundCatalogTool("Templates", Icons.Rounded.Layers) { navigate(Screen.TEMPLATES) }

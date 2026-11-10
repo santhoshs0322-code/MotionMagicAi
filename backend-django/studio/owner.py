@@ -12,7 +12,7 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.http import Http404, HttpResponse, HttpResponseForbidden, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -134,7 +134,7 @@ def records(request, kind):
         query = Purchase.objects.defer("token_encrypted", "token_hash").select_related("account", "product").filter(created_at__gte=filters["from"], created_at__lt=filters["until"]).order_by("-created_at", "-pk")
         if filters["user"]: query = query.filter(account_id=filters["user"])
     elif kind == "rates":
-        query = Rate.objects.filter(provider_model__startswith="fal:").exclude(provider_model="fal:nano-banana").order_by("pk")
+        query = Rate.objects.filter(Q(provider_model__startswith="fal:") | Q(provider_model="motion:long-story")).exclude(provider_model="fal:nano-banana").order_by("pk")
     else: raise Http404()
     params = request.GET.copy(); params.pop("page", None)
     return render(request, "owner/records.html", {"kind": kind, "page": Paginator(query, 50).get_page(request.GET.get("page")), "query": params.urlencode(), "filters": filters})
