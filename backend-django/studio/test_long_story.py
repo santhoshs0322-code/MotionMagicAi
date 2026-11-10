@@ -43,10 +43,49 @@ class LongStoryTests(TestCase):
         for invalid in [15, 30, 61, 360, True]:
             with self.assertRaises(Problem): self.quote(duration=invalid)
 
-    def test_requires_one_or_two_photos_and_audio(self):
-        for count in [0, 3, "2", True, None]:
+    def test_optional_photos_are_limited_to_two_and_audio_is_required(self):
+        for count in [-1, 3, "2", True, None]:
             with self.assertRaises(Problem): self.quote(reference_image_count=count)
         with self.assertRaises(Problem): self.quote(generated_audio=False)
+
+    @patch("studio.long_story.reference_media.prepare_video", return_value=("https://bucket.s3.amazonaws.com/video", 1820))
+    @patch("studio.long_story.storage.client")
+    @patch("studio.long_story.requests.post")
+    def test_all_six_input_combinations_quote_bind_and_route_correctly(self, post, client, video):
+        second = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/image/uploads/b.png", mime="image/png", size=100, ready=True)
+        clip = Asset.objects.create(account=self.account, key=f"accounts/{self.account.pk}/video/uploads/c.mp4", mime="video/mp4", size=1000, ready=True)
+        client.return_value.generate_presigned_url.return_value = "https://bucket.s3.amazonaws.com/photo"
+        response = MagicMock(status_code=202)
+        response.iter_content.side_effect = lambda *args: iter([b'{"request_id":"scene-test"}'])
+        post.return_value.__enter__.return_value = response
+        for count, with_video in [(0, False), (1, False), (2, False), (0, True), (1, True), (2, True)]:
+            with self.subTest(photos=count, video=with_video):
+                quote = self.quote(reference_image_count=count, input_kind="video" if with_video else "text")
+                photos = [str(self.photo.pk), str(second.pk)][:count]
+                job, _ = services.submit_job(self.account, quote.pk, f"combo-{count}-{with_video}-123", asset_id=str(clip.pk) if with_video else None, reference_image_ids=photos)
+                job.lease_id = uuid.uuid4()
+                job.provider_context = dict(steps=[dict(kind="plan", state="done", id="resp_plan", cost=20)],
+                    spent_allowance=20, scenes_done=0, scene_prompts=["The friends discover a hidden city and speak English."] * 4)
+                job.save()
+                self.assertEqual(long_story.advance(job)["state"], "running")
+                expected = long_story.VIDEO_ENDPOINT if count or with_video else long_story.TEXT_VIDEO_ENDPOINT
+                self.assertEqual(post.call_args.args[0], f"{long_story.fal.QUEUE}/{expected}")
+                body = post.call_args.kwargs["json"]
+                self.assertEqual(len(body.get("elements", [])), count + int(with_video))
+                self.assertIs(body["generate_audio"], True)
+                self.assertIs(body["enable_safety_checker"], True)
+                if count == 0 and not with_video:
+                    self.assertNotIn("elements", body)
+                    self.assertIn("There are no reference photos or videos", long_story.plan_body(job)["system_prompt"])
+                job.refresh_from_db()
+                self.assertEqual(fal_billing.request_contracts(job), {"scene-test": expected})
+                services.finish_job(job.pk, "failed", 0)
+
+    def test_prompt_only_rejects_missing_character_tags_and_video_only_accepts_element_one(self):
+        with self.assertRaises(Problem): self.quote(reference_image_count=0, prompt="@Element1 explores a castle.")
+        quote = self.quote(reference_image_count=0, input_kind="video", prompt="@Element1 explores a castle.")
+        self.assertEqual(quote.payload["reference_image_count"], 0)
+        self.assertEqual(quote.payload["input_kind"], "video")
 
     def test_foreign_reference_cannot_be_bound(self):
         photo = Asset.objects.create(account=self.other, key=f"accounts/{self.other.pk}/image/uploads/b.png", mime="image/png", size=100, ready=True)

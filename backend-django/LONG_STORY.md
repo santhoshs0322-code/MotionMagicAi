@@ -1,7 +1,7 @@
 # Long Story (1–5 minutes)
 
 Home → Long Story, or Continue Story → Create a 1–5 minute story.
-One prompt, one or two character photos, optional 3–15 second MP4 character reference,
+One required prompt, optional one or two character photos and/or a 3–15 second MP4 character reference,
 1080p, 9:16 / 16:9 / 1:1, and 1 / 2 / 3 / 4 / 5 minutes. Character dialogue and
 lip sync use Kling's native audio. This is not voice cloning or a guarantee of
 identical voices/faces across independently generated scenes. A character video
@@ -14,6 +14,9 @@ Provider keys stay on the server:
 - OpenAI Responses, default `gpt-5.6-terra`: background structured screenplay.
 - `fal-ai/kling-video/o3/pro/reference-to-video`: 15-second native-audio scenes,
   with fixed character elements reused on every scene. Safety checking is mandatory.
+- Prompt-only stories use `fal-ai/kling-video/o3/pro/text-to-video`, without reference
+  fields. Supported inputs: prompt only, one photo, two photos, video only, and
+  one or two photos together with a video. All include the user's story prompt.
 
 Add these to the private backend `.env` on both API and worker:
 

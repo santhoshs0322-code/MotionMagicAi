@@ -280,13 +280,10 @@ def create_quote(account, data):
     if rate.provider_model == "motion:long-story":
         refs = data.get("reference_image_ids", [])
         count = data.get("reference_image_count", len(refs) if isinstance(refs, list) else -1)
-        if type(count) is not int or not 1 <= count <= 2:
-            raise Problem("Add one or two character photos for your long story.")
+        if type(count) is not int or not 0 <= count <= 2:
+            raise Problem("References are optional. Long Story supports up to two photos and one video.")
         if payload.get("generated_audio") is not True:
             raise Problem("Long Story includes generated character dialogue.")
-        maximum = count + (1 if input_kind == "video" else 0)
-        if any(not 1 <= int(tag) <= maximum for tag in re.findall(r"@Element([0-9]+)\b", prompt)):
-            raise Problem("The character numbers in your prompt must match your photos and optional video.")
     if data.get("asset_id"):
         asset = source_asset(account, data["asset_id"], rate.kind, rate_config)
         actual_kind = "video" if asset.mime == "video/mp4" else "image"
@@ -310,6 +307,10 @@ def create_quote(account, data):
     if type(count) is not int or not 0 <= count <= rate_config.get("max_reference_images", 0) or (images and count != len(images)):
         raise Problem("Reference photo count differs from this model's limit or uploaded photos.")
     payload.update(reference_image_count=count, reference_images=images)
+    if rate.provider_model == "motion:long-story":
+        maximum = count + (1 if payload.get("input_kind") == "video" else 0)
+        if any(not 1 <= int(tag) <= maximum for tag in re.findall(r"@Element([0-9]+)\b", prompt)):
+            raise Problem("The character numbers in your prompt must match your photos and optional video.")
     if rate_config.get("reference_video"):
         for tag in re.findall(r"@Image([0-9]+)\b", prompt):
             if not 1 <= int(tag) <= count:

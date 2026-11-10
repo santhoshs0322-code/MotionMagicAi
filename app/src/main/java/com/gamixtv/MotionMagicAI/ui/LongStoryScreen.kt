@@ -36,13 +36,15 @@ internal fun LongStoryContent(draft: CreationDraft, photos: List<String>, video:
     val colors = StudioColors
     val rate = rates.firstOrNull { it.matches(draft, false) }
     val price = rate?.priceFor(draft, false)
+    val characterCount = photos.size.coerceAtMost(2) + if(video != null) 1 else 0
+    val promptCharacters = if(characterCount == 0) "two friends" else (1..characterCount).joinToString(" and ") { "@Element$it" }
     Column(Modifier.fillMaxSize().imePadding().background(colors.background).testTag("long-story-screen")) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("One idea. A whole story.", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text("1–5 minutes · two character photos · optional character video · spoken dialogue", color = colors.muted, fontSize = 13.sp)
+            Text("1–5 minutes · prompt only, photos, video or both · spoken dialogue", color = colors.muted, fontSize = 13.sp)
             StoryPanel {
-                Text("Your characters", fontWeight = FontWeight.Bold)
-                Text("Photo 1 is @Element1; photo 2 is @Element2. Describe who speaks and the language in your prompt.", color = colors.muted, fontSize = 12.sp)
+                Text("Character photos · optional", fontWeight = FontWeight.Bold)
+                Text("Create from your prompt alone, or add one or two photos. Photo 1 is @Element1; photo 2 is @Element2.", color = colors.muted, fontSize = 12.sp)
                 photos.take(2).forEachIndexed { index, path ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ProjectThumbnail(path, video = false)
@@ -59,7 +61,7 @@ internal fun LongStoryContent(draft: CreationDraft, photos: List<String>, video:
             }
             StoryPanel {
                 Text("Continue from a character video", fontWeight = FontWeight.Bold)
-                Text("Optional MP4, 3–15 seconds. It guides a character's identity, not exact motion or original sound. With two photos this is @Element3.", color = colors.muted, fontSize = 12.sp)
+                Text("Optional MP4, 3–15 seconds. Use a video alone or with photos. It guides a character's identity. Your video is @Element${photos.size.coerceAtMost(2) + 1}.", color = colors.muted, fontSize = 12.sp)
                 video?.let { path ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ProjectThumbnail(path, video = true)
@@ -73,7 +75,7 @@ internal fun LongStoryContent(draft: CreationDraft, photos: List<String>, video:
                 Text("Tell your story", fontWeight = FontWeight.Bold)
                 OutlinedTextField(value = draft.prompt, onValueChange = { update(draft.copy(prompt = it.take(1000))) },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp).testTag("long-story-prompt"),
-                    placeholder = { Text("@Element1 and @Element2 discover a hidden city. They speak English. Start with a mystery, reveal the secret, and end with a hopeful twist…") },
+                    placeholder = { Text("Tell a story about $promptCharacters discovering a hidden city. They speak English. Start with a mystery, reveal the secret, and end with a hopeful twist…") },
                     supportingText = { Text("${draft.prompt.length}/1000 · include dialogue language and character voice descriptions") }, shape = RoundedCornerShape(16.dp))
             }
             StoryPanel {

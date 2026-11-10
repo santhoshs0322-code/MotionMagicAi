@@ -34,6 +34,7 @@ class LongStoryUiTest {
 
     @Test fun fiveMinuteSelectionUpdatesTheCompleteQuoteInDarkMode() {
         show(true, ThemeMode.DARK)
+        ui.onNodeWithText("Character photos · optional").assertIsDisplayed()
         ui.onNodeWithText("1000 credits").assertIsDisplayed()
         ui.onNodeWithText("Story length").performScrollTo()
         ui.onNodeWithTag("story-minutes-5").performScrollTo().assertIsDisplayed().performClick()

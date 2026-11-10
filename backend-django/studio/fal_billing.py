@@ -19,9 +19,12 @@ URL = "https://api.fal.ai/v1/models/billing-events"
 
 def request_contracts(job):
     if job.quote.payload.get("model") == "motion:long-story":
-        from .long_story import VIDEO_ENDPOINT
-        return {step["id"]: VIDEO_ENDPOINT
-                for step in job.provider_context.get("steps", []) if step.get("id") and step["kind"] == "scene"}
+        from .long_story import VIDEO_ENDPOINT, TEXT_VIDEO_ENDPOINT
+        contracts = {step["id"]: step.get("endpoint", VIDEO_ENDPOINT)
+                     for step in job.provider_context.get("steps", []) if step.get("id") and step["kind"] == "scene"}
+        if any(endpoint not in (VIDEO_ENDPOINT, TEXT_VIDEO_ENDPOINT) for endpoint in contracts.values()):
+            raise ValueError("Unexpected story scene billing endpoint")
+        return contracts
     endpoint = job.provider_context.get("endpoint")
     if not endpoint:
         endpoint, _ = fal_catalog.request(job.quote.payload, "source-present" if job.quote.payload.get("input_key") else None)
