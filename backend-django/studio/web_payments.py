@@ -31,6 +31,8 @@ def origin():
 def require_config(mode=None, sales=False):
     if not settings.PAYU_KEY or not settings.PAYU_SALT:
         raise Problem("Web payments are not enabled yet.", 503)
+    if sales and settings.WEB_TRIAL_MODE:
+        raise Problem("Purchases are temporarily disabled during web testing.", 403)
     if sales and (not settings.WEB_ENABLED or not settings.PAYU_ENABLED):
         raise Problem("Web payments are not enabled yet.", 503)
     if sales and settings.PAYU_MODE == "live" and not settings.PAYU_ALLOW_LIVE:

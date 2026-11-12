@@ -4,6 +4,7 @@ from studio import owner
 from studio import showcase
 from studio import owner_credits
 from studio import webapp, web_auth
+from studio import web_feedback
 
 urlpatterns = [
     path("", webapp.index),
@@ -14,6 +15,8 @@ urlpatterns = [
     path("app/session/", web_auth.BrowserConfig.as_view()),
     path("app/login/", web_auth.BrowserSignIn.as_view()),
     path("app/logout/", web_auth.BrowserSignOut.as_view()),
+    path("app/feedback/", web_feedback.Feedback.as_view()),
+    path("app/visitor-interest/", web_feedback.VisitorInterest.as_view()),
     path("app/packs/", webapp.Packs.as_view()),
     path("app/payments/", webapp.Orders.as_view()),
     path("app/payments/<uuid:identifier>/verify/", webapp.OrderStatus.as_view()),

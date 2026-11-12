@@ -10,9 +10,70 @@ class WebVisitorDay(models.Model):
     visitor_hash = models.CharField(max_length=64)
     views = models.PositiveIntegerField(default=0)
     admitted_views = models.PositiveIntegerField(default=0)
+    new_browser = models.BooleanField(default=False)
+    source = models.CharField(max_length=30, default="unknown")
+    device = models.CharField(max_length=12, default="unknown")
+    landing = models.CharField(max_length=30, default="/")
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["day", "visitor_hash"], name="web_visitor_day_unique")]
+
+
+class WebUserProfile(models.Model):
+    account = models.OneToOneField("Account", on_delete=models.PROTECT, primary_key=True)
+    registered_on_web = models.BooleanField(default=False)
+    first_seen = models.DateTimeField(default=timezone.now, db_index=True)
+    last_login = models.DateTimeField(default=timezone.now)
+    last_seen = models.DateTimeField(default=timezone.now, db_index=True)
+
+
+class WebUserDay(models.Model):
+    account = models.ForeignKey("Account", on_delete=models.PROTECT)
+    day = models.DateField(db_index=True)
+    logins = models.PositiveIntegerField(default=0)
+    visits = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["account", "day"], name="web_user_day_unique")]
+
+
+class WebGeneration(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.PROTECT, primary_key=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    testing = models.BooleanField(default=False)
+
+
+class WebFeedback(models.Model):
+    account = models.ForeignKey("Account", on_delete=models.PROTECT)
+    job = models.OneToOneField("Job", null=True, on_delete=models.PROTECT)
+    context = models.CharField(max_length=12)
+    outcome = models.CharField(max_length=12)
+    rating = models.CharField(max_length=12, blank=True)
+    interest = models.CharField(max_length=12, blank=True)
+    comment = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["account"], condition=Q(context="credits"), name="web_credit_feedback_once"),
+            models.CheckConstraint(condition=(Q(context="generation", job__isnull=False) | Q(context="credits", job__isnull=True)), name="web_feedback_context"),
+            models.CheckConstraint(condition=Q(outcome__in=("submitted", "dismissed")), name="web_feedback_outcome"),
+            models.CheckConstraint(condition=Q(rating__in=("", "like", "dislike")), name="web_feedback_rating"),
+            models.CheckConstraint(condition=Q(interest__in=("", "yes", "no", "maybe")), name="web_feedback_interest"),
+        ]
+
+
+class WebVisitorInterest(models.Model):
+    visitor_hash = models.CharField(max_length=64, unique=True)
+    outcome = models.CharField(max_length=12)
+    interest = models.CharField(max_length=12, blank=True)
+    goal = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=Q(outcome__in=("submitted", "dismissed")), name="web_visitor_outcome"),
+            models.CheckConstraint(condition=Q(interest__in=("", "yes", "no", "maybe")), name="web_visitor_interest")]
+
 class Account(models.Model):
     # String IDs preserve existing Mongo IDs when importing only MotionMagic accounts.
     id = models.CharField(primary_key=True, max_length=128, default=uuid.uuid4, editable=False)

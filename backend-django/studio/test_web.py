@@ -19,7 +19,7 @@ from .models import Account, CashEntry, Ledger, Product, Wallet, WebCreditPack, 
 
 @override_settings(AUTH_ENABLED=True, GOOGLE_CLIENT_ID="web-client.apps.googleusercontent.com", WEB_ENABLED=True,
     PAYU_ENABLED=True, PAYU_MODE="live", PAYU_ALLOW_LIVE=True, PAYU_KEY="merchant-test-key", PAYU_SALT="server-only-test-salt",
-    WEB_PUBLIC_URL="https://api.example.test", WELCOME_CREDITS=200, OWNER_USERNAME="motion-owner")
+    WEB_PUBLIC_URL="https://api.example.test", WELCOME_CREDITS=200, OWNER_USERNAME="motion-owner", WEB_TRIAL_MODE=False)
 class WebTests(TestCase):
     def setUp(self):
         cache.clear()

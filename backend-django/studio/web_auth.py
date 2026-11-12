@@ -2,10 +2,12 @@
 import secrets
 import ipaddress
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core import signing
 from django.db import transaction
+from django.db.models import F
 from django.middleware.csrf import get_token, rotate_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -18,7 +20,28 @@ from rest_framework.views import APIView
 
 from . import authentication, services
 from .errors import Problem
-from .models import Account, Wallet, WebSession
+from .models import Account, Wallet, WebSession, WebUserProfile, WebUserDay
+
+
+def testing_config():
+    return {"enabled": settings.WEB_TRIAL_MODE, "welcome_credits": settings.WEB_WELCOME_CREDITS,
+            "purchases_enabled": settings.PAYU_ENABLED and not settings.WEB_TRIAL_MODE}
+
+
+def welcome_amount(request):
+    return settings.WEB_WELCOME_CREDITS if isinstance(request.auth, dict) and request.auth.get("web_session") else settings.WELCOME_CREDITS
+
+
+def record_activity(account, created=False, login=False):
+    now = timezone.now()
+    WebUserProfile.objects.get_or_create(account=account, defaults={"registered_on_web": created})
+    changes = {"last_seen": now}
+    if login:
+        changes["last_login"] = now
+    WebUserProfile.objects.filter(account=account).update(**changes)
+    day, _ = WebUserDay.objects.get_or_create(account=account, day=timezone.localdate(now, ZoneInfo("Asia/Kolkata")))
+    field = "logins" if login else "visits"
+    WebUserDay.objects.filter(pk=day.pk).update(**{field: F(field)+1})
 
 
 class BrowserAuthentication(BaseAuthentication):
@@ -60,11 +83,15 @@ class BrowserConfig(BrowserPublic):
         try:
             result = BrowserAuthentication().authenticate(request)
             user = authentication.account_public(result[0]) if result else None
+            if result:
+                record_activity(result[0])
         except AuthenticationFailed:
             pass
         nonce = secrets.token_urlsafe(32)
+        from .web_access import visitor_prompt_needed
         response = Response({"ok": True, "user": user, "csrf": get_token(request._request),
-                             "google_client_id": settings.GOOGLE_CLIENT_ID if settings.AUTH_ENABLED else "", "nonce": nonce})
+                             "google_client_id": settings.GOOGLE_CLIENT_ID if settings.AUTH_ENABLED else "", "nonce": nonce, "testing": testing_config(),
+                             "visitor_prompt": visitor_prompt_needed(request)})
         response.set_cookie("motion_web_nonce", signing.dumps(nonce, salt="motion-web-login"), max_age=600,
                             httponly=True, secure=not settings.TESTING, samesite="Lax", path="/app/")
         return response
@@ -92,7 +119,7 @@ class BrowserSignIn(BrowserPublic):
         except Exception:
             raise Problem("Google identity could not be verified. Reload and sign in again.", 401) from None
         with transaction.atomic():
-            account, _ = Account.objects.get_or_create(google_sub=profile["sub"], defaults={"email": profile["email"], "name": str(profile.get("name", profile["email"]))[:200]})
+            account, created = Account.objects.get_or_create(google_sub=profile["sub"], defaults={"email": profile["email"], "name": str(profile.get("name", profile["email"]))[:200]})
             if not account.is_active:
                 raise Problem("Account is disabled.", 403)
             account.email = profile["email"]
@@ -101,7 +128,8 @@ class BrowserSignIn(BrowserPublic):
             account.picture = picture[:2048] if isinstance(picture, str) and picture.startswith("https://") else ""
             account.save(update_fields=["email", "name", "picture"])
             Wallet.objects.get_or_create(account=account)
-            services.grant_welcome_credits(account)
+            services.grant_welcome_credits(account, settings.WEB_WELCOME_CREDITS)
+            record_activity(account, created=created, login=True)
             previous = request.COOKIES.get(settings.WEB_SESSION_COOKIE, "")
             if previous:
                 WebSession.objects.filter(pk=authentication.digest(previous)).delete()
@@ -109,7 +137,7 @@ class BrowserSignIn(BrowserPublic):
             WebSession.objects.create(token_hash=authentication.digest(session), account=account,
                                       token_version=account.token_version, expires_at=timezone.now()+timedelta(days=settings.REFRESH_DAYS))
         rotate_token(request._request)
-        response = Response({"ok": True, "user": authentication.account_public(account), "csrf": get_token(request._request)})
+        response = Response({"ok": True, "user": authentication.account_public(account), "csrf": get_token(request._request), "testing": testing_config()})
         response.set_cookie(settings.WEB_SESSION_COOKIE, session, max_age=settings.REFRESH_DAYS*86400,
                             httponly=True, secure=not settings.TESTING, samesite="Lax", path="/")
         response.delete_cookie("motion_web_nonce", path="/app/", samesite="Lax")

@@ -10,5 +10,5 @@ class Command(BaseCommand):
         for credits, title in ((2500,"Creator"),(5000,"Pro"),(10000,"Studio"),(20000,"Ultimate")):
             amount = settings.WEB_PACK_PRICES[credits]
             WebCreditPack.objects.update_or_create(slug=f"web-{credits}", defaults=dict(title=title+" Pack", credits=credits,
-                amount_paise=amount, enabled=settings.PAYU_ENABLED and amount>0))
+                amount_paise=amount, enabled=settings.PAYU_ENABLED and amount>0 and not settings.WEB_TRIAL_MODE))
         self.stdout.write("Web credit packs synchronized independently of Play prices")

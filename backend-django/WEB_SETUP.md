@@ -117,3 +117,33 @@ docker compose -f compose.aws.yaml exec -T api python manage.py sync_web_packs
 ```
 
 PayU must also be enabled and configured for checkout. The Add Credits pack list and purchase history load independently, so a history error no longer hides current prices. Refresh prices retries both reads without creating an order or charging the customer.
+
+## Temporary web testing mode
+
+Web testing is **enabled by default** for this rollout:
+
+```ini
+MOTION_AI_WEB_TRIAL_MODE=true
+MOTION_AI_WEB_WELCOME_CREDITS=100
+MOTION_AI_WEB_TEST_GATE_ENABLED=false
+```
+
+A first-time Google account registering on the web gets a one-time 100-credit welcome grant. The immutable shared welcome ledger prevents additional grants through repeat login, account switching or subsequently opening Android. Existing account balances and purchased credits are preserved. Native Android welcome settings remain unchanged.
+
+All browser sessions additionally have a 100-credit testing usage ceiling, including accounts with larger shared balances. The server computes this allowance from web-testing jobs under the account wallet lock: active jobs reserve their maximum charge, successful jobs count their settled charge, and failed/cancelled jobs release the allowance. Quotes and the browser wallet display the smaller of this allowance and the real available shared wallet. This cap does not apply to native bearer requests. Jobs created before testing mode are not counted toward the new test ceiling. Signing out, clearing cookies, changing browsers or restarting the server does not reset it.
+
+New PayU orders and hosted checkout forms are blocked on the server even if `MOTION_AI_PAYU_ENABLED=true`. The trial UI hides phone/checkout controls. Existing payment/refund callbacks and verification remain enabled so earlier payments are not stranded. Public pricing shows future packs with purchases paused. No real or sandbox purchase can be initiated during this mode.
+
+After each successful testing generation, the browser asks whether the user liked the result and would use the app again (Yes/Maybe/No), with an optional 500-character comment. Not now records a dismissal without spending credits. Feedback is account/job scoped, CSRF-protected, validated and idempotent; failed or another account's jobs cannot be rated. Pending feedback is read from the database after reconnect, not from the AI provider. After the final result consumes the testing allowance, the final feedback popup leads to `/app/pricing/`. An unaffordable creation also offers the testing feedback popup; no upload or generation is started. Pending holds alone do not mean credits have been spent.
+
+`/owner/visitors/` adds new web users, new accounts registered on web, active web accounts, real Google sign-ins, restored-session visits, new browser-cookie estimates, first landing/source/device categories, web-generation outcomes and credits charged, and paginated user/feedback lists. Acquisition links may use `?utm_source=instagram`, `youtube`, `google`, `facebook`, `whatsapp`, `telegram` or `email`. No raw IP, full referrer URL or raw user agent is stored. Anonymous browser estimates remain distinct from verified Google accounts. Tracking begins at this deployment and cannot reconstruct historical platform activity. Add this account-linked testing feedback and anonymous analytics use to your privacy notice.
+
+Deploy with the normal Compose build; setup applies migrations `0026`, `0027` and `0028`. To end testing later, set `MOTION_AI_WEB_TRIAL_MODE=false`, configure real web prices and PayU, rebuild, and run `sync_web_packs`. The web welcome amount is separately configurable; existing wallet grants are never repeated or overwritten.
+
+### Automatic first-visit welcome
+
+The tester ID/password prompt is no longer wanted for this rollout: set `MOTION_AI_WEB_TEST_GATE_ENABLED=false` in the server `.env`. Google sign-in remains required to receive credits, create media, and view private projects.
+
+The studio and public Pricing page automatically show a first-visit welcome popup while trial mode is enabled. It explains the one-time credits, asks whether the visitor is interested (Yes/Maybe/Not right now), and offers an optional 300-character description of what they want to create. Submitted and skipped responses are stored once per signed anonymous browser cookie; the welcome does not reappear while that cookie/response is available. Clearing cookies or returning after expiry can show it again. These answers are not verified people or linked to Google accounts. They are shown separately in the owner visitor report. The cookie is also used to remember welcome responses when anonymous traffic counting is disabled. Feedback collection must be included in the privacy/cookie notice.
+
+The post-generation popup can preview the owned result on demand, without contacting the generation provider. Closing the preview unloads video media. A completed result can trigger its feedback after returning to the studio, opening Projects, or a job-status poll; other open dialogs are allowed to finish first.

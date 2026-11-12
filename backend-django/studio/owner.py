@@ -23,6 +23,7 @@ from .authentication import rate_limit
 from .errors import Problem
 from . import finance, fal_billing
 from .models import Account, CashEntry, Job, Ledger, OwnerAudit, OwnerCreditGrant, Purchase, Rate, Wallet, WebPayment, WebVisitorDay
+from .models import WebUserProfile, WebUserDay, WebGeneration, WebFeedback, WebVisitorInterest
 
 
 def allowed(user):
@@ -93,8 +94,39 @@ def visitors(request):
     rows = WebVisitorDay.objects.filter(day__range=(filters["start"], filters["end"]))
     totals = rows.aggregate(browser_days=Count("id"), views=Sum("views"), admitted_views=Sum("admitted_views"))
     daily = rows.values("day").annotate(visitors=Count("id"), views=Sum("views"), admitted_views=Sum("admitted_views")).order_by("-day")
+    profiles = WebUserProfile.objects.filter(first_seen__gte=filters["from"], first_seen__lt=filters["until"])
+    logins = WebUserDay.objects.filter(day__range=(filters["start"], filters["end"]))
+    generations = WebGeneration.objects.filter(created_at__gte=filters["from"], created_at__lt=filters["until"])
+    feedback = WebFeedback.objects.filter(created_at__gte=filters["from"], created_at__lt=filters["until"])
+    activity = {
+        "new_web_users": profiles.count(), "new_accounts": profiles.filter(registered_on_web=True).count(),
+        "active_users": logins.values("account_id").distinct().count(),
+        "logins": logins.aggregate(total=Sum("logins"))["total"] or 0,
+        "session_visits": logins.aggregate(total=Sum("visits"))["total"] or 0,
+        "new_browsers": rows.filter(new_browser=True).count(),
+        **generations.aggregate(generations=Count("job_id"), succeeded=Count("job_id", filter=Q(job__state="succeeded")),
+            failed=Count("job_id", filter=Q(job__state="failed")), credits_spent=Sum("job__charged_paise")),
+        "feedback": feedback.filter(outcome="submitted").count(), "dismissed": feedback.filter(outcome="dismissed").count(),
+        "likes": feedback.filter(rating="like", outcome="submitted").count(),
+        "interested": feedback.filter(interest="yes", outcome="submitted").count(),
+    }
+    sources = rows.values("source", "device").annotate(visitors=Count("id"), views=Sum("views")).order_by("-views", "source")
+    landings = rows.values("landing").annotate(visitors=Count("id"), views=Sum("views")).order_by("-views")
+    from django.db.models.functions import TruncDate
+    new_daily = profiles.annotate(day=TruncDate("first_seen", tzinfo=finance.INDIA)).values("day").annotate(
+        users=Count("account_id"), accounts=Count("account_id", filter=Q(registered_on_web=True))).order_by("-day")
+    people = Paginator(WebUserProfile.objects.select_related("account").filter(account_id__in=logins.values("account_id"))
+        .order_by("-last_seen", "account_id"), 30).get_page(request.GET.get("users_page"))
+    answers = Paginator(feedback.select_related("account", "job").order_by("-created_at", "-id"), 30).get_page(request.GET.get("feedback_page"))
+    welcome_answers = WebVisitorInterest.objects.filter(created_at__gte=filters["from"], created_at__lt=filters["until"])
+    welcome_totals = welcome_answers.aggregate(responses=Count("id",filter=Q(outcome="submitted")),
+        interested=Count("id",filter=Q(interest="yes")), skipped=Count("id",filter=Q(outcome="dismissed")))
+    welcomes = Paginator(welcome_answers.order_by("-created_at", "-id"),30).get_page(request.GET.get("welcome_page"))
     return render(request, "owner/visitors.html", {"filters": filters, "totals": totals, "daily": daily,
-        "tracking": settings.WEB_VISITOR_TRACKING_ENABLED, "gate": settings.WEB_TEST_GATE_ENABLED})
+        "tracking": settings.WEB_VISITOR_TRACKING_ENABLED, "gate": settings.WEB_TEST_GATE_ENABLED,
+        "trial": settings.WEB_TRIAL_MODE, "activity": activity, "sources": sources, "landings": landings, "new_daily": new_daily,
+        "people": people, "answers": answers, "welcomes": welcomes, "welcome_totals": welcome_totals,
+        "date_query": urlencode({"start": filters["start"], "end": filters["end"]})})
 
 
 @owner_only

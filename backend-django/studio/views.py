@@ -163,10 +163,16 @@ class Capabilities(Public):
 class WalletView(Private):
     def get(self, request):
         with transaction.atomic():
-            services.grant_welcome_credits(request.user)
+            from .web_auth import welcome_amount
+            services.grant_welcome_credits(request.user, welcome_amount(request))
             wallet = services.wallet_for_update(request.user)
-        return ok(currency="CREDITS", balance_paise=wallet.balance_paise, held_paise=wallet.held_paise, available_paise=wallet.available_paise,
-                  balance_credits=wallet.balance_paise, held_credits=wallet.held_paise, available_credits=wallet.available_paise,
+        from .web_testing import is_browser, allowance
+        trial = allowance(request.user) if settings.WEB_TRIAL_MODE and is_browser(request) else None
+        available = min(wallet.available_paise, trial["available"]) if trial else wallet.available_paise
+        held = trial["held"] if trial else wallet.held_paise
+        balance = available+held if trial else wallet.balance_paise
+        return ok(currency="CREDITS", balance_paise=balance, held_paise=held, available_paise=available,
+                  balance_credits=balance, held_credits=held, available_credits=available, web_testing=trial,
                   monthly_credits=max(0, wallet.monthly_available_paise), monthly_expires_at=wallet.monthly_expires_at,
                   topup_credits=max(0, wallet.topup_available_paise), free_credits=max(0, wallet.free_available_paise),
                   billing_account_id=authentication.digest(str(request.user.pk)))
@@ -180,10 +186,13 @@ class Quotes(Private):
         authentication.rate_limit("quotes:" + str(request.user.pk), 20)
         quote = services.create_quote(request.user, request.data)
         with transaction.atomic():
-            services.grant_welcome_credits(request.user)
+            from .web_auth import welcome_amount
+            services.grant_welcome_credits(request.user, welcome_amount(request))
             wallet = services.wallet_for_update(request.user)
+        from .web_testing import is_browser, allowance
+        available = min(wallet.available_paise, allowance(request.user)["available"]) if settings.WEB_TRIAL_MODE and is_browser(request) else wallet.available_paise
         return ok(id=str(quote.pk), currency="CREDITS", maximum_charge_paise=quote.charge_paise, maximum_credits=quote.charge_paise,
-                  available_credits=wallet.available_paise, expires_at=quote.expires_at, markup_bps=quote.markup_bps, title=quote.rate.title)
+                  available_credits=available, expires_at=quote.expires_at, markup_bps=quote.markup_bps, title=quote.rate.title)
 
 def job_public(job, thumbnail_s3=None):
     payload = job.quote.payload
@@ -239,7 +248,24 @@ class Jobs(Private):
                   has_more=bool(next_cursor), tracked_supported=True)
     def post(self, request):
         data = body(request, ("quote_id", "asset_id", "reference_image_ids"))
-        job, created = services.submit_job(request.user, data.get("quote_id"), request.headers.get("Idempotency-Key"), data.get("asset_id"), data.get("reference_image_ids"))
+        with transaction.atomic():
+            from .web_testing import is_browser, allowance
+            browser = is_browser(request)
+            if browser and settings.WEB_TRIAL_MODE:
+                services.wallet_for_update(request.user)
+                existing = Job.objects.filter(account=request.user, idempotency_key=request.headers.get("Idempotency-Key")).exists()
+                if not existing:
+                    from .models import Quote
+                    try:
+                        quoted = Quote.objects.filter(account=request.user, pk=uuid.UUID(str(data.get("quote_id")))).first()
+                    except ValueError:
+                        quoted = None
+                    if quoted and quoted.charge_paise>allowance(request.user)["available"]:
+                        raise Problem("Your web testing credits are insufficient for this creation. Purchases are temporarily paused.", 402)
+            job, created = services.submit_job(request.user, data.get("quote_id"), request.headers.get("Idempotency-Key"), data.get("asset_id"), data.get("reference_image_ids"))
+            if browser:
+                from .models import WebGeneration
+                WebGeneration.objects.get_or_create(job=job, defaults={"testing": settings.WEB_TRIAL_MODE})
         return Response({"ok": True, **job_public(job)}, status=202 if created else 200)
 
 class JobDetail(Private):

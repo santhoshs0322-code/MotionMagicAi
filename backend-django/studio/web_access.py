@@ -2,6 +2,7 @@
 import base64
 import binascii
 import ipaddress
+from urllib.parse import urlsplit
 import logging
 import secrets
 from zoneinfo import ZoneInfo
@@ -21,6 +22,24 @@ from .models import WebVisitorDay
 logger = logging.getLogger(__name__)
 COOKIE = "motion_web_visitor"
 COOKIE_AGE = 30 * 86400
+
+
+def visitor_key(request):
+    try:
+        visitor = signing.loads(request.COOKIES.get(COOKIE, ""), salt=COOKIE, max_age=COOKIE_AGE)
+        if not isinstance(visitor, str) or len(visitor)!=32:
+            return None
+        return salted_hmac("web-visitor-interest", visitor, algorithm="sha256").hexdigest()
+    except signing.BadSignature:
+        return None
+
+
+def visitor_prompt_needed(request):
+    if not settings.WEB_TRIAL_MODE:
+        return False
+    from .models import WebVisitorInterest
+    key = visitor_key(request)
+    return not key or not WebVisitorInterest.objects.filter(visitor_hash=key).exists()
 
 
 def gate(request):
@@ -62,22 +81,40 @@ def gate(request):
 
 
 def track(request, response):
-    if not settings.WEB_ENABLED or not settings.WEB_VISITOR_TRACKING_ENABLED or request.method != "GET" or request.path not in ("/", "/app/", "/app/pricing/") or response.status_code not in (200, 401):
+    if not settings.WEB_ENABLED or not (settings.WEB_VISITOR_TRACKING_ENABLED or settings.WEB_TRIAL_MODE) or request.method != "GET" or request.path not in ("/", "/app/", "/app/pricing/") or response.status_code not in (200, 401):
         return
+    new_browser = False
     try:
         visitor = signing.loads(request.COOKIES.get(COOKIE, ""), salt=COOKIE, max_age=COOKIE_AGE)
         if not isinstance(visitor, str) or len(visitor) != 32:
             raise signing.BadSignature()
     except signing.BadSignature:
         visitor = secrets.token_hex(16)
+        new_browser = True
+    response.set_cookie(COOKIE, signing.dumps(visitor, salt=COOKIE), max_age=COOKIE_AGE,
+        secure=not settings.TESTING, httponly=True, samesite="Lax", path="/")
+    if not settings.WEB_VISITOR_TRACKING_ENABLED:
+        return
     day = timezone.localdate(timezone=ZoneInfo("Asia/Kolkata"))
     identity = salted_hmac("web-visitor-daily", day.isoformat() + ":" + visitor, algorithm="sha256").hexdigest()
     try:
-        row, _ = WebVisitorDay.objects.get_or_create(day=day, visitor_hash=identity)
+        agent = request.headers.get("User-Agent", "").lower()
+        device = "bot" if any(x in agent for x in ("bot", "spider", "crawler")) else "mobile" if any(x in agent for x in ("mobile", "android", "iphone", "ipad")) else "desktop"
+        source = request.GET.get("utm_source", "").lower()
+        if source not in ("google", "youtube", "instagram", "facebook", "whatsapp", "telegram", "email"):
+            try:
+                ref = (urlsplit(request.headers.get("Referer", "")).hostname or "").lower()
+            except ValueError:
+                ref = ""
+            source = "internal" if ref==request.get_host().split(":")[0] else "referral" if ref else "direct"
+            for domain, label in (("google.com", "google"), ("youtube.com", "youtube"), ("instagram.com", "instagram"), ("facebook.com", "facebook"), ("t.co", "social")):
+                if ref==domain or ref.endswith("."+domain):
+                    source=label
+                    break
+        row, _ = WebVisitorDay.objects.get_or_create(day=day, visitor_hash=identity,
+            defaults={"new_browser": new_browser, "source": source, "device": device, "landing": request.path})
         WebVisitorDay.objects.filter(pk=row.pk).update(views=F("views")+1, admitted_views=F("admitted_views")+int(response.status_code==200))
         # No raw IP, user agent or Google identity is retained.
     except DatabaseError:
         logger.warning("Web visitor counter unavailable")
         return
-    response.set_cookie(COOKIE, signing.dumps(visitor, salt=COOKIE), max_age=COOKIE_AGE,
-        secure=not settings.TESTING, httponly=True, samesite="Lax", path="/")
