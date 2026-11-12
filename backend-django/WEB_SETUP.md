@@ -21,7 +21,7 @@ Use a separate testing password, not your owner, Google or PayU password. HTTPS 
 
 To make the web studio public later, set `MOTION_AI_WEB_TEST_GATE_ENABLED=false` and recreate the containers. Visitor tracking can remain enabled independently. No Android rebuild is needed.
 
-The owner-only `/owner/visitors/` page shows date-filtered estimated daily visitors, total page views, and admitted views. It counts GET page loads on `/` and `/app/`, including password prompts; it excludes APIs, assets, owner pages and callbacks. Anonymous signed cookies deduplicate browsers within a day. Period totals add daily visitors, so they are **not unique people across the whole period**. Bots and cookie/device changes can affect counts. No IP addresses, raw user agents or Google identities are retained in these records. Include this anonymous visitor-cookie use in your published privacy/cookie notice. Set `MOTION_AI_WEB_VISITOR_TRACKING_ENABLED=false` to stop collection.
+The owner-only `/owner/visitors/` page shows date-filtered estimated daily visitors, total page views, and admitted views. It counts GET page loads on `/`, `/app/` and `/app/pricing/`, including password prompts; it excludes APIs, assets, owner pages and callbacks. Anonymous signed cookies deduplicate browsers within a day. Period totals add daily visitors, so they are **not unique people across the whole period**. Bots and cookie/device changes can affect counts. No IP addresses, raw user agents or Google identities are retained in these records. Include this anonymous visitor-cookie use in your published privacy/cookie notice. Set `MOTION_AI_WEB_VISITOR_TRACKING_ENABLED=false` to stop collection.
 
 After pulling this change, apply migration `0025` via Compose startup and recreate services:
 
@@ -104,3 +104,16 @@ Backend regression tests cover Android compatibility, identity/welcome-credit sh
 References: [Google ID-token verification](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token), [GIS JavaScript nonce and popup API](https://developers.google.com/identity/gsi/web/reference/js-reference), [PayU hashing](https://docs.payu.in/docs/hashing-request-and-response), [Verify payment](https://docs.payu.in/reference/verify_payment_api), [Refund verification](https://docs.payu.in/reference/get_all_refunds_from_transaction_ids_api).
 
 For local browser checks, install the development-only `playwright` Python package, start a **local testing-only** Django server on `127.0.0.1:8877`, and run `python scripts/test-web-ui.py` from the repository root. Use a local SQLite test database and `MOTION_AI_TESTING=true`, never production credentials. The script uses installed Chrome or Playwright Chromium; `MOTION_AI_WEB_TEST_BROWSER` can select another Chrome executable. It mocks Google, wallet/catalog data, uploads, generation and PayU, saves desktop/mobile screenshots under `artifacts/web-review`, and never initiates a real payment or generation.
+
+## Visible web pricing
+
+The login header and website footer link to `/app/pricing/`. Visitors can view pack details before Google login; the temporary tester-password gate still applies when enabled. This page shows the synchronized WebCreditPack prices, not Google Play prices. Missing/zero prices display Coming soon, never free, and disabled packs cannot be purchased. Checkout continues through Google login to Add Credits and PayU; no private account or purchase history appears on the public page.
+
+Set the four `MOTION_AI_WEB_PACK_*_PRICE_PAISE` variables to your chosen integer paise prices. `0` disables a pack. After changing the server environment, recreate the services and sync prices:
+
+```bash
+docker compose -f compose.aws.yaml up -d --build
+docker compose -f compose.aws.yaml exec -T api python manage.py sync_web_packs
+```
+
+PayU must also be enabled and configured for checkout. The Add Credits pack list and purchase history load independently, so a history error no longer hides current prices. Refresh prices retries both reads without creating an order or charging the customer.

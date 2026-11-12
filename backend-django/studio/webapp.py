@@ -51,6 +51,21 @@ def asset(request, fingerprint, name):
     return response
 
 
+def pricing(request):
+    if not settings.WEB_ENABLED:
+        raise Http404
+    packs = {row.credits: row for row in WebCreditPack.objects.filter(credits__in=(2500, 5000, 10000, 20000))}
+    offers = []
+    for credits, title in ((2500, "Creator"), (5000, "Pro"), (10000, "Studio"), (20000, "Ultimate")):
+        pack = packs.get(credits)
+        amount = pack.amount_paise if pack else 0
+        offers.append(dict(credits=credits, display_credits=f"{credits:,}", title=title, amount=web_payments.money(amount) if amount else None,
+            available=bool(pack and pack.enabled and amount > 0 and settings.PAYU_ENABLED)))
+    return render(request, "web/pricing.html", dict(offers=offers, test=settings.PAYU_MODE=="test",
+        enabled=settings.PAYU_ENABLED, files={name.replace(".", "_").replace("-", "_"):
+        f"/app/assets/{version(name)}/{name}" for name in FILES}))
+
+
 def font_asset(request, name):
     if name not in ("font-regular.ttf", "font-bold.ttf"):
         raise Http404

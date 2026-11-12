@@ -62,7 +62,7 @@ def gate(request):
 
 
 def track(request, response):
-    if not settings.WEB_ENABLED or not settings.WEB_VISITOR_TRACKING_ENABLED or request.method != "GET" or request.path not in ("/", "/app/") or response.status_code not in (200, 401):
+    if not settings.WEB_ENABLED or not settings.WEB_VISITOR_TRACKING_ENABLED or request.method != "GET" or request.path not in ("/", "/app/", "/app/pricing/") or response.status_code not in (200, 401):
         return
     try:
         visitor = signing.loads(request.COOKIES.get(COOKIE, ""), salt=COOKIE, max_age=COOKIE_AGE)

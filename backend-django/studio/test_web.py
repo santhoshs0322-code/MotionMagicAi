@@ -230,3 +230,30 @@ class WebTests(TestCase):
             with self.verified_api(order):self.assertEqual(web_payments.reconcile(order).state,'paid')
             with self.assertRaises(Problem):self.order('new-sales-disabled')
         self.assertEqual(Wallet.objects.get(account=self.account).balance_paise,2700)
+
+    def test_public_pricing_displays_real_prices_before_google_login(self):
+        response = self.browser.get('/app/pricing/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1499.00')
+        self.assertContains(response, '2,500')
+        self.assertContains(response, '20,000')
+        self.assertContains(response, 'Price not configured yet', count=3)
+        self.assertContains(response, 'Try test checkout', count=0)
+        self.assertContains(response, 'Choose pack')
+        self.assertNotContains(response, self.account.email)
+        self.assertIn('no-store', response['Cache-Control'])
+        with override_settings(PAYU_ENABLED=False):
+            response = self.browser.get('/app/pricing/')
+            self.assertContains(response, 'Not available yet', count=4)
+            self.assertNotContains(response, 'Choose pack')
+
+    def test_public_pricing_does_not_show_zero_as_free_or_bypass_testing_gate(self):
+        self.pack.amount_paise=0
+        self.pack.save()
+        response=self.browser.get('/app/pricing/')
+        self.assertContains(response, 'Price not configured yet', count=4)
+        self.assertNotContains(response, '1499.00')
+        with override_settings(WEB_TEST_GATE_ENABLED=True, WEB_TEST_USERNAME='tester', WEB_TEST_PASSWORD='a-long-test-password'):
+            self.assertEqual(self.browser.get('/app/pricing/').status_code, 401)
+        with override_settings(WEB_ENABLED=False):
+            self.assertEqual(self.browser.get('/app/pricing/').status_code, 404)

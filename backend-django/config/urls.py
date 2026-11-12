@@ -8,6 +8,7 @@ from studio import webapp, web_auth
 urlpatterns = [
     path("", webapp.index),
     path("app/", webapp.index),
+    path("app/pricing/", webapp.pricing, name="web-pricing"),
     path("app/assets/<str:fingerprint>/<str:name>", webapp.asset),
     path("app/fonts/<str:name>", webapp.font_asset),
     path("app/session/", web_auth.BrowserConfig.as_view()),

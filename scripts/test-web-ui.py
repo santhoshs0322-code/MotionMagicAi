@@ -66,7 +66,9 @@ async def run():
     elif current['created']:jobs=[dict(id='new-owned-job',title='Cinematic portrait',kind='video',state=current['job'],created_at='2026-11-12T12:00:00Z',output_asset_id='my-output' if current['job']=='succeeded' else None)]
     return await reply(route,dict(ok=True,results=jobs,next=None,tracked_supported=True))
    if path=='/app/packs/':return await reply(route,dict(ok=True,enabled=True,test=True,packs=PACKS))
-   if path=='/app/payments/' and request.method=='GET':return await reply(route,dict(ok=True,orders=[]))
+   if path=='/app/payments/' and request.method=='GET':
+    if current.get('history_error'):return await reply(route,dict(ok=False,message='History temporarily unavailable.'),503)
+    return await reply(route,dict(ok=True,orders=[]))
    if path=='/app/payments/' and request.method=='POST':
     orders.append(request.post_data_json)
     return await reply(route,dict(ok=True,order={'id':'payment-id','state':'pending','checkout_url':'/app/payments/11111111-1111-1111-1111-111111111111/checkout/'}))
@@ -106,6 +108,11 @@ async def run():
   assert await page.locator('#sound').is_checked() and await page.locator('#sound').is_disabled()
   await page.screenshot(path=str(OUT/'web-long-story-desktop.png'),full_page=True)
   await page.click('.sidebar [data-page="credits"]');await page.wait_for_selector('.pack-card');assert '1,499' in await page.locator('.pack-card').first.inner_text()
+  current['history_error']=True;await page.click('#refresh-packs')
+  await page.wait_for_function('() => document.querySelector("#orders-error").textContent.includes("History temporarily unavailable")')
+  assert await page.locator('#packs .pack-card').count()==4,'History failure must not hide prices'
+  current['history_error']=False;await page.click('#refresh-packs')
+  await page.wait_for_function('() => document.querySelector("#orders-error").textContent === ""')
   await page.screenshot(path=str(OUT/'web-credits-desktop.png'),full_page=True)
   await page.click('.sidebar [data-page="create"]');await page.fill('#prompt','This private draft must not leak to another Google account.')
   await page.click('#signout');await page.wait_for_function('() => document.querySelector("#credit-count").textContent==="420"')
@@ -119,7 +126,14 @@ async def run():
   await page.click('.mobile-nav [data-page="credits"]');await page.wait_for_selector('.pack-card');await page.fill('#phone','9876543210');await page.locator('.pack-card button').first.click();await page.wait_for_url('**/checkout/')
   assert orders[-1]['pack']=='web-2500' and set(orders[-1])=={'pack','phone','request_key'}
   # A fresh browser gets the real Google-button integration, not an unlocked studio.
-  current['user']=None;await page.goto(ORIGIN+'/app/');await page.wait_for_selector('#login:not(.hidden)');await page.wait_for_selector('#google-button button')
+  current['user']=None;await page.goto(ORIGIN+'/app/pricing/')
+  assert await page.locator('.public-pack-grid .pack-card').count()==4
+  assert await page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
+  await page.screenshot(path=str(OUT/'web-pricing-mobile.png'),full_page=True)
+  await page.set_viewport_size({'width':1440,'height':1000})
+  await page.screenshot(path=str(OUT/'web-pricing-desktop.png'),full_page=True)
+  await page.set_viewport_size({'width':390,'height':844})
+  await page.click('.public-header .public-signin');await page.wait_for_selector('#login:not(.hidden)');await page.wait_for_selector('#google-button button')
   assert await page.locator('#public-header').is_visible()
   assert await page.locator('.site-footer').is_visible()
   assert await page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
@@ -127,6 +141,7 @@ async def run():
   await page.set_viewport_size({'width':1440,'height':1000})
   await page.screenshot(path=str(OUT/'web-login-desktop.png'),full_page=True)
   await page.click('#google-button button');await page.wait_for_selector('#studio:not(.hidden)')
+  await page.wait_for_selector('#page-credits:not(.hidden)')
   assert not await page.locator('#public-header').is_visible()
   assert not errors,errors
   print('PASS: desktop/mobile, themes, server-rate choices, half-minute stories, quote/upload/submit/recovery, cancel/retry, projects, separate PayU prices, account-switch isolation, Google callback.')

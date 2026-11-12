@@ -7,7 +7,7 @@
     rates:[], templates:[], photos:[], video:null, videoChoice:0, videoChecking:false, urls:[], jobs:new Map(), filter:'all', next:null,
     quote:null, busy:false, createRun:0, epoch:0, requests:new Set(), submission:null, packs:[], paymentBusy:false};
   const labels = {photo:'Image to Video',text:'Text to Video',image:'Create Image',story:'Continue Story',long:'Long Story'};
-  let pollTimer, toastTimer, uploadRequest;
+  let pollTimer, toastTimer, uploadRequest, packsRun=0;
   const activeStates = new Set(['queued','submitting','running','uncertain']);
   const text = (tag,value,cls) => {const node=document.createElement(tag);node.textContent=value;if(cls)node.className=cls;return node;};
   const button = (value,action,cls='quiet') => {const node=text('button',value,cls);node.type='button';node.onclick=action;return node;};
@@ -69,7 +69,7 @@
   async function enterStudio(){
     document.body.dataset.authenticated="true";
     $('login').classList.add('hidden');$('studio').classList.remove('hidden');
-    $('account-name').textContent=state.user.name;try{localStorage.setItem('motion-web-account',state.user.id);}catch(_){}showPage('home');
+    $('account-name').textContent=state.user.name;try{localStorage.setItem('motion-web-account',state.user.id);}catch(_){}showPage(new URLSearchParams(location.search).get('page')==='credits'?'credits':'home');
     try{state.submission=JSON.parse(savedStore.getItem('motion-submit:'+state.user.id)||'null');}catch(_){state.submission=null;}
     $('recover-create').classList.toggle('hidden',!state.submission);
     const results=await Promise.allSettled([refreshWallet(),loadCatalog(),loadTemplates()]);
@@ -262,9 +262,26 @@
       $('preview-dialog').close();setMode({create_image:'image',text_to_video:'text',image_to_video:'photo'}[item.mode]||'image');$('prompt').value=item.prompt||'';promptCount();
       state.templateReferenceRequired=!!item.requires_reference;const rate=state.rates.find(r=>r.config.app_model_id===item.model_id&&(r.config.resolution||r.config.image_size)===item.resolution&&r.config.generated_audio===item.generated_audio);if(rate){$('model').value=modelId(rate);renderQualities();$('quality').value=rate.config.resolution||rate.config.image_size;$('sound').checked=!!item.generated_audio;renderSettings();}
       if(item.aspect_ratio)$('ratio').value=item.aspect_ratio;if(item.duration)$('duration').value=item.duration;if(item.requires_reference)$('mode-help').textContent='Add your own photo to recreate this template.';estimate();};$('preview-dialog').showModal();}
-  async function loadPacks(){const [catalog,orders]=await Promise.all([api('/app/packs/'),api('/app/payments/')]);state.packs=catalog.packs;$('packs').replaceChildren();$('payment-mode').textContent=catalog.test?'PayU test mode: no real charges and no spendable credits are granted.':catalog.enabled?'Web prices · one-time purchases via PayU':'Web payments are not enabled yet.';
-    for(const pack of catalog.packs){const card=text('article','','pack-card');card.append(text('span',pack.credits===10000?'★ Most popular':'','popular'),text('h3',pack.title),text('h2',new Intl.NumberFormat().format(pack.credits)),text('p','AI credits'),text('small','Purchased credits never expire'));const buy=button(money(pack.amount_paise),()=>buyPack(pack),'primary');buy.disabled=!catalog.enabled||state.paymentBusy;card.append(buy);$('packs').append(card);}
-    if(!catalog.packs.length)$('packs').append(text('p','Web credit packs will appear after their separate prices are configured.','notice'));renderOrders(orders.orders);
+  async function loadPacks(){
+    const run=++packsRun,epoch=state.epoch;
+    const current=()=>run===packsRun&&epoch===state.epoch;
+    $('payment-error').textContent='';$('orders-error').textContent='';
+    $('payment-mode').textContent='Loading current web prices...';
+    await Promise.all([
+      api('/app/packs/').then(catalog=>{
+        if(!current())return;
+        state.packs=catalog.packs;$('packs').replaceChildren();
+        $('payment-mode').textContent=!catalog.enabled?'Web checkout is not enabled yet.':catalog.test?'PayU test mode: no real charges and no spendable credits are granted.':'One-time web purchases via PayU. No subscription.';
+        for(const pack of catalog.packs){
+          const card=text('article','','pack-card');
+          card.append(text('span',pack.credits===10000?'Most popular':'ONE-TIME PACK','popular'),text('h3',pack.title),text('h2',new Intl.NumberFormat().format(pack.credits)),text('p','AI credits'),text('small','Purchased credits never expire'));
+          const buy=button((catalog.test?'Test checkout - ':'Buy for ')+money(pack.amount_paise),()=>buyPack(pack),'primary');
+          buy.disabled=!catalog.enabled||state.paymentBusy;card.append(buy);$('packs').append(card);
+        }
+        if(!catalog.packs.length)$('packs').append(text('p','No web packs are available yet. Their separate prices must be configured and synchronized on the server.','notice'));
+      }).catch(error=>{if(current()){$('packs').replaceChildren();$('payment-mode').textContent='Prices could not load.';$('payment-error').textContent=error.message+' Use Refresh prices to retry.';}}),
+      api('/app/payments/').then(orders=>{if(current())renderOrders(orders.orders);}).catch(error=>{if(current())$('orders-error').textContent='Purchase history could not load. '+error.message;})
+    ]);
   }
   async function buyPack(pack){if(state.paymentBusy)return;const phone=$('phone').value.trim();if(!/^\+?[0-9]{10,15}$/.test(phone)){$('payment-error').textContent='Enter your phone number for PayU checkout.';$('phone').focus();return;}state.paymentBusy=true;$('payment-error').textContent='';for(const node of $('packs').querySelectorAll('button'))node.disabled=true;
     try{let saved;try{saved=JSON.parse(savedStore.getItem('motion-web-purchase:'+state.user.id)||'null');}catch(_){}if(!saved||saved.pack!==pack.id||saved.phone!==phone)saved={pack:pack.id,phone,request_key:crypto.randomUUID()};savedStore.setItem('motion-web-purchase:'+state.user.id,JSON.stringify(saved));const data=await api('/app/payments/',{method:'POST',body:JSON.stringify(saved)});if(data.order.checkout_url)location.assign(data.order.checkout_url);else{savedStore.removeItem('motion-web-purchase:'+state.user.id);await checkOrder(data.order.id);}}
@@ -277,6 +294,7 @@
   document.querySelectorAll('[data-mode]').forEach(node=>node.onclick=()=>setMode(node.dataset.mode));
   document.querySelectorAll('[data-open-mode]').forEach(node=>node.onclick=()=>setMode(node.dataset.openMode));
   document.querySelectorAll('[data-filter]').forEach(node=>node.onclick=()=>{state.filter=node.dataset.filter;for(const tab of document.querySelectorAll('[data-filter]'))tab.classList.toggle('active',tab===node);renderProjects();});
+  $('refresh-packs').onclick=()=>loadPacks();
   $('model').onchange=renderQualities;$('quality').onchange=renderSettings;$('sound').onchange=()=>{const checked=$('sound').checked;renderSettings();$('sound').checked=checked;renderSettings();};$('ratio').onchange=estimate;$('duration').onchange=estimate;
   $('photos').onchange=()=>{const max=state.mode==='long'?2:state.mode==='story'?(state.rate?.config.max_reference_images||0):1;const files=[...$('photos').files];if(files.length>max){toast(`Choose up to ${max} photo(s) for this model.`);return;}if(files.some(f=>!['image/jpeg','image/png','image/webp'].includes(f.type))){toast('Choose JPG, PNG or WebP photos.');return;}state.photos=files;previews();};
   $('video').onchange=async()=>{
