@@ -57,6 +57,8 @@ Keep `MOTION_AI_CURRENT_SITE_URL=https://api.motionmagicai.in`, the Google clien
 
 In Google Cloud Console, edit the **existing Web OAuth client used by Android's server ID-token flow**. Add **Authorized JavaScript origin** `https://motionmagicai.in`. No client secret or Android signing changes are needed. The GIS popup callback uses the same ID-token audience, Google subject, a server-bound nonce and CSRF protection. Add a separate exact origin only if you intentionally host the studio elsewhere.
 
+If Google displays **401 invalid_client / no registered origin**, open Google Auth Platform → Clients (or APIs & Services → Credentials), select the **Web application** whose client ID matches `/auth/motion-ai/config`'s `googleWebClientId`, and add `https://motionmagicai.in` under **Authorized JavaScript origins**, then save. Use the origin only: no `/app/` path or trailing slash. Keep existing origins and Android clients. If you serve the studio directly at `www`, also add `https://www.motionmagicai.in`; the default Caddy setup redirects it to the apex. This popup flow does not need a new redirect URI. Allow Google's configuration change to propagate, then reload in a fresh browser window. If the OAuth app is in Testing, add your test Google accounts under Audience → Test users as well; that is separate from registering the JavaScript origin.
+
 ## Deploy on the existing EC2 host
 
 ```sh

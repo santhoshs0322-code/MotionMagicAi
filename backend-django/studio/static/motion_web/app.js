@@ -29,6 +29,7 @@
     } finally {clearTimeout(timer);state.requests.delete(controller);}
   }
   function forgetAccount(){
+    delete document.body.dataset.authenticated;
     if(state.user)savedStore.removeItem('motion-web-purchase:'+state.user.id);clearTimeout(toastTimer);$('toast').textContent='';$('toast').classList.add('hidden');
     state.mode='photo';state.filter='all';state.templateReferenceRequired=false;for(const select of ['model','quality','ratio','duration'])$(select).replaceChildren();$('sound').checked=false;$('credit-count').textContent='?';
     state.epoch++;state.createRun++;for(const request of state.requests)request.abort();state.requests.clear();
@@ -66,6 +67,7 @@
     } catch(error){$('startup').classList.add('hidden');$('login').classList.remove('hidden');$('login-error').textContent=error.message;}
   }
   async function enterStudio(){
+    document.body.dataset.authenticated="true";
     $('login').classList.add('hidden');$('studio').classList.remove('hidden');
     $('account-name').textContent=state.user.name;try{localStorage.setItem('motion-web-account',state.user.id);}catch(_){}showPage('home');
     try{state.submission=JSON.parse(savedStore.getItem('motion-submit:'+state.user.id)||'null');}catch(_){state.submission=null;}

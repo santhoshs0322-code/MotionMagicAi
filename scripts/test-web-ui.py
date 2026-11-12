@@ -110,8 +110,14 @@ async def run():
   assert orders[-1]['pack']=='web-2500' and set(orders[-1])=={'pack','phone','request_key'}
   # A fresh browser gets the real Google-button integration, not an unlocked studio.
   current['user']=None;await page.goto(ORIGIN+'/app/');await page.wait_for_selector('#login:not(.hidden)');await page.wait_for_selector('#google-button button')
+  assert await page.locator('#public-header').is_visible()
+  assert await page.locator('.site-footer').is_visible()
+  assert await page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
   await page.screenshot(path=str(OUT/'web-login-mobile.png'),full_page=True)
+  await page.set_viewport_size({'width':1440,'height':1000})
+  await page.screenshot(path=str(OUT/'web-login-desktop.png'),full_page=True)
   await page.click('#google-button button');await page.wait_for_selector('#studio:not(.hidden)')
+  assert not await page.locator('#public-header').is_visible()
   assert not errors,errors
   print('PASS: desktop/mobile, themes, server-rate choices, half-minute stories, quote/upload/submit/recovery, cancel/retry, projects, separate PayU prices, account-switch isolation, Google callback.')
   await browser.close()
