@@ -75,7 +75,17 @@ async def run():
    return await route.continue_()
   await context.route('**/*',intercept)
   await page.goto(ORIGIN+'/app/');await page.wait_for_selector('#studio:not(.hidden)');await page.wait_for_selector('#home-templates img');await page.wait_for_timeout(500)
+  assert await page.locator('.creation-card img').count()==4
+  await page.locator('.creation-card').first.scroll_into_view_if_needed()
+  await page.wait_for_function('() => [...document.querySelectorAll(".creation-card img")].every(image => image.complete && image.naturalWidth > 0)')
+  assert await page.locator('#balance .credit-bolt use').get_attribute('href')=='#icon-bolt'
+  await page.evaluate('() => scrollTo(0,0)')
   await page.screenshot(path=str(OUT/'web-home-desktop-dark.png'),full_page=True)
+  for mode,title in [('image','Create Image'),('text','Text to Video'),('story','Continue Story')]:
+   await page.click(f'.creation-card[data-open-mode="{mode}"]')
+   assert await page.locator('#create-title').inner_text()==title
+   assert await page.locator('#create-cover').get_attribute('src')==await page.locator('#create-cover').get_attribute('data-'+mode)
+   await page.click('.sidebar [data-page="home"]')
   await page.click('[data-open-mode="photo"]');await page.set_input_files('#photos',str(ROOT/'backend-django/template-assets/image_templates/02_royal_queen.jpg'))
   await page.fill('#prompt','Cinematic portrait with a slow camera move and warm light.');await page.select_option('#quality','1080p');await page.select_option('#duration','10')
   assert await page.locator('#estimate').inner_text()=='450 credits'

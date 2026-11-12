@@ -20,7 +20,8 @@ from .web_auth import BrowserAuthentication, BrowserPublic
 
 logger = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static" / "motion_web"
-FILES = frozenset(("app.js", "app.css", "logo.webp", "hero.webp", "long-story.webp", "font-regular.ttf", "font-bold.ttf"))
+FILES = frozenset(("app.js", "app.css", "logo.webp", "hero.webp", "long-story.webp", "font-regular.ttf", "font-bold.ttf",
+    "card-image.jpg", "card-photo.jpg", "card-text.jpg", "card-story.jpg"))
 
 
 @lru_cache(maxsize=10)

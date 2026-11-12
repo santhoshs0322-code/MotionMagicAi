@@ -82,6 +82,7 @@
   async function loadCatalog(){const data=await api('/api/v1/capabilities');state.rates=data.cloud||[];renderModels();}
   async function loadTemplates(){const data=await api('/api/v1/templates');state.templates=data.templates||[];renderTemplates();}
   function showPage(page){
+    const changed=state.page!==page;
     state.page=page;
     for(const name of ['home','create','templates','projects','credits'])$('page-'+name).classList.toggle('hidden',name!==page);
     for(const node of document.querySelectorAll('[data-page]'))node.classList.toggle('active',node.dataset.page===page);
@@ -89,6 +90,7 @@
     if(page==='projects')refreshProjects(false).catch(error=>$('projects-error').textContent=error.message);
     if(page==='credits')loadPacks().catch(error=>$('payment-error').textContent=error.message);
     if(page==='create')renderModels();
+    if(changed)window.scrollTo({top:0,behavior:'instant'});
   }
   function visibleRates(){return state.rates.filter(rate=>{
     const c=rate.config||{};
@@ -115,6 +117,11 @@
     options($('quality'),sizes.map(value=>[value,value]),$('quality').value);renderSettings();
   }
   function renderSettings(){
+    $('page-create').dataset.mode=state.mode;
+    $('create-title').textContent=labels[state.mode];
+    $('create-description').textContent={photo:'Give your photo a little motion. Make the moment unforgettable.',text:'Set the scene with a few words. Let your imagination take the lead.',image:'From a spark of inspiration to an image only you could imagine.',story:'Keep your characters close. Take their story somewhere new.',long:'One idea, multiple scenes. Build a longer story with speaking characters.'}[state.mode];
+    const cover=$('create-cover'),source=cover.dataset[state.mode];
+    if(cover.getAttribute('src')!==source)cover.src=source;
     const rate=selectedRate();state.rate=rate;
     options($('ratio'),(rate?.config.aspect_ratios||[]).map(value=>[value,value]),$('ratio').value||'9:16');
     options($('duration'),(rate?.config.durations||[]).map(seconds=>[seconds,state.mode==='long'?`${seconds/60} min`:`${seconds}s`]),$('duration').value);
@@ -133,7 +140,7 @@
     $('create').disabled=!rate||state.busy||state.videoChecking;estimate();
     for(const node of document.querySelectorAll('[data-mode]'))node.classList.toggle('active',node.dataset.mode===state.mode);
   }
-  function estimate(){const rate=selectedRate();state.rate=rate;const units=state.mode==='image'?1:Number($('duration').value);const price=rate?.credit_prices?.[units];$('estimate').textContent=price==null?'Unavailable':`${price} credits`;$('create-price').textContent=price==null?'':`ϟ ${price}`;}
+  function estimate(){const rate=selectedRate();state.rate=rate;const units=state.mode==='image'?1:Number($('duration').value);const price=rate?.credit_prices?.[units];$('estimate').textContent=price==null?'Unavailable':`${price} credits`;$('create-price').textContent=price==null?'':`${price} credits`;}
   function setMode(mode){if(state.busy){toast('Finish or cancel your upload first.');return;}state.mode=mode;state.templateReferenceRequired=false;clearMedia();$('prompt').value='';$('create-error').textContent='';renderModels();showPage('create');promptCount();}
   function clearMedia(){state.videoChoice++;state.videoChecking=false;for(const url of state.urls)URL.revokeObjectURL(url);state.urls=[];state.photos=[];state.video=null;$('photos').value='';$('video').value='';$('media-previews').replaceChildren();if(!state.busy)renderSettings();}
   function previews(){for(const url of state.urls)URL.revokeObjectURL(url);state.urls=[];$('media-previews').replaceChildren();
