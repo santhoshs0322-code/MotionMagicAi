@@ -10,4 +10,4 @@ USER motion
 EXPOSE 8000
 # Render's pre-deploy command is not available on every plan. Apply the idempotent
 # database setup here as a no-Shell fallback before accepting any login requests.
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py bootstrap_owner && exec gunicorn --config config/gunicorn.conf.py config.wsgi:application"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py sync_web_packs && python manage.py bootstrap_owner && exec gunicorn --config config/gunicorn.conf.py config.wsgi:application"]

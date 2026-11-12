@@ -57,3 +57,7 @@ For this preview update, rebuild and redeploy **both API and worker** with `dock
 - `python manage.py import_motion_accounts export.jsonl --apply`: import only the old MotionMagic users. Run without `--apply` first.
 
 See [API.md](API.md) for endpoints and [AWS_ARCHITECTURE.md](AWS_ARCHITECTURE.md) for deployment and scaling boundaries.
+
+## Companion browser studio
+
+See [WEB_SETUP.md](WEB_SETUP.md) for Google web sign-in, shared Android/web accounts, separate PayU prices, S3 browser uploads and deployment. Native Google Play Billing and its callback remain unchanged.

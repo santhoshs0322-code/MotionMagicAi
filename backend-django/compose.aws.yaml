@@ -5,7 +5,7 @@ services:
   setup:
     build: .
     env_file: .env
-    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py bootstrap_owner"]
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py sync_provider_rates && python manage.py sync_web_packs && python manage.py bootstrap_owner"]
     volumes:
       - ./secrets/google-play.json:/run/secrets/google-play.json:ro
     restart: "no"
@@ -32,6 +32,16 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./secrets/google-play.json:/run/secrets/google-play.json:ro
+    restart: unless-stopped
+
+  payments:
+    profiles: ["web-payments"]
+    build: .
+    env_file: .env
+    command: ["python", "manage.py", "run_web_payments"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   web:

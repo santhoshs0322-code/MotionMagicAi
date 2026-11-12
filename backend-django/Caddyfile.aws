@@ -5,8 +5,14 @@
     reverse_proxy api:8000
 }
 
-# Temporary public website destination, including /terms and /privacy.
-# API, sign-in, owner and Play callback requests use api.motionmagicai.in.
-motionmagicai.in, www.motionmagicai.in {
-    redir https://gamixtv.in{uri} 302
+# Browser studio. Android and Play callbacks keep the API hostname above.
+motionmagicai.in {
+    encode zstd gzip
+    @legal path /terms /terms/* /privacy /privacy/* /privacy-policy /privacy-policy/*
+    redir @legal https://gamixtv.in{uri} 302
+    reverse_proxy api:8000
+}
+
+www.motionmagicai.in {
+    redir https://motionmagicai.in{uri} 308
 }

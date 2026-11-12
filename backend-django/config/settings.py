@@ -90,6 +90,29 @@ GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID")
 AUTH_ENABLED = flag("AUTH_ENABLED")
 SESSION_SECONDS = int(env("SESSION_SECONDS", "86400"))
 REFRESH_DAYS = int(env("REFRESH_DAYS", "90"))
+WEB_ENABLED = flag("WEB_ENABLED", True)
+WEB_PUBLIC_URL = env("WEB_PUBLIC_URL").rstrip("/")
+if WEB_PUBLIC_URL:
+    from urllib.parse import urlsplit
+    web_origin = urlsplit(WEB_PUBLIC_URL)
+    if web_origin.scheme != "https" or not web_origin.hostname or web_origin.username or web_origin.password or web_origin.path or web_origin.query or web_origin.fragment:
+        raise ImproperlyConfigured("MOTION_AI_WEB_PUBLIC_URL must be an HTTPS origin without a path")
+    if web_origin.hostname not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(web_origin.hostname)
+    if WEB_PUBLIC_URL not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(WEB_PUBLIC_URL)
+WEB_SESSION_COOKIE = "motion_web_session"
+PAYU_ENABLED = flag("PAYU_ENABLED")
+PAYU_MODE = env("PAYU_MODE", "test")
+PAYU_KEY, PAYU_SALT = env("PAYU_KEY"), env("PAYU_SALT")
+PAYU_ALLOW_LIVE = flag("PAYU_ALLOW_LIVE")
+WEB_PACK_PRICES = {credits: int(env(f"WEB_PACK_{credits}_PRICE_PAISE", "0")) for credits in (2500, 5000, 10000, 20000)}
+if PAYU_MODE not in ("test", "live") or any(v < 0 or v > 100_000_000 for v in WEB_PACK_PRICES.values()):
+    raise ImproperlyConfigured("Invalid MotionMagic web payment configuration")
+if any(c in PAYU_KEY + PAYU_SALT for c in "|\r\n\x00"):
+    raise ImproperlyConfigured("Invalid PayU credentials")
+if PAYU_ENABLED and (not PAYU_KEY or not PAYU_SALT or (PAYU_MODE == "live" and not PAYU_ALLOW_LIVE)):
+    raise ImproperlyConfigured("PayU needs its key/salt and explicit MOTION_AI_PAYU_ALLOW_LIVE=true for live payments")
 AWS_REGION = env("AWS_REGION", "ap-south-1")
 S3_BUCKET = env("S3_BUCKET")
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")

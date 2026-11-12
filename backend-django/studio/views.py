@@ -19,6 +19,7 @@ from . import authentication, services, storage, billing
 from .models import Account, Wallet, Ledger, Revocation, RefreshSession, Job, Asset, Product, Purchase, Subscription
 from .errors import Problem
 from .job_pagination import job_page
+from .web_auth import BrowserAuthentication
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class Public(APIView):
     authentication_classes = []
 
 class Private(APIView):
+    authentication_classes = [authentication.MotionAuthentication, BrowserAuthentication]
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         authentication.rate_limit("account:" + str(request.user.pk), 120)
@@ -135,6 +137,7 @@ class Me(Private):
         return ok(appId="motionmagic", user=authentication.account_public(request.user))
 
 class Logout(Private):
+    authentication_classes = [authentication.MotionAuthentication]
     def post(self, request):
         claims = request.auth
         Revocation.objects.get_or_create(jti_hash=authentication.digest(claims["jti"]), defaults={"expires_at": datetime.fromtimestamp(claims["exp"], dt_timezone.utc)})
@@ -311,6 +314,7 @@ def purchase_public(purchase):
     return {"id": str(purchase.pk), "sku": purchase.product_id, "credit_paise": purchase.credit_paise, "state": purchase.state, "consumed": purchase.consumed, "created_at": purchase.created_at}
 
 class VerifyPurchase(Private):
+    authentication_classes = [authentication.MotionAuthentication]
     def post(self, request):
         authentication.rate_limit("purchase:" + str(request.user.pk), 10)
         data = body(request, ("sku", "purchase_token"))
@@ -335,6 +339,7 @@ class Entitlement(Private):
                   subscriptions=[subscription_public(row) for row in subscriptions[:10]])
 
 class VerifySubscription(Private):
+    authentication_classes = [authentication.MotionAuthentication]
     def post(self, request):
         authentication.rate_limit("subscription:" + str(request.user.pk), 10)
         data = body(request, ("product_id", "purchase_token"))

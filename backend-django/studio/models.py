@@ -292,7 +292,7 @@ class CashEntry(models.Model):
     reference = models.CharField(max_length=160, unique=True)
     note = models.CharField(max_length=500)
     reversal_of = models.OneToOneField("self", on_delete=models.PROTECT, null=True, related_name="reversal")
-    recorded_by = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    recorded_by = models.ForeignKey("auth.User", on_delete=models.PROTECT, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
         indexes = [models.Index(fields=["account", "occurred_at"])]
@@ -317,3 +317,47 @@ class OwnerCreditGrant(models.Model):
     class Meta:
         constraints = [models.CheckConstraint(condition=Q(credits__gte=1, credits__lte=1_000_000), name="owner_credit_grant_amount_valid")]
         indexes = [models.Index(fields=["account", "-created_at", "-id"], name="owner_credit_grant_user_idx")]
+
+
+class WebSession(models.Model):
+    token_hash = models.CharField(primary_key=True, max_length=64)
+    account = models.ForeignKey(Account, on_delete=models.PROTECT)
+    token_version = models.PositiveIntegerField()
+    expires_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class WebCreditPack(models.Model):
+    slug = models.SlugField(primary_key=True)
+    title = models.CharField(max_length=80)
+    credits = models.PositiveIntegerField()
+    amount_paise = models.PositiveIntegerField(default=0)
+    enabled = models.BooleanField(default=False)
+
+
+class WebPayment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    account = models.ForeignKey(Account, on_delete=models.PROTECT)
+    pack = models.ForeignKey(WebCreditPack, on_delete=models.PROTECT)
+    request_key = models.CharField(max_length=80)
+    mode = models.CharField(max_length=4, choices=[("test", "Test"), ("live", "Live")])
+    # Snapshot prices and credits; editing a pack never edits an existing order.
+    amount_paise = models.PositiveIntegerField()
+    credits = models.PositiveIntegerField()
+    refunded_paise = models.PositiveIntegerField(default=0)
+    revoked_credits = models.PositiveIntegerField(default=0)
+    state = models.CharField(max_length=12, default="pending")
+    payment_id = models.CharField(max_length=200, null=True)
+    firstname = models.CharField(max_length=60)
+    email = models.EmailField(max_length=320)
+    phone = models.CharField(max_length=16)
+    check_after = models.DateTimeField(default=timezone.now, db_index=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["account", "request_key"], name="web_payment_request_unique"),
+                       models.UniqueConstraint(fields=["mode", "payment_id"], name="web_payment_identity_unique"),
+                       models.CheckConstraint(condition=Q(state__in=("pending", "failed", "paid", "refunded")), name="web_payment_valid_state")]
+        indexes = [models.Index(fields=["account", "-created_at", "-id"], name="web_payment_user_idx")]
