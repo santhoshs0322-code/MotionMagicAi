@@ -12,7 +12,7 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Count
 from django.http import Http404, HttpResponse, HttpResponseForbidden, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -22,7 +22,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from .authentication import rate_limit
 from .errors import Problem
 from . import finance, fal_billing
-from .models import Account, CashEntry, Job, Ledger, OwnerAudit, OwnerCreditGrant, Purchase, Rate, Wallet, WebPayment
+from .models import Account, CashEntry, Job, Ledger, OwnerAudit, OwnerCreditGrant, Purchase, Rate, Wallet, WebPayment, WebVisitorDay
 
 
 def allowed(user):
@@ -83,6 +83,18 @@ def sign_out(request):
 def filters_or_error(request):
     try: return finance.period(request.GET), None
     except (ValueError, TypeError): return None, HttpResponse("Invalid date range or user filter. Use YYYY-MM-DD and an existing user ID; maximum 367 days.", status=400)
+
+
+@owner_only
+def visitors(request):
+    filters, error = filters_or_error(request)
+    if error is not None:
+        return error
+    rows = WebVisitorDay.objects.filter(day__range=(filters["start"], filters["end"]))
+    totals = rows.aggregate(browser_days=Count("id"), views=Sum("views"), admitted_views=Sum("admitted_views"))
+    daily = rows.values("day").annotate(visitors=Count("id"), views=Sum("views"), admitted_views=Sum("admitted_views")).order_by("-day")
+    return render(request, "owner/visitors.html", {"filters": filters, "totals": totals, "daily": daily,
+        "tracking": settings.WEB_VISITOR_TRACKING_ENABLED, "gate": settings.WEB_TEST_GATE_ENABLED})
 
 
 @owner_only

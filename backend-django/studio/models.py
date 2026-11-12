@@ -4,6 +4,15 @@ from django.utils import timezone
 from .limits import CREATION_PROMPT_MAX_LENGTH
 from django.db.models import Q
 
+
+class WebVisitorDay(models.Model):
+    day = models.DateField()
+    visitor_hash = models.CharField(max_length=64)
+    views = models.PositiveIntegerField(default=0)
+    admitted_views = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["day", "visitor_hash"], name="web_visitor_day_unique")]
 class Account(models.Model):
     # String IDs preserve existing Mongo IDs when importing only MotionMagic accounts.
     id = models.CharField(primary_key=True, max_length=128, default=uuid.uuid4, editable=False)

@@ -22,6 +22,7 @@ urlpatterns = [
     path("app/payments/payu/refund/", webapp.RefundNotice.as_view()),
     path("app/media/<uuid:identifier>/", webapp.MediaOpen.as_view()),
     path("owner/", owner.dashboard, name="owner-dashboard"),
+    path("owner/visitors/", owner.visitors, name="owner-visitors"),
     path("owner/credits/", owner_credits.grant_credits, name="owner-credit-grant"),
     path("owner/credits/<uuid:identifier>/", owner_credits.receipt, name="owner-credit-receipt"),
     path("owner/showcase/", showcase.owner_templates, name="owner-templates"),

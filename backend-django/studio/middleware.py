@@ -2,7 +2,12 @@ class ApiHeaders:
     def __init__(self, get_response):
         self.get_response = get_response
     def __call__(self, request):
-        response = self.get_response(request)
+        from . import web_access
+        blocked = web_access.gate(request)
+        response = blocked if blocked is not None else self.get_response(request)
+        web_access.track(request, response)
+        if blocked is not None:
+            response["Cache-Control"] = "no-store, private"
         public_catalogue = request.path == "/api/v1/templates" or request.path.startswith("/api/v1/templates/artwork/")
         if request.path.startswith(("/api/", "/auth/")) and not (public_catalogue and response.status_code in (200, 304)):
             response["Cache-Control"] = "no-store"

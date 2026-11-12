@@ -1,0 +1,8 @@
+{% extends 'owner/base.html' %}{% block content %}
+<h1>Website visitors</h1>
+<p>Tracking: {{ tracking|yesno:'enabled,disabled' }} · Private testing gate: {{ gate|yesno:'enabled,disabled' }}</p>
+<form method="get" class="toolbar"><label>From <input type="date" name="start" value="{{ filters.start|date:'Y-m-d' }}"></label><label>To <input type="date" name="end" value="{{ filters.end|date:'Y-m-d' }}"></label><button>Show visits</button></form>
+<div class="cards"><div class="card"><span>Page views</span><strong>{{ totals.views|default:0 }}</strong></div><div class="card"><span>Daily visitors added together</span><strong>{{ totals.browser_days|default:0 }}</strong></div><div class="card"><span>Admitted page views</span><strong>{{ totals.admitted_views|default:0 }}</strong></div></div>
+<p class="notice">Counts page loads of / and /app/, including the testing-password prompt. Admitted views reached the web studio. Daily visitors are estimated browsers, not people or Google accounts. Repeat visits on the same day count once; the same browser on two days counts twice in the period total. Bots, private browsing, deleted cookies and multiple devices can affect counts. API requests, assets, payment callbacks and owner pages are excluded. Dates use Asia/Kolkata. Only anonymous daily hashes and counters are stored.</p>
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Estimated daily visitors</th><th>Page views</th><th>Admitted views</th></tr></thead><tbody>{% for row in daily %}<tr><td>{{ row.day|date:'Y-m-d' }}</td><td>{{ row.visitors }}</td><td>{{ row.views }}</td><td>{{ row.admitted_views }}</td></tr>{% empty %}<tr><td colspan="4">No visits recorded in this date range.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

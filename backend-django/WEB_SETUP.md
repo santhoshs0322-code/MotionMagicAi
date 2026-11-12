@@ -6,6 +6,31 @@ Android continues using native Google sign-in, bearer JWTs, Google Play products
 
 ## Environment
 
+### Private testing and visitor counts
+
+To restrict the web studio before launch, set these in the server `.env`:
+
+```ini
+MOTION_AI_WEB_TEST_GATE_ENABLED=true
+MOTION_AI_WEB_TEST_USERNAME=YOUR_TESTER_ID
+MOTION_AI_WEB_TEST_PASSWORD=YOUR_UNIQUE_16_OR_MORE_CHARACTER_PASSWORD
+MOTION_AI_WEB_VISITOR_TRACKING_ENABLED=true
+```
+
+Use a separate testing password, not your owner, Google or PayU password. HTTPS browsers display an ID/password prompt before the studio; Google login is still required afterward. Native Android bearer authentication, owner login, health checks, and PayU callbacks keep their existing access rules. The gate also protects existing browser-session API access. Browsers can retain Basic credentials until their session closes.
+
+To make the web studio public later, set `MOTION_AI_WEB_TEST_GATE_ENABLED=false` and recreate the containers. Visitor tracking can remain enabled independently. No Android rebuild is needed.
+
+The owner-only `/owner/visitors/` page shows date-filtered estimated daily visitors, total page views, and admitted views. It counts GET page loads on `/` and `/app/`, including password prompts; it excludes APIs, assets, owner pages and callbacks. Anonymous signed cookies deduplicate browsers within a day. Period totals add daily visitors, so they are **not unique people across the whole period**. Bots and cookie/device changes can affect counts. No IP addresses, raw user agents or Google identities are retained in these records. Include this anonymous visitor-cookie use in your published privacy/cookie notice. Set `MOTION_AI_WEB_VISITOR_TRACKING_ENABLED=false` to stop collection.
+
+After pulling this change, apply migration `0025` via Compose startup and recreate services:
+
+```bash
+docker compose -f compose.aws.yaml up -d --build
+# If you enabled the payment worker:
+docker compose -f compose.aws.yaml --profile web-payments up -d --build payments
+```
+
 Add these to `backend-django/.env`; all new variables use `MOTION_AI_`:
 
 ```ini
