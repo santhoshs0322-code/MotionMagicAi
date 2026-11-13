@@ -210,7 +210,7 @@ private fun CreditBalanceBanner(balance: Long?, modifier: Modifier = Modifier) {
             Box(Modifier.width(1.dp).height(42.dp).background(Color.White.copy(alpha = .2f)))
             Icon(Icons.Rounded.CardGiftcard, null, Modifier.size(25.dp), tint = Color(0xFFED4AFF))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("200 Welcome Credits", color = Color.White, fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
+                Text("300 Welcome Credits", color = Color.White, fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
                 Text("on your first sign-in", color = Color(0xFFDDD3FC), fontSize = 9.sp, lineHeight = 12.sp)
             }
         }

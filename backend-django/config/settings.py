@@ -91,10 +91,9 @@ AUTH_ENABLED = flag("AUTH_ENABLED")
 SESSION_SECONDS = int(env("SESSION_SECONDS", "86400"))
 REFRESH_DAYS = int(env("REFRESH_DAYS", "90"))
 WEB_ENABLED = flag("WEB_ENABLED", True)
-WEB_TRIAL_MODE = flag("WEB_TRIAL_MODE", True)
-WEB_WELCOME_CREDITS = int(env("WEB_WELCOME_CREDITS", "100"))
-if not 0 <= WEB_WELCOME_CREDITS <= 10000:
-    raise ImproperlyConfigured("MOTION_AI_WEB_WELCOME_CREDITS must be between 0 and 10000")
+# Retired: old server WEB_TRIAL_MODE/WEB_WELCOME_CREDITS values cannot reactivate
+# trial ceilings or change the shared Google-account welcome grant.
+WEB_TRIAL_MODE = False
 WEB_TEST_GATE_ENABLED = flag("WEB_TEST_GATE_ENABLED", False)
 WEB_TEST_USERNAME = env("WEB_TEST_USERNAME", "")
 WEB_TEST_PASSWORD = env("WEB_TEST_PASSWORD", "")
@@ -169,7 +168,7 @@ CREDIT_ONLY_MODE = env("CREDIT_ONLY_MODE", "true").lower() == "true"
 MARKUP_BPS = 16_667 if CREDIT_ONLY_MODE else int(env("MARKUP_BPS", "90000"))
 STORE_FEE_BPS = 1_500 if CREDIT_ONLY_MODE else int(env("STORE_FEE_BPS", "0"))
 DAILY_PROVIDER_BUDGET_PAISE = int(env("DAILY_PROVIDER_BUDGET_PAISE", "0"))
-WELCOME_CREDITS = int(env("WELCOME_CREDITS", "200"))
+WELCOME_CREDITS = int(env("WELCOME_CREDITS", "300"))
 # Use one shard for a small launch budget. At AWS scale use up to 64, together
 # with a budget large enough for the most expensive single generation per shard.
 BUDGET_SHARDS = int(env("BUDGET_SHARDS", "64"))

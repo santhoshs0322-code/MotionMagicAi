@@ -11,7 +11,7 @@ from .authentication import digest, issue_token
 from .models import Account, Asset, Ledger, Product, Rate, Subscription, Wallet
 
 
-RUNTIME = dict(PLAY_ENABLED=True, SUBSCRIPTIONS_ENABLED=True,
+RUNTIME = dict(PLAY_ENABLED=True, SUBSCRIPTIONS_ENABLED=True, WELCOME_CREDITS=200,
                BILLING_ENCRYPTION_KEY="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
                FAL_ONLY=False, GATEWAY_URL="https://gateway.test", GATEWAY_TOKEN="token",
                S3_BUCKET="bucket", DAILY_PROVIDER_BUDGET_PAISE=100_000,

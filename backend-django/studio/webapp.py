@@ -21,7 +21,7 @@ from .web_auth import BrowserAuthentication, BrowserPublic
 logger = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static" / "motion_web"
 FILES = frozenset(("app.js", "app.css", "logo.webp", "hero.webp", "long-story.webp", "font-regular.ttf", "font-bold.ttf",
-    "card-image.jpg", "card-photo.jpg", "card-text.jpg", "card-story.jpg", "welcome.js"))
+    "card-image.jpg", "card-photo.jpg", "card-text.jpg", "card-story.jpg"))
 
 
 @lru_cache(maxsize=10)
@@ -36,7 +36,7 @@ def index(request):
         from urllib.parse import urlsplit
         if request.get_host() != urlsplit(settings.WEB_PUBLIC_URL).netloc:
             return redirect(settings.WEB_PUBLIC_URL+"/app/")
-    response = render(request, "web/app.html", {"files": {name.replace(".", "_").replace("-", "_"): f"/app/assets/{version(name)}/{name}" for name in FILES}, "csrf": get_token(request), "welcome": settings.WEB_WELCOME_CREDITS})
+    response = render(request, "web/app.html", {"files": {name.replace(".", "_").replace("-", "_"): f"/app/assets/{version(name)}/{name}" for name in FILES}, "csrf": get_token(request), "welcome": settings.WELCOME_CREDITS})
     response["Cache-Control"] = "no-store, private"
     return response
 
@@ -60,11 +60,9 @@ def pricing(request):
         pack = packs.get(credits)
         amount = pack.amount_paise if pack else 0
         offers.append(dict(credits=credits, display_credits=f"{credits:,}", title=title, amount=web_payments.money(amount) if amount else None,
-            available=bool(pack and pack.enabled and amount > 0 and settings.PAYU_ENABLED and not settings.WEB_TRIAL_MODE)))
-    from .web_access import visitor_prompt_needed
+            available=bool(pack and pack.enabled and amount > 0 and settings.PAYU_ENABLED)))
     return render(request, "web/pricing.html", dict(offers=offers, test=settings.PAYU_MODE=="test", csrf=get_token(request),
-        visitor_auto=True, visitor_needed=visitor_prompt_needed(request),
-        enabled=settings.PAYU_ENABLED and not settings.WEB_TRIAL_MODE, trial=settings.WEB_TRIAL_MODE, welcome=settings.WEB_WELCOME_CREDITS,
+        enabled=settings.PAYU_ENABLED, welcome=settings.WELCOME_CREDITS,
         files={name.replace(".", "_").replace("-", "_"):
         f"/app/assets/{version(name)}/{name}" for name in FILES}))
 
@@ -86,9 +84,11 @@ class BrowserPrivate(BrowserPublic):
 
 class Packs(BrowserPrivate):
     def get(self, request):
-        return Response({"ok": True, "enabled": settings.PAYU_ENABLED and not settings.WEB_TRIAL_MODE, "trial": settings.WEB_TRIAL_MODE, "test": settings.PAYU_MODE=="test",
+        sandbox = WebCreditPack.objects.filter(pk="web-sandbox-test", enabled=True).first() if settings.PAYU_MODE=="test" and settings.PAYU_ENABLED else None
+        return Response({"ok": True, "enabled": settings.PAYU_ENABLED, "trial": False, "test": settings.PAYU_MODE=="test",
+            "sandbox_pack": dict(id=sandbox.pk, title=sandbox.title, credits=sandbox.credits, amount_paise=sandbox.amount_paise, currency="INR") if sandbox else None,
             "packs": [dict(id=p.pk, title=p.title, credits=p.credits, amount_paise=p.amount_paise, currency="INR")
-                      for p in WebCreditPack.objects.filter(enabled=True, amount_paise__gt=0).order_by("credits")]})
+                      for p in WebCreditPack.objects.filter(enabled=True, amount_paise__gt=0).exclude(pk="web-sandbox-test").order_by("credits")]})
 
 
 class Orders(BrowserPrivate):

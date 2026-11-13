@@ -29,7 +29,7 @@ async def run():
   chrome=os.environ.get('MOTION_AI_WEB_TEST_BROWSER') or shutil.which('google-chrome') or (r'C:\Program Files\Google\Chrome\Application\chrome.exe' if Path(r'C:\Program Files\Google\Chrome\Application\chrome.exe').is_file() else None)
   browser=await p.chromium.launch(executable_path=chrome,headless=True,args=['--disable-background-networking'])
   context=await browser.new_context(viewport={'width':1440,'height':1000},device_scale_factor=1)
-  current={'user':USER,'created':False,'timeout':True,'hold':False,'job':'queued','trial':False,'pending':[],'exhausted':False,'welcomed':False};submissions=[];quotes=[];orders=[];errors=[];feedback=[];welcome_answers=[]
+  current={'user':USER,'created':False,'timeout':True,'hold':False,'job':'queued','payu_test':True};submissions=[];quotes=[];orders=[];errors=[]
   page=await context.new_page();page.on('pageerror',lambda error:errors.append(str(error)))
   async def reply(route,data,status=200):await route.fulfill(status=status,content_type='application/json',body=json.dumps(data))
   async def intercept(route):
@@ -42,29 +42,17 @@ async def run():
     except Exception:return
    if not request.url.startswith(ORIGIN):return await route.abort()
    if path.startswith('/api/v1/templates/artwork/'):return await route.continue_()
-   if path=='/app/session/':return await reply(route,dict(ok=True,user=current['user'],csrf='offline-csrf',google_client_id='google-client',nonce='offline-nonce',visitor_prompt=not current['welcomed'],testing={'enabled':current['trial'],'welcome_credits':100}))
-   if path=='/app/visitor-interest/':
-    welcome_answers.append(request.post_data_json);current['welcomed']=True
-    return await reply(route,dict(ok=True,recorded=True))
-   if path=='/app/pricing/':
-    response=await route.fetch();html=await response.text()
-    if current['welcomed']:html=html.replace('data-needed="true"','data-needed="false"')
-    return await route.fulfill(response=response,body=html)
-   if path=='/app/feedback/':
-    if request.method=='GET':return await reply(route,dict(ok=True,pending=current['pending'],exhausted=current['exhausted'],credits_answered=any(item['context']=='credits' for item in feedback)))
-    answer=request.post_data_json;feedback.append(answer)
-    if answer['context']=='generation':current['pending']=[job for job in current['pending'] if job['id']!=answer['job_id']]
-    return await reply(route,dict(ok=True,recorded=True))
+   if path=='/app/session/':return await reply(route,dict(ok=True,user=current['user'],csrf='offline-csrf',google_client_id='google-client',nonce='offline-nonce',welcome_credits=300))
    if path=='/app/login/':
     assert request.post_data_json['credential']=='offline-google-test-token';current['user']=USER
     return await reply(route,dict(ok=True,user=USER,csrf='after-login-csrf'))
    if path=='/app/logout/':current['user']=OTHER;return await reply(route,dict(ok=True))
-   if path=='/api/v1/wallet':return await reply(route,dict(ok=True,available_credits=(0 if current['exhausted'] else 100) if current['trial'] else 10000 if current['user']==USER else 420))
+   if path=='/api/v1/wallet':return await reply(route,dict(ok=True,available_credits=10000 if current['user']==USER else 420))
    if path=='/api/v1/capabilities':return await reply(route,dict(ok=True,cloud=RATES))
    if path=='/api/v1/templates':return await reply(route,dict(ok=True,templates=TEMPLATES,banners=[]))
    if path=='/api/v1/quotes':
     body=request.post_data_json;quotes.append(body)
-    return await reply(route,dict(ok=True,id='quote-owned-123',title='PixVerse V6',maximum_credits=450,available_credits=100 if current['trial'] else 10000))
+    return await reply(route,dict(ok=True,id='quote-owned-123',title='PixVerse V6',maximum_credits=450,available_credits=10000))
    if path=='/api/v1/assets' and request.method=='POST':
     return await reply(route,dict(ok=True,asset={'id':'asset-owned-123'},upload={'url':'https://web-review.s3.amazonaws.com/','fields':{'key':'accounts/browser-user-a/image/uploaded/fixture','Content-Type':'image/jpeg'}}))
    if path=='/api/v1/assets/asset-owned-123':return await reply(route,dict(ok=True,asset={'id':'asset-owned-123','ready':True}))
@@ -77,7 +65,7 @@ async def run():
     if current['user']==OTHER:jobs=[dict(id='other-job',title='Other account creation',kind='image',state='succeeded',output_asset_id='other-output',created_at='2026-11-12T13:00:00Z')]
     elif current['created']:jobs=[dict(id='new-owned-job',title='Cinematic portrait',kind='video',state=current['job'],created_at='2026-11-12T12:00:00Z',output_asset_id='my-output' if current['job']=='succeeded' else None)]
     return await reply(route,dict(ok=True,results=jobs,next=None,tracked_supported=True))
-   if path=='/app/packs/':return await reply(route,dict(ok=True,enabled=True,test=True,packs=PACKS))
+   if path=='/app/packs/':return await reply(route,dict(ok=True,enabled=True,test=current['payu_test'],packs=PACKS,sandbox_pack={'id':'web-sandbox-test','title':'PayU sandbox test','credits':1,'amount_paise':100,'currency':'INR'}))
    if path=='/app/payments/' and request.method=='GET':
     if current.get('history_error'):return await reply(route,dict(ok=False,message='History temporarily unavailable.'),503)
     return await reply(route,dict(ok=True,orders=[]))
@@ -139,7 +127,6 @@ async def run():
   assert orders[-1]['pack']=='web-2500' and set(orders[-1])=={'pack','phone','request_key'}
   # A fresh browser gets the real Google-button integration, not an unlocked studio.
   current['user']=None;await page.goto(ORIGIN+'/app/pricing/')
-  await page.wait_for_selector('#visitor-welcome[open]');await page.click('#visitor-welcome-skip');await page.wait_for_selector('#visitor-welcome[open]',state='hidden')
   assert await page.locator('.public-pack-grid .pack-card').count()==4
   assert await page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
   await page.screenshot(path=str(OUT/'web-pricing-mobile.png'),full_page=True)
@@ -156,38 +143,15 @@ async def run():
   await page.click('#google-button button');await page.wait_for_selector('#studio:not(.hidden)')
   await page.wait_for_selector('#page-credits:not(.hidden)')
   assert not await page.locator('#public-header').is_visible()
-  # Trial mode hides purchase controls and restores pending feedback from the server.
-  order_count=len(orders);current['trial']=True;current['welcomed']=False
-  current['pending']=[dict(id='trial-job-one',title='Your testing image',kind='image',state='succeeded')]
-  await page.goto(ORIGIN+'/app/');await page.wait_for_selector('#visitor-welcome[open]')
-  await page.check('#visitor-welcome-form input[value="yes"]');await page.fill('#visitor-welcome-form textarea','A short story for YouTube.')
-  await page.screenshot(path=str(OUT/'web-first-visit-welcome.png'),full_page=True)
-  await page.click('#visitor-welcome-submit');await page.wait_for_selector('#feedback-dialog[open]')
-  assert welcome_answers[-1]['goal']=='A short story for YouTube.'
-  assert not await page.locator('#paid-credit-controls').is_visible()
-  await page.check('#feedback-form input[name="rating"][value="like"]')
-  await page.check('#feedback-form input[name="interest"][value="yes"]')
-  await page.fill('#feedback-form textarea','The result looks great.')
-  await page.screenshot(path=str(OUT/'web-trial-feedback.png'),full_page=True)
-  await page.click('#feedback-submit');await page.wait_for_selector('#feedback-dialog[open]',state='hidden')
-  assert feedback[-1]['job_id']=='trial-job-one' and feedback[-1]['interest']=='yes'
-  await page.click('.sidebar [data-page="credits"]');assert await page.locator('#trial-credit-info').is_visible()
-  assert not await page.locator('#phone').is_visible()
-  await page.screenshot(path=str(OUT/'web-trial-pricing.png'),full_page=True)
-  # An unaffordable quote asks for feedback without uploading or submitting a job.
-  generation_count=len(submissions);await page.click('.sidebar [data-page="create"]');await page.click('[data-mode="text"]')
-  await page.fill('#prompt','A cinematic sunset over the ocean.');await page.click('#create')
-  await page.wait_for_selector('#feedback-dialog[open]');await page.click('#feedback-skip');await page.wait_for_url('**/app/pricing/')
-  assert len(submissions)==generation_count and feedback[-1]=={'context':'credits','outcome':'dismissed'}
-  # The final completed result leads to pricing after the generation feedback.
-  current['exhausted']=True;current['pending']=[dict(id='trial-job-final',title='Final testing result',kind='image',state='succeeded')]
-  await page.goto(ORIGIN+'/app/');await page.wait_for_selector('#feedback-dialog[open]')
-  await page.check('#feedback-form input[name="rating"][value="dislike"]');await page.check('#feedback-form input[name="interest"][value="maybe"]')
-  await page.click('#feedback-submit');await page.wait_for_url('**/app/pricing/')
-  assert feedback[-1]['job_id']=='trial-job-final' and feedback[-1]['interest']=='maybe'
-  assert await page.locator('.public-pack-grid a.pack-link').count()==0
-  assert len(orders)==order_count,'Trial feedback must never initiate a purchase'
+  # Normal login has no testing surveys; sandbox checkout is explicit and test-only.
+  assert await page.locator('#feedback-dialog,#visitor-welcome,#trial-credit-info').count()==0
+  await page.wait_for_selector('#sandbox-checkout:not(.hidden)')
+  await page.fill('#phone','9876543210');await page.screenshot(path=str(OUT/'web-sandbox-payment.png'),full_page=True)
+  await page.click('#sandbox-pay');await page.wait_for_url('**/checkout/')
+  assert orders[-1]['pack']=='web-sandbox-test'
+  current['payu_test']=False;await page.goto(ORIGIN+'/app/?page=credits');await page.wait_for_selector('#packs .pack-card')
+  assert not await page.locator('#sandbox-checkout').is_visible(),'Sandbox actions must never be offered in live mode'
   assert not errors,errors
-  print('PASS: desktop/mobile, themes, server-rate choices, half-minute stories, quote/upload/submit/recovery, cancel/retry, projects, separate PayU prices, account-switch isolation, Google callback, first-visit welcome, trial feedback and exhaustion redirects.')
+  print('PASS: desktop/mobile, themes, server-rate choices, half-minute stories, quote/upload/submit/recovery, cancel/retry, projects, separate PayU prices, account-switch isolation, Google callback, regular login, no trial cap or surveys, sandbox payment and live-mode isolation.')
   await browser.close()
 asyncio.run(run())

@@ -24,12 +24,8 @@ from .models import Account, Wallet, WebSession, WebUserProfile, WebUserDay
 
 
 def testing_config():
-    return {"enabled": settings.WEB_TRIAL_MODE, "welcome_credits": settings.WEB_WELCOME_CREDITS,
-            "purchases_enabled": settings.PAYU_ENABLED and not settings.WEB_TRIAL_MODE}
-
-
-def welcome_amount(request):
-    return settings.WEB_WELCOME_CREDITS if isinstance(request.auth, dict) and request.auth.get("web_session") else settings.WELCOME_CREDITS
+    return {"enabled": False, "welcome_credits": settings.WELCOME_CREDITS,
+            "purchases_enabled": settings.PAYU_ENABLED}
 
 
 def record_activity(account, created=False, login=False):
@@ -88,10 +84,9 @@ class BrowserConfig(BrowserPublic):
         except AuthenticationFailed:
             pass
         nonce = secrets.token_urlsafe(32)
-        from .web_access import visitor_prompt_needed
         response = Response({"ok": True, "user": user, "csrf": get_token(request._request),
                              "google_client_id": settings.GOOGLE_CLIENT_ID if settings.AUTH_ENABLED else "", "nonce": nonce, "testing": testing_config(),
-                             "visitor_prompt": visitor_prompt_needed(request)})
+                             "welcome_credits": settings.WELCOME_CREDITS, "visitor_prompt": False})
         response.set_cookie("motion_web_nonce", signing.dumps(nonce, salt="motion-web-login"), max_age=600,
                             httponly=True, secure=not settings.TESTING, samesite="Lax", path="/app/")
         return response
@@ -128,7 +123,7 @@ class BrowserSignIn(BrowserPublic):
             account.picture = picture[:2048] if isinstance(picture, str) and picture.startswith("https://") else ""
             account.save(update_fields=["email", "name", "picture"])
             Wallet.objects.get_or_create(account=account)
-            services.grant_welcome_credits(account, settings.WEB_WELCOME_CREDITS)
+            services.grant_welcome_credits(account)
             record_activity(account, created=created, login=True)
             previous = request.COOKIES.get(settings.WEB_SESSION_COOKIE, "")
             if previous:

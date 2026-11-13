@@ -7,8 +7,7 @@
     rates:[], templates:[], photos:[], video:null, videoChoice:0, videoChecking:false, urls:[], jobs:new Map(), filter:'all', next:null,
     quote:null, busy:false, createRun:0, epoch:0, requests:new Set(), submission:null, packs:[], paymentBusy:false};
   const labels = {photo:'Image to Video',text:'Text to Video',image:'Create Image',story:'Continue Story',long:'Long Story'};
-  let pollTimer, toastTimer, uploadRequest, packsRun=0, feedbackContext=null, feedbackLoading=false, feedbackSaving=false;
-  state.testing={enabled:false,welcome_credits:100};
+  let pollTimer, toastTimer, uploadRequest, packsRun=0;
   const activeStates = new Set(['queued','submitting','running','uncertain']);
   const text = (tag,value,cls) => {const node=document.createElement(tag);node.textContent=value;if(cls)node.className=cls;return node;};
   const button = (value,action,cls='quiet') => {const node=text('button',value,cls);node.type='button';node.onclick=action;return node;};
@@ -30,7 +29,7 @@
     } finally {clearTimeout(timer);state.requests.delete(controller);}
   }
   function forgetAccount(){
-    feedbackContext=null;feedbackLoading=false;feedbackSaving=false;$('feedback-form').reset();clearFeedbackMedia();
+    state.sandboxPack=null;$('sandbox-checkout').classList.add('hidden');$('sandbox-pay').disabled=true;
     delete document.body.dataset.authenticated;
     if(state.user)savedStore.removeItem('motion-web-purchase:'+state.user.id);clearTimeout(toastTimer);$('toast').textContent='';$('toast').classList.add('hidden');
     state.mode='photo';state.filter='all';state.templateReferenceRequired=false;for(const select of ['model','quality','ratio','duration'])$(select).replaceChildren();$('sound').checked=false;$('credit-count').textContent='?';
@@ -48,9 +47,8 @@
   }
   async function initialize(){
     try {
-      const config=await api('/app/session/');state.csrf=config.csrf;applyTesting(config.testing);
+      const config=await api('/app/session/');state.csrf=config.csrf;
       $('startup').classList.add('hidden');
-      if(config.visitor_prompt&&state.testing.enabled)window.MotionWelcome?.open(config.csrf,()=>loadFeedback());
       if(config.user){state.user=config.user;await enterStudio();return;}
       $('login').classList.remove('hidden');
       if(!config.google_client_id){$('login-error').textContent='Google sign-in is not enabled on this server yet.';return;}
@@ -61,7 +59,7 @@
           callback:async result=>{
             $('login-error').textContent='';
             try {const data=await api('/app/login/',{method:'POST',body:JSON.stringify({credential:result.credential})});
-              state.user=data.user;state.csrf=data.csrf;if(data.testing)applyTesting(data.testing);await enterStudio();}
+              state.user=data.user;state.csrf=data.csrf;await enterStudio();}
             catch(error){$('login-error').textContent=error.message;}
           }});
         $('google-button').replaceChildren();
@@ -80,61 +78,8 @@
     await Promise.allSettled([refreshProjects(false,true),api('/api/v1/jobs?scope=active').then(data=>{for(const job of data.results)state.jobs.set(job.id,job);renderProjects();schedulePoll();})]);
     const payment=new URLSearchParams(location.search).get('payment');
     if(payment){history.replaceState(null,'','/app/');showPage('credits');await checkOrder(payment);}
-    if(state.testing.enabled)await loadFeedback();
   }
   async function refreshWallet(){const data=await api('/api/v1/wallet');$('credit-count').textContent=new Intl.NumberFormat().format(data.available_credits);state.available=data.available_credits;state.balance=data.balance_credits??data.available_credits;}
-  function applyTesting(config){
-    state.testing=config||{enabled:false,welcome_credits:100};
-    $('trial-credit-info').classList.toggle('hidden',!state.testing.enabled);
-    $('paid-credit-controls').classList.toggle('hidden',state.testing.enabled);
-    $('trial-credit-copy').textContent=`New web accounts receive ${state.testing.welcome_credits} one-time welcome credits. Web testing is limited to ${state.testing.welcome_credits} credits per account. Existing shared credits stay available on Android; signing in again does not refill the testing allowance.`;
-    document.querySelector('#page-credits .credits-hero h1').textContent=state.testing.enabled?'Thanks for creating with us.':'More credits. More possibilities.';
-    for(const node of document.querySelectorAll('.sidebar [data-page="credits"] span,.mobile-nav [data-page="credits"] span'))node.textContent=state.testing.enabled?'Pricing & feedback':'Add Credits';
-  }
-  function showFeedback(context,redirect=false){
-    if(!state.testing.enabled||!state.user||feedbackContext||document.querySelector('dialog[open]'))return;
-    feedbackContext={...context,redirect,epoch:state.epoch};$('feedback-form').reset();clearFeedbackMedia();$('feedback-error').textContent='';
-    const generation=context.context==='generation';
-    $('feedback-title').textContent=generation?'How was your creation?':state.available>0?'How is your testing experience?':'You have used your testing credits';
-    $('feedback-description').textContent=generation?(context.job?.title||'Your result is ready. Tell us what you think.'):'Purchases are temporarily paused. Would you like to keep creating when we launch?';
-    $('feedback-rating').classList.toggle('hidden',!generation);
-    for(const input of $('feedback-rating').querySelectorAll('input'))input.required=generation;
-    const image=$('feedback-thumbnail');image.classList.toggle('hidden',!context.job?.thumbnail_url);
-    if(context.job?.thumbnail_url)image.src=context.job.thumbnail_url;else image.removeAttribute('src');
-    $('feedback-preview').classList.toggle('hidden',!context.job?.output_asset_id);
-    $('feedback-dialog').showModal();
-  }
-  function clearFeedbackMedia(){const video=$('feedback-video');video.pause();video.removeAttribute('src');video.load();video.classList.add('hidden');$('feedback-preview').disabled=false;}
-  async function previewFeedback(){
-    const context=feedbackContext;if(!context?.job?.output_asset_id)return;$('feedback-preview').disabled=true;
-    try{const data=await api('/api/v1/assets/'+context.job.output_asset_id);if(feedbackContext!==context)return;
-      if(context.job.kind==='video'){$('feedback-video').src=data.url;$('feedback-video').classList.remove('hidden');$('feedback-thumbnail').classList.add('hidden');}
-      else{$('feedback-thumbnail').src=data.url;$('feedback-thumbnail').classList.remove('hidden');}
-      $('feedback-preview').classList.add('hidden');
-    }catch(error){if(feedbackContext===context)$('feedback-error').textContent=error.message;}
-    finally{if(feedbackContext===context)$('feedback-preview').disabled=false;}
-  }
-  async function loadFeedback(){
-    if(!state.testing.enabled||!state.user||state.busy||feedbackLoading||feedbackContext||document.querySelector('dialog[open]'))return;
-    const epoch=state.epoch;feedbackLoading=true;
-    try{const data=await api('/app/feedback/');if(epoch!==state.epoch)return;
-      if(data.pending.length){const job=data.pending[0];showFeedback({context:'generation',job_id:job.id,job},data.exhausted&&data.pending.length===1);}
-      else if(data.exhausted&&!data.credits_answered)showFeedback({context:'credits'},true);
-    }catch(_){}finally{if(epoch===state.epoch)feedbackLoading=false;}
-  }
-  async function saveFeedback(outcome){
-    const context=feedbackContext;if(!context||feedbackSaving)return;
-    if(outcome==='submitted'&&!$('feedback-form').reportValidity())return;
-    feedbackSaving=true;$('feedback-submit').disabled=true;$('feedback-skip').disabled=true;$('feedback-error').textContent='';
-    const form=new FormData($('feedback-form'));
-    const payload={context:context.context,outcome};if(context.job_id)payload.job_id=context.job_id;
-    if(outcome==='submitted'){payload.rating=context.context==='generation'?(form.get('rating')||''):'';payload.interest=form.get('interest')||'';payload.comment=form.get('comment')||'';}
-    try{await api('/app/feedback/',{method:'POST',body:JSON.stringify(payload)});if(context.epoch!==state.epoch)return;
-      feedbackContext=null;clearFeedbackMedia();$('feedback-dialog').close();if(outcome==='submitted')toast('Thank you. Your feedback helps us improve.');
-      if(context.redirect){location.assign('/app/pricing/');return;}await loadFeedback();
-    }catch(error){if(context.epoch===state.epoch){if(outcome==='dismissed'){feedbackContext=null;clearFeedbackMedia();$('feedback-dialog').close();if(context.redirect)location.assign('/app/pricing/');}else $('feedback-error').textContent=error.message;}}
-    finally{if(context.epoch===state.epoch){feedbackSaving=false;$('feedback-submit').disabled=false;$('feedback-skip').disabled=false;}}
-  }
   async function loadCatalog(){const data=await api('/api/v1/capabilities');state.rates=data.cloud||[];renderModels();}
   async function loadTemplates(){const data=await api('/api/v1/templates');state.templates=data.templates||[];renderTemplates();}
   function showPage(page){
@@ -144,7 +89,7 @@
     for(const node of document.querySelectorAll('[data-page]'))node.classList.toggle('active',node.dataset.page===page);
     $('page-title').textContent={home:'Make something magical.',create:labels[state.mode],templates:'Your next inspiration.',projects:'Made by you.',credits:'Fuel your creativity.'}[page];
     if(page==='projects')refreshProjects(false).catch(error=>$('projects-error').textContent=error.message);
-    if(page==='credits'&&!state.testing.enabled)loadPacks().catch(error=>$('payment-error').textContent=error.message);
+    if(page==='credits')loadPacks().catch(error=>$('payment-error').textContent=error.message);
     if(page==='create')renderModels();
     if(changed)window.scrollTo({top:0,behavior:'instant'});
   }
@@ -204,7 +149,7 @@
     if(state.video){const box=text('div','','media-preview'),video=document.createElement('video'),url=URL.createObjectURL(state.video);state.urls.push(url);video.src=url;video.muted=true;video.preload='metadata';box.append(video,button('×',()=>{state.video=null;previews();}));$('media-previews').append(box);}
   }
   function promptCount(){$('prompt-count').textContent=`${$('prompt').value.length}/1000`;}
-  function setBusy(value){state.busy=value;for(const id of ['model','quality','ratio','duration','sound','photos','video','prompt','clear-media','clear-prompt','inspire'])$(id).disabled=value;for(const node of $('media-previews').querySelectorAll('button'))node.disabled=value;$('create').disabled=value||!state.rate||state.videoChecking;$('generation-progress').classList.toggle('hidden',!value);$('cancel-upload').disabled=false;if(!value){renderSettings();if(state.testing.enabled)queueMicrotask(loadFeedback);}}
+  function setBusy(value){state.busy=value;for(const id of ['model','quality','ratio','duration','sound','photos','video','prompt','clear-media','clear-prompt','inspire'])$(id).disabled=value;for(const node of $('media-previews').querySelectorAll('button'))node.disabled=value;$('create').disabled=value||!state.rate||state.videoChecking;$('generation-progress').classList.toggle('hidden',!value);$('cancel-upload').disabled=false;if(!value)renderSettings();}
   async function normalizedImage(file){
     if(file.size>20*1024*1024)throw Error('Choose a photo smaller than 20 MB.');
     const bitmap=await createImageBitmap(file);try{if(bitmap.width*bitmap.height>32_000_000)throw Error('Choose a photo smaller than 32 megapixels.');
@@ -257,9 +202,8 @@
       const quote=await api('/api/v1/quotes',{method:'POST',body:JSON.stringify(payload)});
       if(draftVersion!==draftFingerprint())throw Error('Your draft changed. Press Create again for an updated quote.');
       state.quote={...quote,main,references,input,epoch:state.epoch};$('quote-title').textContent=quote.title;$('quote-cost').textContent=`${quote.maximum_credits} credits`;$('quote-balance').textContent=`Available: ${quote.available_credits} credits`;$('quote-error').textContent='';
-      if(state.testing.enabled&&quote.available_credits<quote.maximum_credits){showFeedback({context:'credits'},true);return;}
       $('quote-confirm').textContent=quote.available_credits<quote.maximum_credits?'Add credits':'Confirm creation';$('quote-dialog').showModal();
-    }catch(error){if(error.status===402&&state.testing.enabled)showFeedback({context:'credits'},true);else if(error.name!=='AbortError')$('create-error').textContent=error.message;}
+    }catch(error){if(error.name!=='AbortError')$('create-error').textContent=error.message;}
     finally{$('create').disabled=!state.rate||state.busy;}
   }
   async function confirmCreate(){
@@ -273,7 +217,7 @@
       if(quote.epoch!==state.epoch||!state.busy||run!==state.createRun)throw new DOMException('Cancelled','AbortError');
       state.submission={body,key:crypto.randomUUID(),account:state.user.id};savedStore.setItem('motion-submit:'+state.user.id,JSON.stringify(state.submission));
       await submitSaved();
-    }catch(error){if(error.status===402&&state.testing.enabled)showFeedback({context:'credits'},true);else if(error.name!=='AbortError')$('create-error').textContent=error.message;}
+    }catch(error){if(error.name!=='AbortError')$('create-error').textContent=error.message;}
     finally{if(quote.epoch===state.epoch&&run===state.createRun){setBusy(false);$('recover-create').classList.toggle('hidden',!state.submission);}}
   }
   async function submitSaved(){
@@ -287,14 +231,13 @@
     if(!state.user)return;if(!silent)$('projects-error').textContent='';
     const result=await api(more&&state.next?state.next:'/api/v1/jobs');
     if(!more){const pending=[...state.jobs.values()].filter(job=>activeStates.has(job.state));state.jobs.clear();for(const job of pending)state.jobs.set(job.id,job);}for(const job of result.results)state.jobs.set(job.id,job);state.next=result.next;renderProjects();schedulePoll();
-    if(!silent&&state.testing.enabled)await loadFeedback();
   }
   function schedulePoll(){clearTimeout(pollTimer);if(state.user&&[...state.jobs.values()].some(job=>activeStates.has(job.state)))pollTimer=setTimeout(pollActive,30000);}
   async function pollActive(){
     if(document.hidden){schedulePoll();return;}
     try{const old=[...state.jobs.values()].filter(j=>activeStates.has(j.state)).map(j=>j.id).slice(0,12);if(!old.length)return;
       const result=await api('/api/v1/jobs?scope=active&tracked='+old.join(','));let finished=false;
-      for(const job of result.results){const previous=state.jobs.get(job.id);if(previous&&activeStates.has(previous.state)&&!activeStates.has(job.state)){finished=true;if(job.state==='succeeded')toast('Your '+(job.kind==='image'?'image':'video')+' is ready in My Projects.');else if(job.state==='failed')toast('Your creation could not finish. Reserved credits were released.');}state.jobs.set(job.id,job);}renderProjects();if(finished){await refreshWallet();if(state.testing.enabled)await loadFeedback();}
+      for(const job of result.results){const previous=state.jobs.get(job.id);if(previous&&activeStates.has(previous.state)&&!activeStates.has(job.state)){finished=true;if(job.state==='succeeded')toast('Your '+(job.kind==='image'?'image':'video')+' is ready in My Projects.');else if(job.state==='failed')toast('Your creation could not finish. Reserved credits were released.');}state.jobs.set(job.id,job);}renderProjects();if(finished)await refreshWallet();
     }catch(error){if(error.status===401){forgetAccount();initialize();}}
     finally{schedulePoll();}
   }
@@ -321,7 +264,6 @@
       state.templateReferenceRequired=!!item.requires_reference;const rate=state.rates.find(r=>r.config.app_model_id===item.model_id&&(r.config.resolution||r.config.image_size)===item.resolution&&r.config.generated_audio===item.generated_audio);if(rate){$('model').value=modelId(rate);renderQualities();$('quality').value=rate.config.resolution||rate.config.image_size;$('sound').checked=!!item.generated_audio;renderSettings();}
       if(item.aspect_ratio)$('ratio').value=item.aspect_ratio;if(item.duration)$('duration').value=item.duration;if(item.requires_reference)$('mode-help').textContent='Add your own photo to recreate this template.';estimate();};$('preview-dialog').showModal();}
   async function loadPacks(){
-    if(state.testing.enabled)return;
     const run=++packsRun,epoch=state.epoch;
     const current=()=>run===packsRun&&epoch===state.epoch;
     $('payment-error').textContent='';$('orders-error').textContent='';
@@ -330,6 +272,9 @@
       api('/app/packs/').then(catalog=>{
         if(!current())return;
         state.packs=catalog.packs;$('packs').replaceChildren();
+        state.sandboxPack=catalog.enabled&&catalog.test?catalog.sandbox_pack||null:null;
+        $('sandbox-checkout').classList.toggle('hidden',!state.sandboxPack);
+        $('sandbox-pay').disabled=!state.sandboxPack||state.paymentBusy;
         $('payment-mode').textContent=!catalog.enabled?'Web checkout is not enabled yet.':catalog.test?'PayU test mode: no real charges and no spendable credits are granted.':'One-time web purchases via PayU. No subscription.';
         for(const pack of catalog.packs){
           const card=text('article','','pack-card');
@@ -342,10 +287,10 @@
       api('/app/payments/').then(orders=>{if(current())renderOrders(orders.orders);}).catch(error=>{if(current())$('orders-error').textContent='Purchase history could not load. '+error.message;})
     ]);
   }
-  async function buyPack(pack){if(state.testing.enabled){showPage('credits');return;}if(state.paymentBusy)return;const phone=$('phone').value.trim();if(!/^\+?[0-9]{10,15}$/.test(phone)){$('payment-error').textContent='Enter your phone number for PayU checkout.';$('phone').focus();return;}state.paymentBusy=true;$('payment-error').textContent='';for(const node of $('packs').querySelectorAll('button'))node.disabled=true;
+  async function buyPack(pack){if(!pack||state.paymentBusy)return;const phone=$('phone').value.trim();if(!/^\+?[0-9]{10,15}$/.test(phone)){$('payment-error').textContent='Enter your phone number for PayU checkout.';$('phone').focus();return;}state.paymentBusy=true;$('payment-error').textContent='';$('sandbox-pay').disabled=true;for(const node of $('packs').querySelectorAll('button'))node.disabled=true;
     try{let saved;try{saved=JSON.parse(savedStore.getItem('motion-web-purchase:'+state.user.id)||'null');}catch(_){}if(!saved||saved.pack!==pack.id||saved.phone!==phone)saved={pack:pack.id,phone,request_key:crypto.randomUUID()};savedStore.setItem('motion-web-purchase:'+state.user.id,JSON.stringify(saved));const data=await api('/app/payments/',{method:'POST',body:JSON.stringify(saved)});if(data.order.checkout_url)location.assign(data.order.checkout_url);else{savedStore.removeItem('motion-web-purchase:'+state.user.id);await checkOrder(data.order.id);}}
     catch(error){$('payment-error').textContent=error.message;}
-    finally{state.paymentBusy=false;for(const node of $('packs').querySelectorAll('button'))node.disabled=false;}
+    finally{state.paymentBusy=false;$('sandbox-pay').disabled=!state.sandboxPack;for(const node of $('packs').querySelectorAll('button'))node.disabled=false;}
   }
   function renderOrders(orders){$('orders').replaceChildren();for(const order of orders){const row=text('div','','order'),info=text('div','');info.append(text('strong',new Intl.NumberFormat().format(order.credits)+' credits'),text('p',money(order.amount_paise)+' · '+order.state+(order.test?' · test':'')));row.append(info,button('Check status',()=>checkOrder(order.id)));$('orders').append(row);}if(!orders.length)$('orders').append(text('p','Your verified web payments will appear here.','muted'));}
   async function checkOrder(id){try{const data=await api('/app/payments/'+encodeURIComponent(id)+'/verify/',{method:'POST',body:'{}'});if(data.order.state==='paid'){savedStore.removeItem('motion-web-purchase:'+state.user.id);toast(data.order.test?'Test payment verified. No live credits were added.':'Payment verified. Your shared credit balance is updated.');await refreshWallet();}else {if(data.order.expired||['failed','refunded'].includes(data.order.state))savedStore.removeItem('motion-web-purchase:'+state.user.id);toast(data.order.expired&&data.order.state==='pending'?'Checkout expired. Choose a pack again to start a new checkout.':'Payment status: '+data.order.state+'. Pending payments remain recoverable.');}if(state.page==='credits')await loadPacks();}catch(error){$('payment-error').textContent=error.message;}}
@@ -354,12 +299,7 @@
   document.querySelectorAll('[data-open-mode]').forEach(node=>node.onclick=()=>setMode(node.dataset.openMode));
   document.querySelectorAll('[data-filter]').forEach(node=>node.onclick=()=>{state.filter=node.dataset.filter;for(const tab of document.querySelectorAll('[data-filter]'))tab.classList.toggle('active',tab===node);renderProjects();});
   $('refresh-packs').onclick=()=>loadPacks();
-  $('trial-feedback').onclick=()=>showFeedback({context:'credits'});
-  $('feedback-form').onsubmit=event=>{event.preventDefault();saveFeedback('submitted');};
-  $('feedback-skip').onclick=()=>saveFeedback('dismissed');
-  $('feedback-preview').onclick=previewFeedback;
-  $('feedback-dialog').addEventListener('cancel',event=>{event.preventDefault();saveFeedback('dismissed');});
-  for(const dialog of document.querySelectorAll('dialog:not(#feedback-dialog):not(#visitor-welcome)'))dialog.addEventListener('close',()=>loadFeedback());
+  $('sandbox-pay').onclick=()=>buyPack(state.sandboxPack);
   $('model').onchange=renderQualities;$('quality').onchange=renderSettings;$('sound').onchange=()=>{const checked=$('sound').checked;renderSettings();$('sound').checked=checked;renderSettings();};$('ratio').onchange=estimate;$('duration').onchange=estimate;
   $('photos').onchange=()=>{const max=state.mode==='long'?2:state.mode==='story'?(state.rate?.config.max_reference_images||0):1;const files=[...$('photos').files];if(files.length>max){toast(`Choose up to ${max} photo(s) for this model.`);return;}if(files.some(f=>!['image/jpeg','image/png','image/webp'].includes(f.type))){toast('Choose JPG, PNG or WebP photos.');return;}state.photos=files;previews();};
   $('video').onchange=async()=>{

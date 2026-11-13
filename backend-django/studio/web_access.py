@@ -24,24 +24,6 @@ COOKIE = "motion_web_visitor"
 COOKIE_AGE = 30 * 86400
 
 
-def visitor_key(request):
-    try:
-        visitor = signing.loads(request.COOKIES.get(COOKIE, ""), salt=COOKIE, max_age=COOKIE_AGE)
-        if not isinstance(visitor, str) or len(visitor)!=32:
-            return None
-        return salted_hmac("web-visitor-interest", visitor, algorithm="sha256").hexdigest()
-    except signing.BadSignature:
-        return None
-
-
-def visitor_prompt_needed(request):
-    if not settings.WEB_TRIAL_MODE:
-        return False
-    from .models import WebVisitorInterest
-    key = visitor_key(request)
-    return not key or not WebVisitorInterest.objects.filter(visitor_hash=key).exists()
-
-
 def gate(request):
     browser_api = request.path.startswith(("/api/", "/auth/")) and settings.WEB_SESSION_COOKIE in request.COOKIES and not request.headers.get("Authorization", "").startswith("Bearer ")
     protected = request.path == "/" or request.path.startswith("/app/") or browser_api
@@ -81,7 +63,7 @@ def gate(request):
 
 
 def track(request, response):
-    if not settings.WEB_ENABLED or not (settings.WEB_VISITOR_TRACKING_ENABLED or settings.WEB_TRIAL_MODE) or request.method != "GET" or request.path not in ("/", "/app/", "/app/pricing/") or response.status_code not in (200, 401):
+    if not settings.WEB_ENABLED or not settings.WEB_VISITOR_TRACKING_ENABLED or request.method != "GET" or request.path not in ("/", "/app/", "/app/pricing/") or response.status_code not in (200, 401):
         return
     new_browser = False
     try:

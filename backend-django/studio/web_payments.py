@@ -31,8 +31,6 @@ def origin():
 def require_config(mode=None, sales=False):
     if not settings.PAYU_KEY or not settings.PAYU_SALT:
         raise Problem("Web payments are not enabled yet.", 503)
-    if sales and settings.WEB_TRIAL_MODE:
-        raise Problem("Purchases are temporarily disabled during web testing.", 403)
     if sales and (not settings.WEB_ENABLED or not settings.PAYU_ENABLED):
         raise Problem("Web payments are not enabled yet.", 503)
     if sales and settings.PAYU_MODE == "live" and not settings.PAYU_ALLOW_LIVE:
@@ -45,6 +43,10 @@ def require_config(mode=None, sales=False):
 
 def money(paise):
     return f"{Decimal(paise)/100:.2f}"
+
+
+def productinfo(order):
+    return "MotionMagic AI sandbox test" if order.pack_id=="web-sandbox-test" else f"MotionMagic AI {order.credits} credits"
 
 
 def paise(value):
@@ -94,6 +96,8 @@ def create_order(account, data):
     pack = WebCreditPack.objects.filter(pk=data["pack"], enabled=True, amount_paise__gt=0).first()
     if not pack:
         raise Problem("This web credit pack is not available.", 409)
+    if pack.pk=="web-sandbox-test" and settings.PAYU_MODE!="test":
+        raise Problem("The sandbox test product cannot be purchased in live mode.", 403)
     name = (account.name.split()[0] if account.name.strip() else "Creator")[:60]
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", str(account.pk)) or any(c in name+account.email for c in "|\r\n\x00"):
         raise Problem("Contact information is not valid for PayU.")
@@ -114,7 +118,7 @@ def checkout_fields(order):
     if order.state != "pending" or order.expires_at <= timezone.now():
         raise Problem("Checkout expired or already completed. Return to your credit packs.", 409)
     fields = dict(key=settings.PAYU_KEY, txnid=order.pk.hex, amount=money(order.amount_paise),
-        productinfo=f"MotionMagic AI {order.credits} credits", firstname=order.firstname, email=order.email,
+        productinfo=productinfo(order), firstname=order.firstname, email=order.email,
         phone=order.phone, udf1=str(order.account_id), udf2=order.pack_id, udf3=order.mode, udf4="", udf5="",
         surl=origin()+"/app/payments/payu/return/", furl=origin()+"/app/payments/payu/return/")
     fields["hash"] = request_hash(fields)
@@ -187,7 +191,7 @@ def reconcile(order):
     if not re.fullmatch(r"[0-9]{1,64}", payment_id) or result.get("txnid") != order.pk.hex or paise(result.get("amt", result.get("amount"))) != order.amount_paise:
         raise Problem("Verified payment does not match this order.", 409)
     expected = dict(udf1=str(order.account_id), udf2=order.pack_id, udf3=order.mode,
-                    productinfo=f"MotionMagic AI {order.credits} credits", email=order.email)
+                    productinfo=productinfo(order), email=order.email)
     if any(result.get(k) != value for k, value in expected.items()) or result.get("currency", "INR") != "INR":
         raise Problem("Verified payment account or product does not match.", 409)
     refunded = verified_refunds(order, payment_id)
